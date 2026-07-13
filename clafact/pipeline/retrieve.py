@@ -1,0 +1,89 @@
+"""KOSIS Retriever — 경로 A 기준선: 별칭 사전 + 키워드 검색 (문서 12 §4 확률적 계획).
+
+플레이북 기술 계단 원칙: 임베딩(경로 B)은 이 기준선을 이겨야만 채택된다.
+검색 실패는 곧 판단불가 — 실패 사례가 A1 별칭 사전의 원료가 된다.
+"""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from clafact.assets.alias_dict import AliasDict
+from clafact.kosis import KosisClient
+from clafact.schemas import Evidence
+
+RE_TOKEN = re.compile(r"[가-힣A-Za-z0-9]+")
+
+
+def _tokens(text: str) -> set[str]:
+    """공백·조사 무시 토큰화: 단어 + 한글 2-gram (형태소 분석기 없이 재현율 확보)."""
+    words = RE_TOKEN.findall(text)
+    grams: set[str] = set()
+    for w in words:
+        grams.add(w)
+        for i in range(len(w) - 1):
+            grams.add(w[i:i + 2])
+    return grams
+
+
+@dataclass
+class TableHit:
+    tbl_id: str
+    org_id: str
+    tbl_name: str
+    survey: str
+    score: float
+
+
+class StatIndex:
+    """통계표 메타 키워드 인덱스 (경로 A).
+
+    실 운영: 통계목록·메타정보 API 로 구축 → 지금은 픽스처 메타로 동일 구조 검증.
+    """
+
+    def __init__(self, meta_path: str | Path = "data/samples/kosis/tables_meta.json",
+                 aliases: AliasDict | None = None):
+        self.aliases = aliases or AliasDict()
+        self.tables = json.loads(Path(meta_path).read_text(encoding="utf-8"))
+        for t in self.tables:
+            t["_tokens"] = _tokens(f"{t['TBL_NM']} {t['SURVEY']} {t.get('KEYWORDS', '')}")
+
+    def search(self, query: str, top_k: int = 3) -> list[TableHit]:
+        """별칭 치환 → 토큰 겹침 점수(자카드 유사) → Top-k."""
+        q = _tokens(self.aliases.substitute(query))
+        hits = []
+        for t in self.tables:
+            inter = len(q & t["_tokens"])
+            if inter == 0:
+                continue
+            score = inter / (len(q | t["_tokens"]) ** 0.5)  # 짧은 질의 편향 완화
+            hits.append(TableHit(t["TBL_ID"], t["ORG_ID"], t["TBL_NM"], t["SURVEY"], round(score, 4)))
+        return sorted(hits, key=lambda h: -h.score)[:top_k]
+
+
+def fetch_evidence(client: KosisClient, hit: TableHit, period: str,
+                   c1: str = "", c2: str = "", itm: str = "") -> list[Evidence]:
+    """선택된 통계표에서 근거 수치 조회. 분류(C1/C2)·항목(ITM) 필터는 부분 일치."""
+    rows = client.fetch_data(hit.org_id, hit.tbl_id, prd_de=period)
+    out = []
+    for r in rows:
+        if c1 and c1 not in r.get("C1_NM", ""):
+            continue
+        if c2 and c2 not in r.get("C2_NM", ""):
+            continue
+        if itm and itm not in r.get("ITM_NM", ""):
+            continue
+        try:
+            value = float(str(r["DT"]).replace(",", ""))
+        except (KeyError, ValueError):
+            continue  # 결측(-, X 등) → 스킵, 전량 결측이면 상위에서 판단불가
+        out.append(Evidence(
+            tbl_id=hit.tbl_id, org_id=hit.org_id, tbl_name=r.get("TBL_NM", hit.tbl_name),
+            query_params={"prd_de": period, "c1": c1 or r.get("C1_NM", ""),
+                          "c2": r.get("C2_NM", ""), "itm": r.get("ITM_NM", "")},
+            value=value, unit=r.get("UNIT_NM", ""), period=r.get("PRD_DE", period),
+            source_note=f"KOSIS {hit.survey} > {hit.tbl_name}",
+        ))
+    return out

@@ -35,7 +35,8 @@ def run_cmd(args: list[str]) -> tuple[int, str]:
 
 def gate_tests() -> tuple[bool, str]:
     """게이트: 전 단위 테스트 통과 — '테스트 없는 규칙은 등록 불가'의 집행."""
-    for mod in ("tests.test_verdict", "tests.test_detect", "tests.test_parse", "tests.test_ingest"):
+    for mod in ("tests.test_verdict", "tests.test_detect", "tests.test_parse",
+                "tests.test_ingest", "tests.test_retrieve"):
         code, out = run_cmd([sys.executable, "-m", mod])
         if code != 0:
             return False, f"{mod} 실패"

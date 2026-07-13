@@ -62,11 +62,15 @@ clafact/
 - [x] `git init` + 첫 커밋 (하네스의 code_version 기록 활성화)
 - [x] 신뢰도 그라데이션 (Verdict.confidence, 규칙 A2-0004) — 문서 12 §5.2
 - [x] 릴리스 게이트 스크립트 (`scripts/release_gate.py`) — 문서 12 §5.1
-- [ ] 골든셋 v0.5 → 50건 확장 (제공 기사 데이터셋 확보 후, 교차 라벨링)
-- [ ] 매핑 경로 A 기준선: 별칭 사전 + KOSIS 키워드 검색 (문서 12 §4 확률적 계획)
-- [ ] 2주차: `pipeline/parse.py` — HCX 기반 Claim JSON 추출 (`.env.example` 참고)
-- [ ] 3주차: `pipeline/retrieve.py` — KOSIS 통계목록·메타 인덱싱 + 임베딩·리랭커 검색 (경로 B)
-- [ ] 스탠드업 질문 추가: "어제 자산 몇 건?" — `FailureRecorder.stats()` / `AliasDict.stats()`
+- [x] 규칙 기반 Claim Parser (`pipeline/parse.py`) — 수치·단위, 상대 시점(A2-0005), 임계·추세
+- [x] Ingest 모듈 (`pipeline/ingest.py`) — 데이터셋 로더·전처리·문장 분리 (파일 도착 시 꽂기만)
+- [x] 매핑 경로 A 기준선 (`pipeline/retrieve.py`) — 별칭 사전 + 키워드 검색, 픽스처 풀체인 검증
+- [x] KOSIS 클라이언트 (`kosis.py`) — Fixture(오프라인) + Http(키 도착 시 스위치)
+- [x] LLM 추상화 (`llm.py`) — MockLLMClient(개발) + HcxClient(키 도착 시 스위치)
+- [x] 리뷰 CLI (`scripts/review_cli.py`) — WF-2 승인/보정/반려, 보정→A4 배선
+- [ ] 키 도착 후: HCX 실연동(주장 판별·추출·설명), KOSIS 실 인덱싱, 경로 B(임베딩) 실험 EXP-001
+- [ ] 데이터셋 도착 후: 골든셋 50건 확장 (교차 라벨링, 가이드 v1)
+- [ ] 스탠드업 질문: "어제 자산 몇 건?" — `FailureRecorder.stats()` / `AliasDict.stats()`
 
 관련 문서: `../프로젝트_문서/` (01 제안서 ~ 11 기술자산전략)
 
