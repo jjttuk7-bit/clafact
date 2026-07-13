@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0007",
+  "type": "derived_calc",
+  "name": "연령 구간 비율 파생 계산",
+  "condition": "주장이 'NN세 이상 비율'(%)인데 대응 통계가 연령 구간별 절대값(가구·명)인 경우",
+  "handling": "구간 시작 연령 ≥ NN 인 행들을 합산하고 전체(계)로 나누어 비율을 재현한 뒤 비교한다",
+  "origin_case": "클라비 제시 사례 — 과수 농가 65세 이상 비율 64.2% (106,877 ÷ 166,558)",
+  "origin_run": "MVP 오케스트레이터 구현 (2026-07-13)",
+  "test": "tests/test_run.py::test_derived_ratio_e2e",
+  "created": "2026-07-13"
+}

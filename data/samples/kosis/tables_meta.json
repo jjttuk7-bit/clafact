@@ -25,6 +25,14 @@
   },
   {
     "ORG_ID": "101",
+    "TBL_ID": "DT_1IN0001",
+    "TBL_NM": "1인 가구 - 시도별",
+    "SURVEY": "인구총조사",
+    "KEYWORDS": "1인 가구 가구수 세대 독신 시도 서울",
+    "PRD_SE": "Y"
+  },
+  {
+    "ORG_ID": "101",
     "TBL_ID": "DT_DISTRACT",
     "TBL_NM": "어가 및 어가인구 - 시도별",
     "SURVEY": "농림어업조사",
