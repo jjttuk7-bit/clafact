@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0003",
+  "type": "detection",
+  "name": "숫자 없는 최상급 주장 탐지",
+  "condition": "문장에 숫자가 없어도 '사상/역대 + 최악/최고/최대/최소/최저/최다' 패턴이 있는 경우",
+  "handling": "검증 가능 주장 후보로 탐지한다 — 최상급 주장은 시계열 통계로 검증 가능한 유형",
+  "origin_case": "골든셋 A009 — '소상공인 매출이 사상 최악 수준으로 떨어졌다' 탐지 누락 (detect_fn)",
+  "origin_run": "F20260713142141-0828 (첫 하네스 실행)",
+  "test": "tests/test_detect.py::test_superlative_without_number",
+  "created": "2026-07-13"
+}

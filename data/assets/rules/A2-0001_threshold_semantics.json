@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0001",
+  "type": "derived_calc",
+  "name": "임계 표현의 부등호 판정",
+  "condition": "주장 문장에 '넘어섰다/돌파/이상/웃돌다(gte)' 또는 '밑돌다/이하/불과(lte)' 등 임계 표현이 포함된 경우",
+  "handling": "등호 비교 대신 official ≥ claimed (gte) / official ≤ claimed (lte)로 판정한다",
+  "origin_case": "골든셋 A006 — '1인 가구 150만을 넘어섰다' vs 공식 1,512,340가구. 등호 비교 시 상대 오차 0.82%로 오판(불일치) 발생",
+  "origin_run": "첫 하네스 실행 (2026-07-13)",
+  "test": "tests/test_verdict.py::test_threshold_gte",
+  "created": "2026-07-13"
+}
