@@ -1,0 +1,11 @@
+# Render.com 배포 설정 — 대시보드에서 "New > Blueprint" 로 이 레포 연결하면 끝
+services:
+  - type: web
+    name: clafact-demo
+    runtime: python
+    plan: free
+    buildCommand: "echo 'no build needed — stdlib only'"
+    startCommand: "python scripts/demo_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"

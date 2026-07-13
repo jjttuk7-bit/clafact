@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 reports/
 smoke_url.txt
+
+# 클라비 제공 데이터셋 — 절대 커밋 금지 (재배포 불가)
+data/raw/
+*.csv
+dataset*/
+조선일보*

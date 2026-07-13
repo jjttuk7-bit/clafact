@@ -117,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    print(f"ClaFact MVP demo → http://localhost:{port}", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    import os
+    # 클라우드 배포(Render/HF Spaces 등)는 PORT 환경변수 + 0.0.0.0 바인딩 필요
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8765))
+    host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+    print(f"ClaFact MVP demo → http://{host}:{port}", flush=True)
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
