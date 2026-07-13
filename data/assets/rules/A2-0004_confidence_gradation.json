@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0004",
+  "type": "verdict",
+  "name": "판정 신뢰도 그라데이션",
+  "condition": "모든 자동 판정 (일치/불일치)",
+  "handling": "high(단순 대조) / medium(환산·파생·임계 경유) / low(허용 오차 경계 근접)를 부여한다. 리뷰 큐는 불일치 → low → medium → high 순으로 정렬하고, low는 판정 보류급으로 취급한다",
+  "origin_case": "문서 12 §5.2 — 플레이북 8단계(신뢰도 기반 자동화 수준) 적용",
+  "origin_run": "플레이북 적용 (2026-07-13)",
+  "test": "tests/test_verdict.py::test_confidence_gradation",
+  "created": "2026-07-13"
+}

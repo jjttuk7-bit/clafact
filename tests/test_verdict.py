@@ -76,6 +76,22 @@ def test_relative_tolerance():
     assert res2.verdict.label == VerdictLabel.MISMATCH
 
 
+def test_confidence_gradation():
+    """규칙 A2-0004 (문서 12 §5.2): high / medium / low 신뢰도 부여"""
+    # 단순 대조 일치 → high
+    assert compare(7.2, "%", 7.2, "%").verdict.confidence == "high"
+    # 단위 환산 경유 → medium
+    assert compare(23, "만명", 230028, "명").verdict.confidence == "medium"
+    # 허용 오차 경계 근접(0.4% > tol의 50%) → low, 리뷰 최우선
+    assert compare(1000.0, "명", 1004.0, "명").verdict.confidence == "low"
+    # 명백한 불일치(오차 39%) → high (확신 있는 불일치)
+    assert compare(10.0, "%", 7.2, "%").verdict.confidence == "high"
+    # 경계 근접 불일치(오차 1%, tol의 3배 이내) → low
+    assert compare(1000.0, "명", 1010.0, "명").verdict.confidence == "low"
+    # 판단불가 → None
+    assert compare(5.0, "%", 5.0, "가구").verdict.confidence is None
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

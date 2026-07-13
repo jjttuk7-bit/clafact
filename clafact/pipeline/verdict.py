@@ -65,6 +65,18 @@ class CompareResult:
     official_norm: Optional[float] = None
 
 
+def _confidence(via_conversion: bool, rel: Optional[float], rel_tol: float) -> str:
+    """신뢰도 그라데이션 (문서 12 §5.2, 규칙 A2-0004).
+
+    - high:   단순 대조 (환산·임계 경유 없음, 오차가 허용치의 절반 이하)
+    - medium: 파생 계산·단위 환산·임계 판정을 경유한 자동 판정 — 리뷰 우선
+    - low:    허용 오차 경계 부근 (tol의 50% 초과) — 판정 보류급, 리뷰 최우선
+    """
+    if rel is not None and rel > rel_tol * 0.5:
+        return "low"
+    return "medium" if via_conversion else "high"
+
+
 def compare(
     claimed: float,
     claimed_unit: str,
@@ -81,6 +93,11 @@ def compare(
     """
     c_val, c_fam = normalize(claimed, claimed_unit)
     o_val, o_fam = normalize(official, official_unit)
+    c_factor = UNIT_TABLE.get((claimed_unit or "").strip(), (1.0, ""))[0]
+    o_factor = UNIT_TABLE.get((official_unit or "").strip(), (1.0, ""))[0]
+    # 환산·임계를 경유하면 medium 이하 (문서 12 §5.2)
+    via_conversion = (c_factor != 1.0) or (o_factor != 1.0) or (op != "eq") \
+        or ((claimed_unit or "").strip() != (official_unit or "").strip())
 
     # 1) 단위 계열 불일치 → 비교 불가 (% vs %p 혼동 포함)
     if c_fam != o_fam:
@@ -90,6 +107,7 @@ def compare(
                 mismatch_type=MismatchType.VALUE,
                 reason="%와 %p 혼동 — 서로 다른 지표 계열",
                 calculation=f"claimed {claimed}{claimed_unit} vs official {official}{official_unit}",
+                confidence="medium",
             ), c_val, o_val)
         return CompareResult(Verdict(
             label=VerdictLabel.UNVERIFIABLE,
@@ -101,40 +119,45 @@ def compare(
     if op in ("gte", "lte"):
         ok = (o_val >= c_val) if op == "gte" else (o_val <= c_val)
         sym = "≥" if op == "gte" else "≤"
+        margin = abs(o_val - c_val) / max(abs(c_val), 1e-12)
         return CompareResult(Verdict(
             label=VerdictLabel.MATCH if ok else VerdictLabel.MISMATCH,
             mismatch_type=None if ok else MismatchType.VALUE,
             reason=f"임계형 판정: official {sym} claimed {'충족' if ok else '불충족'}",
             calculation=f"{o_val:.6g} {sym} {c_val:.6g}",
+            confidence="low" if margin <= rel_tol * 2 else "medium",  # 경계 근접 시 리뷰 최우선
         ), c_val, o_val)
 
     # 3) 반올림 일치 (규칙 A2-0002): 반올림은 기사 단위 스케일 기준으로 판단
     #    예: 기사 "23만 명" vs 공식 230,028명 → 230028/10000=23.0028 → round=23 → 일치
-    c_factor = UNIT_TABLE.get((claimed_unit or "").strip(), (1.0, ""))[0]
     official_in_claimed_units = o_val / c_factor
+    rel = abs(c_val - o_val) / max(abs(o_val), 1e-12)
     if rounded_match(claimed, official_in_claimed_units):
         return CompareResult(Verdict(
             label=VerdictLabel.MATCH,
             tolerance=rel_tol,
             reason="반올림 자릿수 기준 일치",
             calculation=f"{claimed}{claimed_unit} ≈ {official}{official_unit} (rounded)",
+            confidence="medium" if via_conversion else "high",
         ), c_val, o_val)
 
     # 4) 상대 오차
-    denom = max(abs(o_val), 1e-12)
-    rel = abs(c_val - o_val) / denom
     if rel <= rel_tol:
         return CompareResult(Verdict(
             label=VerdictLabel.MATCH,
             tolerance=rel_tol,
             reason=f"상대 오차 {rel:.4f} ≤ 허용 {rel_tol}",
             calculation=f"|{c_val}-{o_val}|/{o_val:.6g}={rel:.4f}",
+            confidence=_confidence(via_conversion, rel, rel_tol),
         ), c_val, o_val)
 
+    # 불일치: 허용치의 3배 이내면 경계 근접(low) — 오차가 클수록 확신은 높다
+    mm_conf = "low" if rel <= rel_tol * 3 else ("medium" if via_conversion else "high")
     return CompareResult(Verdict(
         label=VerdictLabel.MISMATCH,
         mismatch_type=MismatchType.VALUE,
         tolerance=rel_tol,
         reason=f"상대 오차 {rel:.4f} > 허용 {rel_tol}",
         calculation=f"|{c_val}-{o_val}|/{o_val:.6g}={rel:.4f}",
+        confidence=mm_conf,
     ), c_val, o_val)

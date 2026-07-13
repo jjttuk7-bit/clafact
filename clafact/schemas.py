@@ -110,6 +110,9 @@ class Verdict:
     tolerance: float = 0.0
     reason: str = ""
     explanation: str = ""
+    # 신뢰도 그라데이션 (문서 12 §5.2): high / medium / low, 판단불가는 None.
+    # 리뷰 큐 정렬: 불일치 → low → medium → high (WF-2 개정)
+    confidence: Optional[str] = None
 
 
 def as_dict(obj: Any) -> dict:
