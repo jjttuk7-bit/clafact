@@ -66,8 +66,19 @@ text = st.text_area("기사 본문", key="text", height=140,
                     placeholder="기사 본문을 붙여넣으세요...")
 date = st.text_input("기사 작성일 (YYYY-MM-DD)", key="date")
 
+
+def _reset():
+    """기사 본문 초기화 — 콜백은 위젯 렌더 전에 실행되어 상태 수정이 안전하다."""
+    st.session_state["text"] = ""
+    st.session_state["date"] = "2025-07-14"
+
+
+col_v, col_r = st.columns([3, 1])
+verify_clicked = col_v.button("검증하기", type="primary", use_container_width=True)
+col_r.button("🗑 초기화", use_container_width=True, on_click=_reset)
+
 # 샘플 버튼은 클릭 즉시 검증까지 실행
-if (st.button("검증하기", type="primary", use_container_width=True) or clicked_sample) and text.strip():
+if (verify_clicked or clicked_sample) and text.strip():
     idx, client = load_engine()
     results = [r for r in verify_article(text, date, idx, client) if r.label != "not_claim"]
 
