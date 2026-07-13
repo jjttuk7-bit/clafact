@@ -1,6 +1,1 @@
-# 핵심은 표준 라이브러리만 사용 (하네스·판정 엔진)
-# 이후 단계에서 추가:
-# httpx          # KOSIS·HCX API
-# faiss-cpu      # 벡터 검색
-# fastapi        # 서비스
-# kss            # 문장 분리
+streamlit  # 데모 UI (Community Cloud 배포용) — 코어 파이프라인은 표준 라이브러리만 사용
