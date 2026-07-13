@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0006",
+  "type": "extraction",
+  "name": "복합명사 숫자 가드",
+  "condition": "'1인 가구', '3인 가족', '2인 체제'처럼 숫자+인/명 뒤에 가구·가족·가정·체제·기업 등이 붙는 경우",
+  "handling": "해당 숫자는 수량이 아니라 복합명사의 일부이므로 수치 추출에서 제외한다",
+  "origin_case": "샘플 A00003 '서울의 1인 가구는 150만 가구를 넘어섰다'에서 '1.0인'을 수치로 오추출 (미니 파이프라인 E2E 검증 중 발견)",
+  "origin_run": "F-PARSE-001 (2026-07-13)",
+  "test": "tests/test_parse.py::test_compound_noun_guard",
+  "created": "2026-07-13"
+}

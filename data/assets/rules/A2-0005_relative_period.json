@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0005",
+  "type": "period",
+  "name": "상대 시점의 작성일 기준 정규화",
+  "condition": "주장에 '올해/지난해/작년/전년/재작년/내년/지난달/N분기' 등 상대 시점 표현이 포함된 경우",
+  "handling": "기사 작성일을 기준으로 절대 시점(YYYY / YYYY-MM / YYYY-Qn)으로 변환한다. 연 경계 주의: 1월 기사의 '지난달'은 전년 12월이다",
+  "origin_case": "설계 단계 예방 규칙 — 시점 혼동은 문제 배경의 4대 왜곡 유형 중 하나 (문서 01 1장)",
+  "origin_run": "parse.py 구현 (2026-07-13)",
+  "test": "tests/test_parse.py::test_period_relative",
+  "created": "2026-07-13"
+}
