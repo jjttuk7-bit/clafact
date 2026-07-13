@@ -57,17 +57,28 @@ class HttpKosisClient:
             raise RuntimeError("KOSIS_API_KEY 가 없습니다 — .env 설정 또는 FixtureKosisClient 사용")
 
     def fetch_data(self, org_id: str, tbl_id: str, **params) -> list[dict]:
+        """실 API 검증 완료 형식 (2026-07-14, 브라우저 스모크 테스트):
+        - objL1~objL8 은 빈 값이라도 전부 포함해야 함 (누락 시 err 21)
+        - 기간은 newEstPrdCnt(최근 N개) 방식이 확실 — prd_de 필터는 클라이언트에서 수행
+        """
         query = {
-            "method": "getList", "apiKey": self.api_key, "format": "json", "jsonVD": "Y",
-            "orgId": org_id, "tblId": tbl_id,
+            "method": "getList", "apiKey": self.api_key,
+            "itmId": params.get("itm_id", "ALL"),
+            "objL1": params.get("obj_l1", "ALL"),
+            "objL2": params.get("obj_l2", ""), "objL3": "", "objL4": "",
+            "objL5": "", "objL6": "", "objL7": "", "objL8": "",
+            "format": "json", "jsonVD": "Y",
             "prdSe": params.get("prd_se", "Y"),
-            "startPrdDe": params.get("prd_de", ""), "endPrdDe": params.get("prd_de", ""),
-            "itmId": params.get("itm_id", "ALL"), "objL1": params.get("obj_l1", "ALL"),
-            "objL2": params.get("obj_l2", "ALL"),
+            "newEstPrdCnt": str(params.get("recent_n", 5)),
+            "orgId": org_id, "tblId": tbl_id,
         }
         url = f"{self.BASE}?{urllib.parse.urlencode(query)}"
         with urllib.request.urlopen(url, timeout=self.timeout) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
         if isinstance(data, dict) and data.get("err"):
             raise RuntimeError(f"KOSIS API 오류: {data}")
-        return data if isinstance(data, list) else []
+        rows = data if isinstance(data, list) else []
+        prd = str(params.get("prd_de", "")).replace("-", "")[:4]
+        if prd:
+            rows = [r for r in rows if str(r.get("PRD_DE", "")).startswith(prd)]
+        return rows

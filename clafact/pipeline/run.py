@@ -48,15 +48,21 @@ def _band_start(c2: str) -> int | None:
     return int(m.group(1) or m.group(2))
 
 
+def _dim(e: Evidence) -> str:
+    """연령 등 세부 차원 값 — 표에 따라 C2(분류) 또는 ITM(항목)에 있다.
+    실 KOSIS 검증(2026-07-14): DT_1EA1019 는 연령이 ITM_NM 차원."""
+    return e.query_params.get("c2") or e.query_params.get("itm", "")
+
+
 def _derived_age_ratio(sentence: str, evs: list[Evidence]) -> tuple[float, str] | None:
     """규칙 A2-0007: 'NN세 이상 비율' 주장은 연령 구간 합산 ÷ 전체(계)로 재현한다."""
     m = re.search(r"(\d+)\s*세\s*이상\s*(?:인구\s*)?비율", sentence)
     if not m:
         return None
     cutoff = int(m.group(1))
-    total = next((e for e in evs if e.query_params.get("c2") == "계"), None)
+    total = next((e for e in evs if _dim(e) == "계"), None)
     bands = [e for e in evs
-             if (s := _band_start(e.query_params.get("c2", ""))) is not None and s >= cutoff]
+             if (s := _band_start(_dim(e))) is not None and s >= cutoff]
     if not total or not bands:
         return None
     ratio = derived_ratio([e.value for e in bands], total.value) * 100
@@ -66,11 +72,21 @@ def _derived_age_ratio(sentence: str, evs: list[Evidence]) -> tuple[float, str] 
 
 
 def _pick_c1(evs: list[Evidence], sentence: str) -> list[Evidence]:
-    """분류1(C1) 선택: 문장에 등장하는 분류명 우선, 없으면 전체 유지."""
+    """분류1(C1) 선택: 문장에 등장하는 분류명 우선.
+
+    규칙 A2-0008 (실 API 검증에서 발견): KOSIS 결합 차원은 '차원명 : 값' 접두
+    형식을 쓴다 (예: '영농형태 : 과수'). 콜론 뒤 값으로 문장과 매칭해야 한다.
+    매칭 실패 시 '전국'(총계)을 우선하고, 그것도 없으면 전체 유지.
+    """
     names = {e.query_params.get("c1", "") for e in evs}
-    for name in sorted(names, key=len, reverse=True):
-        if name and (name in sentence or name.rstrip("특별시광역시도") in sentence):
+    def tail(name: str) -> str:
+        return name.split(":")[-1].strip()
+    for name in sorted(names, key=lambda n: -len(tail(n))):
+        t = tail(name)
+        if t and (t in sentence or t.rstrip("특별시광역시도") in sentence):
             return [e for e in evs if e.query_params.get("c1") == name]
+    if any(e.query_params.get("c1") == "전국" for e in evs):
+        return [e for e in evs if e.query_params.get("c1") == "전국"]
     return evs
 
 
@@ -123,7 +139,7 @@ def verify_sentence(sentence: str, article_date: str,
         derived = _derived_age_ratio(sentence, evs)
 
     if same_fam:
-        ev = next((e for e in same_fam if e.query_params.get("c2") == "계"), same_fam[0])
+        ev = next((e for e in same_fam if _dim(e) == "계"), same_fam[0])
         official, official_unit, calc_note = ev.value, ev.unit, ""
     elif derived:
         ratio, calc_note = derived

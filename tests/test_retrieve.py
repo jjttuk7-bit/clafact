@@ -42,9 +42,10 @@ def test_search_miss_returns_empty():
 
 
 def test_fetch_evidence_filters():
+    """실 KOSIS 스키마(2026-07-14 승격): 연령은 ITM 차원, 166,558은 실 API 검증값"""
     client = FixtureKosisClient(FIXTURES)
     hit = _index().search("과수 농가 경영주")[0]
-    ev = fetch_evidence(client, hit, period="2024", c1="과수", c2="계")
+    ev = fetch_evidence(client, hit, period="2024", c1="과수", itm="계")
     assert len(ev) == 1 and ev[0].value == 166558 and ev[0].unit == "가구"
     assert ev[0].query_params["prd_de"] == "2024"  # 재현 가능성 (FR-12)
 
@@ -61,10 +62,11 @@ def test_full_chain_kosis_case():
     idx, client = _index(), FixtureKosisClient(FIXTURES)
     hit = idx.search("과수 농가 경영주 연령 고령")[0]
 
-    total = fetch_evidence(client, hit, pc.period, c1="과수", c2="계")[0]
+    total = fetch_evidence(client, hit, pc.period, c1="과수", itm="계")[0]
     aged = [e for e in fetch_evidence(client, hit, pc.period, c1="과수")
-            if e.query_params["c2"] in ("65~69세", "70~74세", "75~79세", "80세 이상")]
+            if e.query_params["itm"] in ("65~69세", "70~74세", "75~79세", "80세이상")]
     assert len(aged) == 4
+    assert total.value == 166558 and sum(e.value for e in aged) == 106877  # 실 API 검증값
 
     ratio = derived_ratio([e.value for e in aged], total.value) * 100  # 64.168…
     res = compare(claimed.value, claimed.composed_unit, ratio, "%")
