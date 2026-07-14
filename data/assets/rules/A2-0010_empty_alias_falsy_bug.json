@@ -1,0 +1,11 @@
+{
+  "rule_id": "A2-0010",
+  "type": "correctness",
+  "name": "빈 사전 주입이 무시되는 falsy 폴백 버그",
+  "condition": "`self.x = arg or Default()` 패턴에서 arg 가 __len__ 을 가진 컨테이너인 경우",
+  "handling": "빈 컨테이너는 falsy 이므로 or 가 Default() 로 폴백한다 — 명시적 빈 주입이 무시됨. `arg if arg is not None else Default()` 로 판별해야 한다",
+  "origin_case": "EXP-001 실험 중 '경로 A 키워드만'에 빈 별칭 사전을 주입했으나 기본 사전(5건)이 로드되어 A와 A+별칭 결과가 동일해짐 — 실험 대조군이 오염됨",
+  "origin_run": "EXP-001 (2026-07-14), retrieve.py StatIndex.__init__",
+  "test": "tests/test_semantic.py::test_empty_alias_injection_respected",
+  "created": "2026-07-14"
+}

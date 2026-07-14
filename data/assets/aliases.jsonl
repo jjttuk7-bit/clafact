@@ -1,3 +1,5 @@
 {"entry_id": "A1-0001", "alias": "고령화 비율", "canonical": "경영주 연령 65세 이상 농가", "tbl_id": "DT_1EA1019", "item_path": "농림어업조사 > 경영주 연령별 농가", "origin": "seed-manual", "created": "2026-07-13", "verified_count": 0}
 {"entry_id": "A1-0002", "alias": "과일 재배", "canonical": "영농형태 과수", "tbl_id": "DT_1EA1019", "item_path": "농림어업조사 > 영농형태별", "origin": "seed-manual", "created": "2026-07-13", "verified_count": 0}
 {"entry_id": "A1-0003", "alias": "일자리 부족", "canonical": "실업률 경제활동인구조사", "tbl_id": "DT_1DA7002", "item_path": "경제활동인구조사 > 실업률", "origin": "seed-manual", "created": "2026-07-13", "verified_count": 0}
+{"entry_id": "A1-0004", "alias": "일자리를 구하지 못한", "canonical": "실업률 경제활동인구", "tbl_id": "DT_1DA7002", "item_path": "", "origin": "EXP-001", "created": "2026-07-14", "verified_count": 0}
+{"entry_id": "A1-0005", "alias": "새로 태어난 아기", "canonical": "출생아 인구동향", "tbl_id": "DT_1B8000F", "item_path": "", "origin": "EXP-001", "created": "2026-07-14", "verified_count": 0}

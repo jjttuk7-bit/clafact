@@ -9,3 +9,6 @@ data/raw/
 *.csv
 dataset*/
 조선일보*
+
+data/assets/_none*.jsonl
+data/failures/review_web.jsonl

@@ -45,7 +45,9 @@ class StatIndex:
 
     def __init__(self, meta_path: str | Path = "data/samples/kosis/tables_meta.json",
                  aliases: AliasDict | None = None):
-        self.aliases = aliases or AliasDict()
+        # 규칙 A2-0010: `aliases or AliasDict()` 는 빈 사전(len 0=falsy)을 명시적으로
+        # 주입해도 무시하고 기본 사전을 로드하는 버그 — is None 으로 판별해야 한다.
+        self.aliases = aliases if aliases is not None else AliasDict()
         self.tables = json.loads(Path(meta_path).read_text(encoding="utf-8"))
         for t in self.tables:
             t["_tokens"] = _tokens(f"{t['TBL_NM']} {t['SURVEY']} {t.get('KEYWORDS', '')}")
