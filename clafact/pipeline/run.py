@@ -71,6 +71,41 @@ def _derived_age_ratio(sentence: str, evs: list[Evidence]) -> tuple[float, str] 
     return ratio, calc
 
 
+# 규칙 A2-0009 지표 가드: 증감률을 계산해도 되는 계열인지 문장 단서로 확인.
+# 단위가 '가구'인 통계로 '재배면적' 주장을 판정하면 틀린 지표로 오판한다 —
+# 지표명 추출(LLM 슬롯)이 붙기 전까지는 보수적으로 스킵한다.
+UNIT_TOKENS = {
+    "가구": ("가구", "농가", "어가"),
+    "명": ("명", "인구", "사람", "출생아", "취업자", "실업자"),
+    "원": ("원", "매출", "소득", "가격"),
+}
+
+
+def _metric_guard(sentence: str, unit: str) -> bool:
+    tokens = UNIT_TOKENS.get(unit, (unit,) if unit else ())
+    return any(t in sentence for t in tokens)
+
+
+def _yoy_change(sentence: str, cur: list[Evidence], prev: list[Evidence],
+                trend: str) -> tuple[float, str, str] | None:
+    """규칙 A2-0009: 증감률 주장('전년보다 X% 감소')을 두 시점 원자료로 재현.
+
+    반환: (변화율%, 계산식, 실제 방향 up/down) — 적용 불가면 None.
+    """
+    if trend not in ("up", "down"):
+        return None
+    c_total = next((e for e in cur if _dim(e) == "계"), None)
+    p_total = next((e for e in prev if _dim(e) == "계"), None)
+    if not c_total or not p_total or p_total.value == 0:
+        return None
+    if not _metric_guard(sentence, c_total.unit):
+        return None  # 지표 불일치 가능성 → 억지 판정 금지
+    rate = (c_total.value - p_total.value) / p_total.value * 100
+    calc = (f"({int(c_total.value):,} − {int(p_total.value):,}) ÷ {int(p_total.value):,}"
+            f" = {rate:+.1f}%")
+    return rate, calc, ("up" if rate > 0 else "down")
+
+
 def _pick_c1(evs: list[Evidence], sentence: str) -> list[Evidence]:
     """분류1(C1) 선택: 문장에 등장하는 분류명 우선.
 
@@ -135,8 +170,14 @@ def verify_sentence(sentence: str, article_date: str,
     claimed_fam = normalize(1, q.composed_unit)[1]
     same_fam = [e for e in evs if normalize(1, e.unit)[1] == claimed_fam]
     derived = None
+    yoy = None
     if not same_fam and claimed_fam == "percent":
         derived = _derived_age_ratio(sentence, evs)
+        if not derived:
+            # 규칙 A2-0009: 증감률 재현 — 전년도 데이터를 추가 조회
+            prev_period = str(int(r.period[:4]) - 1)
+            prev = _pick_c1(fetch_evidence(client, hit, prev_period), sentence)
+            yoy = _yoy_change(sentence, evs, prev, pc.trend)
 
     if same_fam:
         ev = next((e for e in same_fam if _dim(e) == "계"), same_fam[0])
@@ -145,6 +186,25 @@ def verify_sentence(sentence: str, article_date: str,
         ratio, calc_note = derived
         official, official_unit = ratio, "%"
         ev = evs[0]
+    elif yoy:
+        rate, calc_note, actual_dir = yoy
+        ev = evs[0]
+        if pc.trend != actual_dir:
+            # 방향 불일치: 수치 이전에 증감 방향 자체가 틀림 (예: 줄었다는데 실제는 증가)
+            dir_ko = {"up": "증가", "down": "감소"}
+            r.label, r.confidence = "mismatch", "medium"
+            r.reason = f"방향 불일치 — 기사는 {dir_ko[pc.trend]} 주장, 실제는 {dir_ko[actual_dir]} ({rate:+.1f}%)"
+            r.calculation = calc_note
+            r.evidence = {"tbl": f"{ev.source_note} ({ev.tbl_id})",
+                          "value": f"{rate:+.1f}%", "period": f"{r.period} (전년 대비)"}
+            r.explanation = (
+                f"판정: 불일치. 기사 주장 [{q.raw} {dir_ko[pc.trend]}] ↔ 실제 [전년 대비 {rate:+.1f}% {dir_ko[actual_dir]}] "
+                f"(출처: {ev.source_note}, {r.period} vs 전년). 계산: {calc_note}. "
+                f"수치 크기 이전에 증감 방향 자체가 통계와 다릅니다. "
+                f"한계: 통계 정의와 기사 서술이 다를 수 있어 최종 판단은 검증자 확인이 필요합니다."
+            )
+            return r
+        official, official_unit = abs(rate), "%"
     else:
         r.label = "unverifiable"
         r.reason = f"단위 대응 불가: 주장 {q.composed_unit or '무단위'} vs 통계 {evs[0].unit}"
@@ -155,6 +215,9 @@ def verify_sentence(sentence: str, article_date: str,
     res = compare(q.value, q.composed_unit, official, official_unit, op=pc.op)
     v = res.verdict
     r.label, r.confidence = v.label.value, v.confidence
+    # 규칙 A2-0004: 파생 계산(비율·증감률 재현)을 경유한 판정은 medium 이하 — 리뷰 우선
+    if (derived or yoy) and r.confidence == "high":
+        r.confidence = "medium"
     r.reason, r.calculation = v.reason, (calc_note or v.calculation)
     r.evidence = {"tbl": f"{ev.source_note} ({ev.tbl_id})",
                   "value": f"{official:g}{official_unit}", "period": r.period}

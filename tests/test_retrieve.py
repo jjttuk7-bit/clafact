@@ -71,7 +71,7 @@ def test_full_chain_kosis_case():
     ratio = derived_ratio([e.value for e in aged], total.value) * 100  # 64.168…
     res = compare(claimed.value, claimed.composed_unit, ratio, "%")
     assert res.verdict.label == VerdictLabel.MATCH
-    assert res.verdict.confidence == "high"
+    assert res.verdict.confidence == "high"  # compare 단독은 high — run.py 파생 경로에서 medium 강등
 
 
 def test_mock_llm_roundtrip():
