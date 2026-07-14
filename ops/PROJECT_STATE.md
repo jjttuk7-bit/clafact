@@ -22,6 +22,12 @@ Content
 → Evaluation
 → Improvement
 
+## 1차 Vertical PoC 범위
+
+- ClaFact의 전체 구조는 Claim → Evidence → Verdict → Service이다.
+- KOSIS 공식 통계 기반 뉴스 수치 Claim 검증은 40일 프로젝트의 1차 Vertical PoC 범위로 기록한다.
+- 이 PoC 범위를 ClaFact의 전체 장기 범위로 보지 않는다.
+
 ## 팀 구조
 
 - 팀원 1: Claim
@@ -45,6 +51,8 @@ Content
 - PROJECT_STATE.md와 DOCUMENT_INDEX.md를 공식 저장소에 통합 완료
 - Hermes가 공식 저장소의 PROJECT_STATE.md를 직접 읽는 테스트 완료
 - Hermes가 공식 저장소 파일을 수정할 수 있도록 권한 설정 완료
+- ClaFact 1차 PoC 기준안: KOSIS 공식 통계 기반 뉴스 수치 Claim 검증
+- ClaFact 프로젝트 제안서 v0.1 공식 문서 등록
 
 ## 현재 진행 중
 

@@ -27,6 +27,17 @@ Hermes Agent는 새로운 문서를 확인한 뒤
 
 ---
 
+## DOC-002
+
+- 문서명: ClaFact_Project_Proposal_v0.1.md
+- 위치: ops/01_project/ClaFact_Project_Proposal_v0.1.md
+- 분류: Project Planning
+- 상태: Draft
+- 설명: KOSIS 공식 통계를 근거로 뉴스 속 수치 기반 Claim을 검증하는 ClaFact 1차 PoC 제안서. 프로젝트 목표, 범위, Claim→Evidence→Verdict 파이프라인, 기술 아키텍처, 평가 계획, 일정, 리스크와 산출물을 정의한다.
+- 관련 영역: Project, Claim, Evidence, Verdict, Service, Evaluation
+
+---
+
 ## 새 문서 등록 형식
 
 ### DOC-XXX
