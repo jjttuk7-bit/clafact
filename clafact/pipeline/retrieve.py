@@ -87,5 +87,6 @@ def fetch_evidence(client: KosisClient, hit: TableHit, period: str,
                           "c2": r.get("C2_NM", ""), "itm": r.get("ITM_NM", "")},
             value=value, unit=r.get("UNIT_NM", ""), period=r.get("PRD_DE", period),
             source_note=f"KOSIS {hit.survey} > {hit.tbl_name}",
+            last_change_date=r.get("LST_CHN_DE", ""),  # A2-0012 근거 (실 API 는 항상 제공)
         ))
     return out

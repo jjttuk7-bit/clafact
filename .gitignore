@@ -12,3 +12,6 @@ dataset*/
 
 data/assets/_none*.jsonl
 data/failures/review_web.jsonl
+
+# KOSIS 호출 캐시·예산 카운터 — 실 API 응답과 로컬 사용량이라 커밋 대상 아님
+data/cache/

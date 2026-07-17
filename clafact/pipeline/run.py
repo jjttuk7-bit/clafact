@@ -10,15 +10,40 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from clafact import audit
 from clafact.kosis import KosisClient
 from clafact.pipeline import detect
 from clafact.pipeline.ingest import split_sentences
-from clafact.pipeline.parse import parse_claim, Quantity
+from clafact.pipeline.parse import parse_claim, Quantity, _to_date
 from clafact.pipeline.retrieve import StatIndex, TableHit, fetch_evidence
 from clafact.pipeline.verdict import compare, derived_ratio, normalize
 from clafact.schemas import Evidence
 
 RE_AGE_BAND = re.compile(r"(\d+)\s*[~∼]\s*\d+\s*세|(\d+)\s*세\s*이상")
+
+# 규칙 A2-0013: 지수 기준연도 (문서 19 §7.3)
+RE_INDEX_BASE = re.compile(r"(\d{4})\s*[=＝]\s*100")   # 통계표명 "(2020=100)" 에서 기준연도
+RE_RATE_WORD = re.compile(r"상승률|증가율|하락률|감소율|상승|하락|올랐|내렸|증가|감소")
+
+
+def _index_base_year(tbl_name: str) -> str | None:
+    """지수 통계표명에서 기준연도 추출. '소비자물가지수(2020=100)' → '2020'."""
+    if "지수" not in (tbl_name or ""):
+        return None
+    m = RE_INDEX_BASE.search(tbl_name)
+    return m.group(1) if m else None
+
+
+def _is_index_level_claim(sentence: str, q) -> bool:
+    """지수 '수준' 주장인가(기준연도 의존) vs 상승률·증감률(기준연도 불변).
+
+    - 상승률/증감률(% + 추세어)은 기준연도가 달라도 같으므로 회피 대상 아님.
+    - 지수 수준(예: '지수 114.2')은 기준연도에 따라 값이 달라져 직접 대조 불가.
+    """
+    is_rate = q.unit in ("%", "%p", "퍼센트") and bool(RE_RATE_WORD.search(sentence))
+    if is_rate:
+        return False
+    return "지수" in sentence
 
 
 @dataclass
@@ -33,6 +58,10 @@ class ClaimResult:
     evidence: dict = field(default_factory=dict)
     explanation: str = ""
     notes: list[str] = field(default_factory=list)
+    # 감사 추적 (문서 20 기능 3) — "이 판정을 어떻게 재현하는가".
+    # 예전에는 evidence 를 {tbl,value,period} 로 요약하며 org_id·조회 파라미터를
+    # 통째로 버렸다. 그러면 재현이 불가능하다.
+    audit: dict = field(default_factory=dict)
 
 
 def _pick_quantity(quantities: list[Quantity], sentence: str) -> Quantity:
@@ -125,13 +154,57 @@ def _pick_c1(evs: list[Evidence], sentence: str) -> list[Evidence]:
     return evs
 
 
+def _provisional_stale(evs: list[Evidence], article_date) -> str | None:
+    """규칙 A2-0012: 통계가 기사 작성 이후 갱신됐으면 당시 공표값(잠정치)을 알 수 없다.
+
+    LST_CHN_DE(최종수정일) > 기사 작성일이면, 반환값은 그 최종수정일(회피 사유 표기용).
+    KOSIS 는 과거 공표값(vintage)을 제공하지 않으므로(문서 19 §7.1), 현재 확정값으로
+    '불일치' 판정하면 우리가 틀린다 — 정직하게 판단불가로 회피한다.
+
+    필드가 없으면 적용하지 않는다. 실 API 는 항상 LST_CHN_DE 를 주므로, 필드 부재는
+    수기 픽스처 등 예외 상황뿐 — 없는 근거로 회피를 남발하지 않는다.
+    """
+    try:
+        adate = _to_date(article_date)
+    except (ValueError, TypeError):
+        return None
+    latest = ""
+    for e in evs:
+        d = (e.last_change_date or "").strip()
+        if d and d > latest:      # ISO(YYYY-MM-DD) 문자열은 사전순=시간순
+            latest = d
+    if not latest:
+        return None
+    try:
+        return latest if _to_date(latest) > adate else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _mk_audit(client: KosisClient, hit: TableHit, evs: list[Evidence],
+              period: str, rules: list[str]) -> dict:
+    """판정에 실제로 쓰인 것만 담는다 — 조회했으나 안 쓴 행까지 넣으면 감사가 흐려진다."""
+    rows = [{"c1": e.query_params.get("c1", ""), "c2": e.query_params.get("c2", ""),
+             "itm": e.query_params.get("itm", ""), "unit": e.unit,
+             "period": e.period, "value": e.value} for e in evs]
+    return audit.build(
+        engine_name=type(client).__name__,
+        org_id=hit.org_id, tbl_id=hit.tbl_id, tbl_name=hit.tbl_name,
+        params={"prd_de": period, "prd_se": "Y", "itm_id": "ALL", "obj_l1": "ALL"},
+        rows=rows, rules=rules, match_score=hit.score,
+    ).as_dict()
+
+
 def verify_sentence(sentence: str, article_date: str,
                     index: StatIndex, client: KosisClient) -> ClaimResult:
     r = ClaimResult(sentence=sentence, label="not_claim")
+    rules: list[str] = []   # 이 판정에 적용된 규칙 카드 — 감사 추적의 핵심
 
     # 1) 탐지
     if not detect.is_candidate(sentence):
         return r
+    if (rid := detect.which_rule(sentence)):
+        rules.append(rid)  # 규칙 카드에서 온 탐지 패턴이 잡은 경우
 
     # 2) 규칙 파싱
     pc = parse_claim(sentence, article_date)
@@ -167,6 +240,34 @@ def verify_sentence(sentence: str, article_date: str,
         r.explanation = f"판정: 판단불가. {hit.tbl_name}에 {r.period} 시점 자료가 없습니다."
         return r
 
+    # 규칙 A2-0012: 기사 작성 이후 통계가 갱신됐으면 당시 잠정치를 알 수 없다 → 판단불가
+    stale = _provisional_stale(evs, article_date)
+    if stale:
+        rules.append("A2-0012")
+        r.label, r.reason = "unverifiable", f"기사 작성 이후 통계 갱신 (최종수정일 {stale})"
+        r.explanation = (
+            f"판정: 판단불가. 이 통계는 기사 작성일({str(article_date)[:10]}) 이후에 "
+            f"수정되었습니다(최종수정일 {stale}). 기사가 인용한 당시 공표값(잠정치)을 "
+            f"본 시스템이 확인할 수 없으므로 판정하지 않습니다. 현재 값으로 '불일치'로 "
+            f"판정하는 것은 부당합니다. (KOSIS는 과거 공표값을 제공하지 않습니다)"
+        )
+        r.audit = _mk_audit(client, hit, evs, r.period, rules)
+        return r
+
+    # 규칙 A2-0013: 지수(index) 수준 주장은 기준연도가 맞아야 비교 가능. 확인 불가 → 판단불가
+    base_year = _index_base_year(hit.tbl_name)
+    if base_year and _is_index_level_claim(sentence, q):
+        rules.append("A2-0013")
+        r.label, r.reason = "unverifiable", f"지수 기준연도({base_year}=100) 정합 확인 불가"
+        r.explanation = (
+            f"판정: 판단불가. 지수(index)는 기준연도에 따라 값이 달라집니다 "
+            f"(이 통계는 {base_year}=100 기준). 기사가 어느 기준연도 계열의 지수를 "
+            f"인용했는지 확인할 수 없어 지수 수준({q.raw})을 직접 대조하지 않습니다. "
+            f"(상승률·증감률 주장은 기준연도와 무관하므로 이 회피 대상이 아닙니다.)"
+        )
+        r.audit = _mk_audit(client, hit, evs, r.period, rules)
+        return r
+
     claimed_fam = normalize(1, q.composed_unit)[1]
     same_fam = [e for e in evs if normalize(1, e.unit)[1] == claimed_fam]
     derived = None
@@ -186,9 +287,11 @@ def verify_sentence(sentence: str, article_date: str,
         ratio, calc_note = derived
         official, official_unit = ratio, "%"
         ev = evs[0]
+        rules.append("A2-0007")  # 연령 구간 합산 ÷ 전체 파생 계산
     elif yoy:
         rate, calc_note, actual_dir = yoy
         ev = evs[0]
+        rules.append("A2-0009")  # 증감률 재현
         if pc.trend != actual_dir:
             # 방향 불일치: 수치 이전에 증감 방향 자체가 틀림 (예: 줄었다는데 실제는 증가)
             dir_ko = {"up": "증가", "down": "감소"}
@@ -203,6 +306,7 @@ def verify_sentence(sentence: str, article_date: str,
                 f"수치 크기 이전에 증감 방향 자체가 통계와 다릅니다. "
                 f"한계: 통계 정의와 기사 서술이 다를 수 있어 최종 판단은 검증자 확인이 필요합니다."
             )
+            r.audit = _mk_audit(client, hit, evs, r.period, rules)
             return r
         official, official_unit = abs(rate), "%"
     else:
@@ -215,12 +319,16 @@ def verify_sentence(sentence: str, article_date: str,
     res = compare(q.value, q.composed_unit, official, official_unit, op=pc.op)
     v = res.verdict
     r.label, r.confidence = v.label.value, v.confidence
+    if pc.op in ("gte", "lte"):
+        rules.append("A2-0001")  # 임계 표현의 부등호 판정
     # 규칙 A2-0004: 파생 계산(비율·증감률 재현)을 경유한 판정은 medium 이하 — 리뷰 우선
     if (derived or yoy) and r.confidence == "high":
         r.confidence = "medium"
+        rules.append("A2-0004")
     r.reason, r.calculation = v.reason, (calc_note or v.calculation)
     r.evidence = {"tbl": f"{ev.source_note} ({ev.tbl_id})",
                   "value": f"{official:g}{official_unit}", "period": r.period}
+    r.audit = _mk_audit(client, hit, evs, r.period, rules)
 
     # 6) 템플릿 설명 (환각 0 — 조회된 값만 사용)
     label_ko = {"match": "일치", "mismatch": "불일치", "unverifiable": "판단불가"}[r.label]

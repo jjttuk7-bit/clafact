@@ -2,10 +2,16 @@
 
 설계(문서 03 2.2): 규칙 필터는 재현율(놓치지 않기)을 책임지고,
 정밀도는 2차 LLM 판별이 보강한다. LLM 판별은 HCX 연동 후 detect_llm.py 로 추가.
+
+탐지 패턴의 두 갈래 (문서 20 §3.1):
+  1) 아래 하드코딩 패턴 — 초기 구축분. 각각 규칙 카드가 문서로 존재한다.
+  2) 규칙 카드의 `pattern` — 런타임에 읽어 적용한다. **카드를 추가하면 동작이 바뀐다.**
+     플라이휠(실패 → 규칙 → 재평가 개선)이 실제로 도는 것은 이 두 번째 갈래 덕분이다.
 """
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 # 숫자(콤마·소수점 포함) — "1,234", "7.2", "64.2" 등
 NUM = r"\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?"
@@ -31,6 +37,57 @@ RE_SUPERLATIVE = re.compile(r"(?:사상|역대)\s*(?:최악|최고|최대|최소
 # 검증 대상이 아닐 가능성이 높은 패턴 (날짜·전화번호 등 노이즈 컷)
 RE_NOISE_ONLY = re.compile(r"^\s*(?:\d{4}년\s*)?\d{1,2}월\s*\d{1,2}일\s*$")
 
+# ── 규칙 카드에서 오는 탐지 패턴 ──────────────────────────────
+RULES_DIR = Path(__file__).resolve().parents[2] / "data" / "assets" / "rules"
+
+# 캐시 무효화 = 플라이휠의 속도. 규칙을 만들자마자 재평가에 반영돼야 한다.
+#
+# ⚠ 디렉터리 mtime 으로 감지하면 안 된다 — Windows(NTFS)에서는 파일을 새로 만들어도
+#   상위 디렉터리의 mtime 이 갱신되지 않는 경우가 있다(실측 확인, tests/test_rules.py).
+#   그 경우 카드를 추가해도 낡은 캐시가 계속 쓰여 "규칙을 만들었는데 점수가 그대로"인
+#   조용한 실패가 난다. 그래서 카드 파일 목록 자체를 지문으로 쓴다.
+_cache: dict[str, object] = {"sig": None, "pats": []}
+
+
+def _signature(d: Path) -> tuple:
+    """규칙 카드 파일들의 (이름, 크기, mtime) 지문."""
+    out = []
+    for p in sorted(d.glob("A2-*.json")):
+        try:
+            st = p.stat()
+            out.append((p.name, st.st_size, st.st_mtime_ns))
+        except OSError:
+            continue
+    return (str(d), tuple(out))
+
+
+def rule_patterns(rules_dir: str | Path | None = None) -> list[tuple[str, re.Pattern]]:
+    """규칙 카드의 detection 패턴을 (rule_id, 컴파일된 정규식)으로 반환."""
+    d = Path(rules_dir) if rules_dir else RULES_DIR
+    if not d.exists():
+        return []
+    sig = _signature(d)
+    if _cache["sig"] == sig:
+        return _cache["pats"]  # type: ignore[return-value]
+
+    from clafact.assets.rules import RuleRegistry  # 순환 import 방지 — 지연 로드
+
+    pats = []
+    for rid, pattern in RuleRegistry(d).detection_patterns():
+        try:
+            pats.append((rid, re.compile(pattern)))
+        except re.error:
+            # 깨진 패턴 하나가 파이프라인 전체를 멈추면 안 된다 — 건너뛰고 계속
+            continue
+    _cache["sig"], _cache["pats"] = sig, pats
+    return pats
+
+
+def reload_rules() -> int:
+    """캐시 강제 무효화. 반환값은 로드된 패턴 수."""
+    _cache["sig"] = None
+    return len(rule_patterns())
+
 
 def is_candidate(sentence: str) -> bool:
     """검증 가능 주장 '후보' 여부 — 재현율 우선, 관대한 기준."""
@@ -46,7 +103,19 @@ def is_candidate(sentence: str) -> bool:
     # 숫자 없는 최상급 주장 (규칙 A2-0003)
     if RE_SUPERLATIVE.search(s):
         return True
+    # 규칙 카드에서 온 탐지 패턴 — 실패에서 태어난 자산이 여기서 실행된다
+    for _rid, rx in rule_patterns():
+        if rx.search(s):
+            return True
     return False
+
+
+def which_rule(sentence: str) -> str | None:
+    """이 문장을 탐지한 규칙 카드 ID (없으면 None) — 데모에서 '왜 잡혔는지' 표시용."""
+    for rid, rx in rule_patterns():
+        if rx.search(sentence.strip()):
+            return rid
+    return None
 
 
 def filter_sentences(sentences: list[str]) -> list[tuple[int, str]]:

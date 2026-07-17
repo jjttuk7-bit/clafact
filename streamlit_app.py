@@ -1,9 +1,10 @@
 """ClaFact MVP — Streamlit 데모 (Community Cloud 배포용).
 
-3탭 구성:
+4탭 구성:
   🔎 검증      — 기사 입력 → 자동 판정 (WF-1)
   👤 검증자 리뷰 — 승인/보정/반려, 보정은 실패 레코드로 (WF-2)
-  🔄 자산 현황  — 실패→자산 플라이휠 대시보드 (문서 11)
+  🔥 플라이휠   — 실패 → 골든셋 → 재평가 → 규칙 → 재평가를 라이브로 (문서 20 4막)
+  🔄 자산 현황  — 자산 축적 대시보드 (문서 11)
 """
 import json
 import sys
@@ -14,16 +15,36 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from clafact.assets.alias_dict import AliasDict
 from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
+from clafact.assets.rules import RuleRegistry
+from clafact.assets import goldenset
+from clafact.eval import harness
 from clafact.kosis import FixtureKosisClient
+from clafact.pipeline import detect
 from clafact.pipeline.retrieve import StatIndex
-from clafact.pipeline.run import verify_article
+from clafact.pipeline.run import verify_article, verify_sentence
 
 ROOT = Path(__file__).resolve().parent
+GOLDEN = ROOT / "data/goldenset/golden_v0.jsonl"
+RULES_DIR = ROOT / "data/assets/rules"
+FAILURES = ROOT / "data/failures/failures.jsonl"
 
 SAMPLES = {
-    "과수 농가 고령화 (파생 계산)": {
-        "date": "2025-03-14",
+    "과수 농가 고령화 (파생 계산·일치)": {
+        # 5월 기사 — 2024 데이터가 이미 확정(최종수정 4월)된 뒤라 정상 판정 (1막)
+        "date": "2025-05-14",
         "text": "농가 고령화가 이어지면서 올해 과일 재배면적이 1% 줄었다. 2024년 국내 과수 농가의 65세 이상 비율은 64.2%로 나타났다.",
+    },
+    "잠정치 함정 (판단불가·A2-0012)": {
+        # 같은 주장, 3월 기사 — 통계 최종수정일(2025-04-09)보다 앞서므로 당시 잠정치를
+        # 알 수 없다 → 정직하게 판단불가. 위 샘플과 '날짜만' 다르다 (시연 3막).
+        "date": "2025-03-14",
+        "text": "2024년 국내 과수 농가의 65세 이상 비율은 64.2%로 나타났다.",
+    },
+    "기준연도 함정 (판단불가·A2-0013)": {
+        # 지수 '수준'은 기준연도(2020=100)에 따라 값이 달라진다 — 기사가 어느 기준
+        # 계열을 인용했는지 확인 불가 → 판단불가. (상승률 주장이면 회피 안 함)
+        "date": "2025-06-01",
+        "text": "지난해 소비자물가지수는 114.2를 기록했다.",
     },
     "실업률 왜곡 (불일치)": {
         "date": "2025-06-20",
@@ -32,10 +53,6 @@ SAMPLES = {
     "1인 가구·출생아 (임계·환산)": {
         "date": "2025-06-02",
         "text": "서울의 1인 가구는 150만 가구를 넘어섰다. 지난해 출생아 수는 23만 명으로 역대 최저를 기록했다. 내년 경제성장률은 3%에 이를 전망이다.",
-    },
-    "농가 증감률 (방향 검증)": {
-        "date": "2025-04-10",
-        "text": "지난해 논벼 농가는 전년보다 4.9% 감소했다. 지난해 과수 농가는 2% 감소했다. 지난해 과일 재배면적이 1% 줄었다.",
     },
 }
 
@@ -54,7 +71,7 @@ def load_engine():
             FixtureKosisClient(ROOT / "data/samples/kosis"))
 
 
-def render_card(r):
+def render_card(r, scope="v"):
     label_ko, color = STYLE[r.label]
     chips = []
     if r.confidence:
@@ -64,20 +81,71 @@ def render_card(r):
         chips.append(f"시점 {r.period}")
     if r.quantity:
         chips.append(f"주장 수치 {r.quantity}")
-    st.markdown(
-        f"""<div style="border:1px solid #DDE5EF;border-left:6px solid {color};
-        border-radius:10px;padding:14px 16px;margin:10px 0;background:#fff">
-        <b style="color:{color}">{label_ko}</b>
-        &nbsp;<span style="font-size:12px;color:#5A6B85">{" · ".join(chips)}</span>
-        <div style="font-weight:bold;margin:6px 0">{r.sentence}</div>
-        {f'<div style="font-size:13px;color:#5A6B85">근거: {r.evidence.get("tbl","")} → <b>{r.evidence.get("value","")}</b></div>' if r.evidence else ""}
-        <div style="font-size:13px;color:#44546A;background:#F6F8FB;border-radius:8px;
-        padding:10px;margin-top:8px;line-height:1.6">{r.explanation}</div>
-        </div>""",
-        unsafe_allow_html=True,
+
+    # ⚠ HTML 은 들여쓰기·줄바꿈 없이 한 줄로 조립한다.
+    #   여러 줄 f-string 으로 쓰면, 근거가 없는 카드(=판단불가)에서 조건부 줄이 빈 줄이 되고
+    #   다음 줄의 들여쓰기를 마크다운이 '코드 블록'으로 해석해 HTML 이 날것으로 노출된다.
+    #   하필 판단불가는 시연 3막의 주인공이다 (문서 20 §2.3).
+    evidence_html = (
+        f'<div style="font-size:13px;color:#5A6B85">근거: {r.evidence.get("tbl", "")} '
+        f'→ <b>{r.evidence.get("value", "")}</b></div>'
+    ) if r.evidence else ""
+    html = (
+        f'<div style="border:1px solid #DDE5EF;border-left:6px solid {color};'
+        f'border-radius:10px;padding:14px 16px;margin:10px 0;background:#fff">'
+        f'<b style="color:{color}">{label_ko}</b>'
+        f'&nbsp;<span style="font-size:12px;color:#5A6B85">{" · ".join(chips)}</span>'
+        f'<div style="font-weight:bold;margin:6px 0">{r.sentence}</div>'
+        f'{evidence_html}'
+        f'<div style="font-size:13px;color:#44546A;background:#F6F8FB;border-radius:8px;'
+        f'padding:10px;margin-top:8px;line-height:1.6">{r.explanation}</div>'
+        f'</div>'
     )
+    st.markdown(html, unsafe_allow_html=True)
     if r.notes:
         st.caption("⚠ " + " / ".join(r.notes))
+    if r.audit:
+        render_audit(r, scope)
+
+
+def render_audit(r, scope="v"):
+    """재현 패널 (문서 20 기능 3) — 기업이 진짜 묻는 것은 정확도가 아니라 감사 가능성.
+
+    scope: 같은 문장이 검증 탭과 리뷰 탭에 동시에 그려지므로 위젯 키를 탭별로 분리한다.
+    """
+    a = r.audit
+    with st.expander(f"🔍 이 판정 재현하기 — 코드 {a['code_version']} · {a['engine']}"):
+        st.caption(a["note"])
+        c1, c2 = st.columns(2)
+        c1.markdown(f"**통계표** `{a['org_id']}` / `{a['tbl_id']}`  \n{a['tbl_name']}")
+        c2.markdown(f"**매핑 점수** {a['match_score']}  \n"
+                    f"**적용 규칙** {', '.join(a['rules']) if a['rules'] else '(기본 로직)'}")
+
+        st.markdown("**조회 파라미터**")
+        st.json(a["params"], expanded=False)
+
+        st.markdown("**실 API 호출 URL** — 인증키만 넣으면 누구나 같은 수치를 받습니다")
+        st.code(a["url"], language="text")
+        st.caption("🔒 인증키는 자리표시자로 마스킹됩니다 (공개 데모에 실 키를 노출하지 않음)")
+
+        st.markdown("**판정에 사용된 행**")
+        st.dataframe(a["rows"], use_container_width=True, hide_index=True)
+
+        if r.calculation:
+            st.markdown(f"**계산** `{r.calculation}`")
+
+        if st.button("🔁 지금 재실행해서 같은 값이 나오는지 확인",
+                     key=f"re_{scope}_{abs(hash(r.sentence))}"):
+            idx, client = load_engine()
+            again = verify_sentence(r.sentence, st.session_state.get("date", ""), idx, client)
+            same = (again.label == r.label and again.calculation == r.calculation
+                    and again.evidence == r.evidence)
+            if same:
+                st.success(f"✅ 동일 — 판정 `{again.label}`, 계산 `{again.calculation or '-'}` "
+                           "(판정은 결정적 로직이라 같은 입력이면 항상 같습니다)")
+            else:
+                st.error(f"⚠️ 다름! 이전 `{r.label}` → 지금 `{again.label}` — "
+                         "코드나 자산이 바뀌었습니다. 이 경우 실패 레코드 대상입니다.")
 
 
 st.set_page_config(page_title="ClaFact — 뉴스 수치 검증 MVP", page_icon="🔎", layout="centered")
@@ -85,7 +153,8 @@ st.title("🔎 ClaFact")
 st.markdown("**뉴스 속 수치 주장을 국가통계(KOSIS)로 자동 검증합니다** — "
             "근거 없으면 판정하지 않습니다(판단불가 우선), 판정은 결정적 로직(환각 0)")
 
-tab_verify, tab_review, tab_assets = st.tabs(["🔎 검증", "👤 검증자 리뷰", "🔄 자산 현황"])
+tab_verify, tab_review, tab_flywheel, tab_assets = st.tabs(
+    ["🔎 검증", "👤 검증자 리뷰", "🔥 플라이휠", "🔄 자산 현황"])
 
 # ═════════════ 탭 1: 검증 (WF-1) ═════════════
 with tab_verify:
@@ -155,6 +224,8 @@ with tab_review:
             with st.expander(head, expanded=(status is None)):
                 st.markdown(f"**{r.sentence}**")
                 st.caption(f"자동 판정: {label_ko} (신뢰도 {r.confidence or '-'}) | 근거: {r.reason} | 계산: {r.calculation or '-'}")
+                if r.audit:
+                    render_audit(r, scope="rv")  # 검증자는 승인 전에 근거를 볼 수 있어야 한다
                 if status:
                     st.success(f"처리됨 → {status}")
                 else:
@@ -166,12 +237,18 @@ with tab_review:
                         memo = st.text_input("보정 사유 메모", key=f"memo{rid}")
                     if st.button("확정", key=f"ok{rid}", type="primary"):
                         if act == "보정":
-                            rec = FailureRecorder(ROOT / "data/failures/review_web.jsonl")
+                            rec = FailureRecorder(FAILURES)
                             fid = rec.record(stage="review", ftype=cause,
                                              snapshot={"sentence": r.sentence, "auto": r.label,
                                                        "corrected": corrected_to},
                                              cause=memo)
-                            reviews[rid] = f"보정 → {corrected_to} (실패 기록 {fid} — 파생 자산 등록 후 resolve)"
+                            reviews[rid] = f"보정 → {corrected_to} (실패 {fid} — 🔥 플라이휠 탭에서 자산화)"
+                            # 플라이휠 탭으로 넘긴다 — 여기서 끊기면 루프가 데모에서 죽는다
+                            st.session_state["fw"] = {
+                                "fail_id": fid, "sentence": r.sentence,
+                                "auto": r.label, "corrected": corrected_to,
+                                "cause": cause, "memo": memo,
+                            }
                         elif act == "승인":
                             reviews[rid] = "승인 (CONFIRMED — 발행 가능)"
                         else:
@@ -181,28 +258,161 @@ with tab_review:
         if done and len(done) == len(queue):
             st.success("리뷰 완료! 보정 기록은 자산 현황 탭에서 플라이휠로 이어집니다 🔄")
 
-# ═════════════ 탭 3: 자산 현황 (문서 11 플라이휠) ═════════════
+# ═════════════ 탭 3: 플라이휠 라이브 (문서 20 4막) ═════════════
+def run_eval():
+    """하네스 실행 → 리포트. 규칙 캐시를 먼저 비워야 새 규칙이 반영된다."""
+    detect.reload_rules()
+    return harness.run(str(GOLDEN), out_dir=str(ROOT / "reports"), record_failures=False)
+
+
+def show_metrics(rep, caption=""):
+    d = rep["metrics"]["detection"]
+    v = rep["metrics"]["verdict"].get("classification", {})
+    c1, c2, c3 = st.columns(3)
+    diff = rep.get("diff_vs_previous", {})
+
+    def delta(key):
+        x = diff.get(key)
+        return f"{x['delta']:+.4f}" if x and x["delta"] else None
+
+    c1.metric("탐지 F1", f"{d['f1']:.4f}", delta("detection_f1"))
+    c2.metric("판정 정확도", f"{v.get('accuracy', 0):.4f}", delta("verdict_accuracy"))
+    c3.metric("골든셋", f"{rep['golden']['n_rows']}행")
+    if caption:
+        st.caption(caption)
+
+
+with tab_flywheel:
+    st.markdown("#### 🔥 실패 1건 = 자산 1줄 — 라이브")
+    st.caption("검증 탭에서 시스템을 속인 문장을 여기서 자산으로 바꿉니다. "
+               "**골든셋에 넣으면 점수가 일단 떨어집니다 — 그 하락이 골든셋이 진짜라는 증거입니다.**")
+
+    fw = st.session_state.get("fw")
+    with st.expander("① 대상 실패 — 리뷰에서 보정했거나, 직접 입력", expanded=not fw):
+        default_s = fw["sentence"] if fw else ""
+        s_in = st.text_input("시스템이 놓친/틀린 문장", value=default_s, key="fw_sent")
+        col_a, col_b = st.columns(2)
+        gold_in = col_a.selectbox("올바른 판정 (골든셋 정답)",
+                                  ["match", "mismatch", "unverifiable", "(주장 아님)"], key="fw_gold")
+        claim_in = col_b.checkbox("검증 가능 주장인가", value=True, key="fw_isclaim")
+        if st.button("이 문장으로 진행", use_container_width=True) and s_in.strip():
+            st.session_state["fw"] = {**(fw or {}), "sentence": s_in.strip(),
+                                      "corrected": gold_in, "is_claim": claim_in,
+                                      "fail_id": (fw or {}).get("fail_id")}
+            st.rerun()
+
+    fw = st.session_state.get("fw")
+    if not fw or not fw.get("sentence"):
+        st.info("위에서 문장을 입력하거나, **검증 → 리뷰 탭에서 보정**하면 여기로 넘어옵니다.")
+    else:
+        st.markdown(f"> **대상 문장:** {fw['sentence']}")
+        detected = detect.is_candidate(fw["sentence"])
+        st.caption(f"현재 탐지 결과: {'✅ 탐지됨' if detected else '❌ 놓침'}"
+                   + (f" (규칙 {detect.which_rule(fw['sentence'])})" if detect.which_rule(fw['sentence']) else ""))
+
+        # ── ② 골든셋 추가 (A3) ──
+        st.markdown("##### ② 골든셋에 추가 (A3)")
+        if fw.get("golden_added"):
+            st.success(f"추가됨 → {fw['golden_added']}")
+        elif st.button("골든셋에 추가", use_container_width=True):
+            try:
+                is_claim = fw.get("is_claim", True)
+                row = goldenset.append_row(
+                    GOLDEN, fw["sentence"], is_claim,
+                    gold_label=None if not is_claim or fw.get("corrected") == "(주장 아님)"
+                    else fw.get("corrected"),
+                    notes=f"플라이휠 — 유래 실패 {fw.get('fail_id') or '(직접 입력)'}")
+                st.session_state["fw"] = {**fw, "golden_added": row["article_id"]}
+                st.rerun()
+            except ValueError as e:
+                st.error(f"거부됨: {e}")
+
+        # ── ③ 재평가 (하락 확인) ──
+        st.markdown("##### ③ 재평가 — 점수가 떨어지는가")
+        if st.button("재평가 실행", key="fw_eval1", use_container_width=True):
+            st.session_state["fw"] = {**st.session_state["fw"], "rep1": run_eval()}
+            st.rerun()
+        if fw.get("rep1"):
+            show_metrics(fw["rep1"], "골든셋이 커졌고, 시스템이 못 푸는 행이 들어왔으므로 점수가 내려가는 것이 정상입니다.")
+
+        # ── ④ 규칙 카드 생성 (A2) ──
+        st.markdown("##### ④ 규칙 카드 생성 (A2) — 이 카드는 **실제로 실행됩니다**")
+        reg = RuleRegistry(RULES_DIR)
+        if fw.get("rule_id"):
+            st.success(f"생성됨 → {fw['rule_id']} (실패 {fw.get('fail_id') or '-'} resolve 완료)")
+        else:
+            st.caption(f"다음 규칙 ID: **{reg.next_id()}** (기존 카드 수를 세어 자동 채번)")
+            r_name = st.text_input("규칙 이름", key="fw_rname",
+                                   placeholder="예: '반토막' 표현 탐지")
+            r_pat = st.text_input("탐지 패턴 (정규식)", key="fw_rpat",
+                                  placeholder="예: 반토막")
+            r_cond = st.text_input("조건", key="fw_rcond",
+                                   placeholder="예: 문장에 '반토막' 표현이 있는 경우")
+            if st.button("규칙 생성 + 실패 resolve", type="primary", use_container_width=True):
+                try:
+                    card = reg.create(
+                        type="detection", name=r_name, pattern=r_pat,
+                        condition=r_cond or f"'{r_pat}' 패턴 포함",
+                        handling="검증 가능 주장 후보로 탐지한다",
+                        origin_case=fw["sentence"][:80],
+                        origin_run=fw.get("fail_id", ""),
+                        test="tests/test_rules.py::test_new_rule_card_changes_detection",
+                    )
+                    assets = [card["rule_id"]] + ([f"A3:{fw['golden_added']}"] if fw.get("golden_added") else [])
+                    if fw.get("fail_id"):
+                        try:
+                            FailureRecorder(FAILURES).resolve(fw["fail_id"], assets)
+                        except KeyError:
+                            pass  # 다른 파일에 기록된 과거 실패 — 규칙 생성은 유효
+                    detect.reload_rules()
+                    st.session_state["fw"] = {**fw, "rule_id": card["rule_id"]}
+                    st.rerun()
+                except (ValueError, FileExistsError) as e:
+                    st.error(f"거부됨: {e}")
+
+        # ── ⑤ 재평가 (회복 확인) ──
+        if fw.get("rule_id"):
+            st.markdown("##### ⑤ 재평가 — 자산이 점수를 되돌리는가")
+            if st.button("재평가 실행", key="fw_eval2", type="primary", use_container_width=True):
+                st.session_state["fw"] = {**st.session_state["fw"], "rep2": run_eval()}
+                st.rerun()
+            if fw.get("rep2"):
+                show_metrics(fw["rep2"], "방금 만든 규칙이 코드 수정 없이 적용되어 탐지가 회복됩니다.")
+                st.success("🔄 루프 완주 — 실패가 골든셋(A3)과 규칙(A2)으로 남았고, 재측정으로 증명됐습니다.")
+                st.caption("⚠ 정직 고지: 여기서 자동 적용되는 것은 **패턴형 탐지 규칙**입니다. "
+                           "판정 로직(파생 계산 등) 규칙은 카드가 초안으로 남고, 실제 반영은 "
+                           "개발자가 테스트와 함께 구현합니다 (문서 20 §3.1).")
+
+        if st.button("🗑 플라이휠 초기화"):
+            st.session_state.pop("fw", None)
+            st.rerun()
+
+
+# ═════════════ 탭 4: 자산 현황 (문서 11 플라이휠) ═════════════
 with tab_assets:
     st.markdown("#### 실패 1건 = 자산 1줄 — 축적 현황")
     aliases = AliasDict(ROOT / "data/assets/aliases.jsonl")
-    rules = sorted((ROOT / "data/assets/rules").glob("A2-*.json"))
-    golden = (ROOT / "data/goldenset/golden_v0.jsonl").read_text(encoding="utf-8").strip().splitlines()
-    fail_stats = FailureRecorder(ROOT / "data/failures/failures.jsonl").stats()
+    reg = RuleRegistry(RULES_DIR)
+    rstats = reg.stats()
+    gstats = goldenset.stats(GOLDEN)
+    fail_stats = FailureRecorder(FAILURES).stats()
 
     a1, a2, a3, a4 = st.columns(4)
     a1.metric("A1 별칭 사전", f"{len(aliases)}건")
-    a2.metric("A2 규칙 카드", f"{len(rules)}개")
-    a3.metric("A3 골든셋", f"{len(golden)}건")
+    a2.metric("A2 규칙 카드", f"{rstats['total']}개", f"{rstats['executable']}개 실행형")
+    a3.metric("A3 골든셋", f"{gstats['total']}건")
     a4.metric("A4 실패→자산 전환율",
               f"{fail_stats['asset_conversion_rate']:.0%}" if fail_stats.get("asset_conversion_rate") else "-")
-    st.caption(f"실패 누적 {fail_stats['total']}건 (유형별: {fail_stats['by_type']}) — 전부 규칙·테스트로 전환됨")
+    st.caption(f"실패 누적 {fail_stats['total']}건 (유형별: {fail_stats['by_type']}) · "
+               f"골든셋 분포: {gstats['by_label']}")
 
     st.markdown("#### A2 규칙 카드 — 실패에서 태어난 지식")
+    st.caption("⚡ = 카드가 곧 실행 (패턴을 런타임에 읽어 탐지에 적용) / 📄 = 선언 카드 (코드 구현 필요)")
     rows = []
-    for p in rules:
-        d = json.loads(p.read_text(encoding="utf-8"))
-        rows.append({"ID": d["rule_id"], "규칙": d["name"], "유형": d["type"],
-                     "유래": d.get("origin_case", "")[:46] + "…"})
+    for d in reg.all():
+        rows.append({"": "⚡" if d.get("pattern") else "📄",
+                     "ID": d["rule_id"], "규칙": d["name"], "유형": d["type"],
+                     "유래": (d.get("origin_case", "") or "")[:44] + "…"})
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
     st.markdown(

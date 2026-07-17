@@ -20,6 +20,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from clafact.assets.alias_dict import AliasDict
 from clafact.pipeline.retrieve import StatIndex
 from clafact.pipeline.retrieve_semantic import SemanticIndex
+from clafact.pipeline.query_gen import make_query
 
 ROOT = Path(__file__).resolve().parents[1]
 META = ROOT / "data/samples/kosis/tables_meta.json"
@@ -60,15 +61,24 @@ PATHS = {
     "하이브리드(A+별칭+B)": lambda q: rrf([ranks(idx_al.search(q, 5)), ranks(sem.search(q, 5))]),
 }
 
+# Step 1 애블레이션: 문장째(raw) vs 생성 검색어(gen). 경로 C 는 gen 을 받으므로
+# 그 전에 gen 이 기존 경로에서 해가 없는지(같거나 낫는지) 먼저 확인한다.
+QUERY_MODES = {
+    "raw": lambda c: c["query"],
+    "gen": lambda c: make_query(c["query"], real_alias),
+}
 
-def evaluate():
+
+def evaluate(query_fn):
+    """주어진 질의 모드(raw/gen)로 전 경로 평가."""
     agg = {name: {"h1": 0, "h3": 0, "mrr": 0.0} for name in PATHS}
     per_case = []
     for c in cases:
         gold = c["gold_tbl_id"]
+        q = query_fn(c)
         row = {"query": c["query"][:26], "gold": gold.replace("DT_", "")}
         for name, fn in PATHS.items():
-            top = fn(c["query"])
+            top = fn(q)
             hit1 = top[:1] == [gold]
             hit3 = gold in top[:3]
             mrr = 1.0 / (top.index(gold) + 1) if gold in top else 0.0
@@ -82,35 +92,35 @@ def evaluate():
 
 def main():
     n = len(cases)
-    agg, per_case = evaluate()
+    print(f"\n=== EXP-001: 매핑 경로 비교  (평가 {n}건, 통계표 {len(tables)}개) ===")
 
-    print(f"\n=== EXP-001: 매핑 경로 비교  (평가 {n}건, 통계표 {len(tables)}개) ===\n")
-    print(f"{'경로':<22}{'Hit@1':>8}{'Hit@3':>8}{'MRR':>8}")
-    print("-" * 46)
-    for name, m in agg.items():
-        print(f"{name:<22}{m['h1']/n:>8.2f}{m['h3']/n:>8.2f}{m['mrr']/n:>8.3f}")
+    results = {}
+    for mode, qfn in QUERY_MODES.items():
+        agg, per_case = evaluate(qfn)
+        results[mode] = {"aggregate": agg, "per_case": per_case}
+        label = {"raw": "문장째(raw)", "gen": "생성 검색어(gen) — Step 1"}[mode]
+        print(f"\n[{label}]")
+        print(f"{'경로':<22}{'Hit@1':>8}{'Hit@3':>8}{'MRR':>8}")
+        print("-" * 46)
+        for name, m in agg.items():
+            print(f"{name:<22}{m['h1']/n:>8.2f}{m['h3']/n:>8.2f}{m['mrr']/n:>8.3f}")
 
-    print(f"\n--- 케이스별 (① Hit@1 / ③ Hit@3 / ✗ 실패) ---")
-    hdr = f"{'질의':<28}{'정답':<10}"
+    # raw vs gen 델타 (질의 생성이 해가 없는지 = 경로 C 투입 전 확인)
+    print(f"\n--- 질의 생성 효과 (gen − raw, Hit@3 합계) ---")
     for name in PATHS:
-        hdr += f"{name.split('.')[0].split('(')[0][:6]:>8}"
-    print(hdr)
-    for r in per_case:
-        line = f"{r['query']:<28}{r['gold']:<10}"
-        for name in PATHS:
-            line += f"{r[name]:>8}"
-        print(line)
+        d = results["gen"]["aggregate"][name]["h3"] - results["raw"]["aggregate"][name]["h3"]
+        mark = "▲" if d > 0 else ("▼" if d < 0 else "=")
+        print(f"  {name:<22} {mark}{abs(d)}")
 
-    # 결론 자동 도출
-    best = max(agg.items(), key=lambda kv: (kv[1]["h3"], kv[1]["mrr"]))
-    print(f"\n최고 경로: {best[0]} (Hit@3 {best[1]['h3']}/{n})")
-    trap = [c for c in cases if "함정" in c.get("note", "")]
-    print(f"함정 케이스 {len(trap)}건이 핵심 — 진짜 임베딩(HCX)이 오면 경로 B 자리에 교체해 재실험(스위치)")
+    best = max(results["gen"]["aggregate"].items(), key=lambda kv: (kv[1]["h3"], kv[1]["mrr"]))
+    print(f"\n최고 경로(gen): {best[0]} (Hit@3 {best[1]['h3']}/{n})")
+    print(f"⚠️ 평가셋 {n}건·표 {len(tables)}개로 포화 가능 — 경로 C(통합검색, 28만 표)에서 "
+          f"질의 생성의 진짜 효과가 드러난다. HCX 임베딩 도착 시 경로 B 스위치 교체.")
 
     out = ROOT / "reports" / "exp001.json"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps({"n": n, "aggregate": agg, "per_case": per_case},
-                              ensure_ascii=False, indent=2), encoding="utf-8")
+    out.write_text(json.dumps({"n": n, "modes": results}, ensure_ascii=False, indent=2),
+                   encoding="utf-8")
     print(f"\n리포트 저장: reports/exp001.json")
 
 

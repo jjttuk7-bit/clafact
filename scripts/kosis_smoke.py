@@ -38,21 +38,35 @@ def main() -> int:
     load_env()
     from clafact.kosis import HttpKosisClient
 
+    from clafact.kosis import CachedKosisClient
+    from clafact.throttle import BudgetExceeded, CallBudget
+
     try:
-        client = HttpKosisClient()
+        client = CachedKosisClient(HttpKosisClient(), ROOT / "data/cache/kosis")
     except RuntimeError as e:
         print(f"✗ {e}")
         print("  → clafact/.env 파일을 만들고 KOSIS_API_KEY=<발급키> 를 넣어주세요")
         return 1
 
+    # 호출 예산 현황 (문서 19 §5.2) — 개발 계정 1,000회는 금방 녹는다
+    budget = CallBudget(ROOT / "data/cache/call_budget.json")
+    b = budget.stats()
+    print(f"⓪ 호출 예산: {b['used']}/{b['limit']} 사용 · 남음 {b['remaining']}회"
+          + ("  ⚠️ 80% 초과 — 운영 계정 증량 신청 필요" if budget.should_warn() else ""))
+
     print("① 실 API 호출: 농림어업조사 DT_1EA1019 (orgId=101, 2024년)...")
     try:
         rows = client.fetch_data("101", "DT_1EA1019", prd_de="2024")
+    except BudgetExceeded as e:
+        print(f"✗ {e}")
+        return 1
     except Exception as e:
         print(f"✗ 호출 실패: {e}")
         print("  → 파라미터 형식이 다를 수 있음 — 응답 원문을 보고 kosis.py 를 조정합니다 (예상된 검증 과정)")
         return 1
-    print(f"  ✓ 응답 {len(rows)}행")
+    cs = client.stats()
+    print(f"  ✓ 응답 {len(rows)}행 "
+          f"({'캐시 히트 — 호출 예산 소모 없음' if cs['hits'] else '실 호출 — 캐시에 저장됨'})")
 
     if not rows:
         print("✗ 0행 — 파라미터(prdSe/objL) 조정 필요. 원 API 는 통했으니 절반 성공.")

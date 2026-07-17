@@ -100,6 +100,9 @@ class Evidence:
     unit: str = ""
     period: str = ""
     source_note: str = ""
+    # 최종수정일 (LST_CHN_DE) — 규칙 A2-0012 의 근거. 이 값이 기사 작성일보다
+    # 나중이면 기사가 인용한 당시 공표값(잠정치)을 확인할 수 없어 판단불가로 회피한다.
+    last_change_date: str = ""
 
 
 @dataclass

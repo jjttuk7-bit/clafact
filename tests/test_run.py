@@ -17,7 +17,7 @@ def _labels(text, date):
 
 def test_derived_ratio_e2e():
     """규칙 A2-0007: 'NN세 이상 비율' 주장 → 연령 구간 합산÷전체 재현 → 일치"""
-    out = _labels("2024년 국내 과수 농가의 65세 이상 비율은 64.2%로 나타났다.", "2025-03-14")
+    out = _labels("2024년 국내 과수 농가의 65세 이상 비율은 64.2%로 나타났다.", "2025-05-14")
     assert out == [("match", "medium")]  # 파생 계산 경유 → medium (A2-0004)
 
 
