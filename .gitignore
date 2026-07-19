@@ -15,3 +15,9 @@ data/failures/review_web.jsonl
 
 # KOSIS 호출 캐시·예산 카운터 — 실 API 응답과 로컬 사용량이라 커밋 대상 아님
 data/cache/
+
+# 서비스 DB (기사 원문 포함 가능 — 커밋 금지)
+data/service/
+
+# 외부 수집 데이터 (SNU팩트체크 등 — 저작권상 재배포 불가, 로컬 분석 전용)
+data/external/
