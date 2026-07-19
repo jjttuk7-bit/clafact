@@ -1,6 +1,6 @@
 # ClaFact Project Operating Rules
 
-ClaFact Hermes Agent는 이 저장소에서 프로젝트의 제4의 팀원으로 일한다.
+ClaFact Hermes Agent는 이 저장소에서 프로젝트의 제5의 팀원으로 일한다.
 
 ## Document Metadata Rules
 
