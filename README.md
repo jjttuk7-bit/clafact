@@ -104,37 +104,57 @@ flowchart TD
 정직한 한계도 함께: 현재 커버리지는 **KOSIS 통계에 대응되는 수치 주장**입니다.
 의견·가치판단, 비-KOSIS 소스(금융 시세 등), 이미지·영상은 범위 밖이고 — 범위 밖은 범위 밖이라고 표시합니다.
 
-## 빠른 시작
+## 직접 확인해 보기 — 5분이면 주장을 검증할 수 있습니다
 
+이 README의 모든 주장은 아래 순서로 직접 확인 가능합니다. 설치가 필요 없는 것부터:
+
+**0️⃣ 설치 없이 (브라우저만)** — [라이브 데모](https://clafact-buhqbmwbqcvjh8a29kxrhs.streamlit.app)에서
+"잠정치 함정"·"기준연도 함정" 샘플을 눌러보세요. 시스템이 검증하는 척하지 않고
+**이유를 설명하며 판정을 거부하는 것**이 이 프로젝트의 핵심 장면입니다.
+
+**1️⃣ 전 기능이 오프라인으로 검증됨을 확인** (클론 후, 외부 API·키 불필요)
 ```bash
-# 전체 테스트 (오프라인, 12초)
-PYTHONPATH=. python -m pytest tests/ -q
-
-# 평가 하네스 — 골든셋 전 지표 + 전 회차 대비 diff
-python scripts/run_eval.py
-
-# 데모 (로컬)
-streamlit run streamlit_app.py
-
-# 서비스 파이프라인 — 기사 적재 → 처리 → 리뷰 큐 → 리포트
-python scripts/service_run.py ingest 기사.jsonl
-python scripts/service_run.py process
-python scripts/service_run.py queue
+PYTHONPATH=. python -m pytest tests/ -q     # 134건, 약 12초
 ```
+외부 의존성 없이 전부 통과한다는 것은 = 판정 로직이 네트워크·LLM 상태와 무관하게 결정적이라는 뜻입니다.
+키 유출 방지 회귀 테스트(`test_audit.py`)도 이 안에 있습니다.
 
-실 KOSIS API는 `.env`의 키로 스위치됩니다(키 없이도 픽스처로 전 기능 동작).
-**API 키는 커밋·공유 금지** — 재현 URL에도 키는 마스킹되어 출력됩니다.
-
-## 저장소 지도
-
+**2️⃣ 플라이휠의 계기판을 확인**
+```bash
+python scripts/run_eval.py                   # 골든셋 전 지표 + 전 회차 대비 diff
 ```
-clafact/            엔진 — pipeline(탐지·파싱·매핑·판정), assets(별칭·규칙·골든셋), service(적재·큐), audit
-tests/              134건 — 규칙마다 테스트, 키 유출 방지 회귀 테스트 포함
-scripts/            run_eval(평가), release_gate(공개 전 게이트), service_run(운영 CLI), review_cli(HITL)
-data/               골든셋·규칙 카드·실패 레코드 (검증 데이터셋·외부 수집물은 .gitignore로 커밋 차단)
-ops/                프로젝트 운영 체계 — PROJECT_STATE, 문서 인덱스 (Hermes Agent 작업 공간)
-docs/architecture.md  설계 다이어그램(머메이드)
+이 프로젝트에서 "좋아졌다"는 말은 금지어입니다 — 모든 변경은 이 diff로만 증명됩니다.
+지금 실행하면 현재 지표가 곧 기준선입니다.
+
+**3️⃣ 운영 흐름을 체험** (기사 넣기 → 검증 → 사람 리뷰 큐)
+```bash
+python scripts/service_run.py ingest 기사.jsonl   # 멱등 적재 (같은 파일 두 번 넣어도 안전)
+python scripts/service_run.py process             # 검증 실행 — 건별 격리
+python scripts/service_run.py queue               # 리뷰 큐: 불일치가 맨 앞에 온다
 ```
+불일치는 절대 자동 발행되지 않고 사람 앞에 줄을 섭니다 — 발행등급 정책이 코드로 강제되는 것을 볼 수 있습니다.
+
+> 요구사항: Python 3.10+. 코어는 표준 라이브러리만, 데모 UI만 Streamlit.
+> 실 KOSIS API는 `.env`의 키로 스위치되며(키 없이도 픽스처로 전 기능 동작), **키는 커밋·공유 금지** — 재현 URL에도 자동 마스킹됩니다.
+
+## 저장소 지도 — 원칙이 코드 어디에 사는가
+
+폴더 목록이 아니라, **README의 주장을 코드에서 확인하는 안내표**입니다:
+
+| 이 주장을 확인하려면 | 여기를 보세요 |
+|---|---|
+| "판정은 LLM이 아닌 결정적 코드" | [`clafact/pipeline/verdict.py`](clafact/pipeline/verdict.py) — import 목록에 LLM이 없다. 단위 환산·반올림·임계 비교뿐 |
+| "모든 판정에 재현 URL" | [`clafact/audit.py`](clafact/audit.py) — 재현 URL과 실 호출이 **같은 함수**로 만들어진다 (어긋날 수 없는 구조) |
+| "판단불가는 실패가 아니라 제품" | [`data/assets/rules/`](data/assets/rules) — 잠정치(A2-0012)·기준연도(A2-0013) 등 판정 거부 규칙 카드. 각 카드에 유래 실패와 테스트가 링크됨 |
+| "규칙 카드는 실행 자산" | [`clafact/assets/rules.py`](clafact/assets/rules.py) — 카드의 패턴이 런타임에 로드된다. 테스트 없는 규칙은 등록 거부 |
+| "실패 1건 = 자산 1줄" | [`clafact/assets/failures.py`](clafact/assets/failures.py) — 실패를 resolve하려면 파생 자산 ID가 필수인 감사 장치 |
+| "모든 변경은 diff로 증명" | [`clafact/eval/harness.py`](clafact/eval/harness.py) — 실행마다 코드 버전 기록, 전 회차 자동 비교 |
+| "불일치는 무조건 사람 승인" | [`clafact/service/batch.py`](clafact/service/batch.py) — 발행등급 분류(triage)가 정책을 코드로 강제 |
+| 파이프라인 전체 흐름 | [`clafact/pipeline/`](clafact/pipeline) — ingest → detect → parse → retrieve → verdict → run 순서로 파일이 곧 단계 |
+| 팀이 실제로 일하는 방식 | [`ops/`](ops) — 프로젝트 상태·결정 기록 (Hermes Agent 작업 공간), [`.claude/agents/`](.claude/agents) — 역할별 보조 에이전트 정의 |
+
+커밋에서 볼 수 없는 것도 명시합니다: 검증 대상 데이터셋·서비스 DB·외부 수집 자료는
+`.gitignore`로 커밋이 차단되어 있습니다 (저작권·개인정보 보호).
 
 ## 지금, 그리고 다음
 
