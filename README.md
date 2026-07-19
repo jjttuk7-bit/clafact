@@ -89,7 +89,6 @@ tests/              134건 — 규칙마다 테스트, 키 유출 방지 회귀 
 scripts/            run_eval(평가), release_gate(공개 전 게이트), service_run(운영 CLI), review_cli(HITL)
 data/               골든셋·규칙 카드·실패 레코드 (검증 데이터셋·외부 수집물은 .gitignore로 커밋 차단)
 ops/                프로젝트 운영 체계 — PROJECT_STATE, 문서 인덱스 (Hermes Agent 작업 공간)
-구현/               구현 가이드 — 검색매핑·소스분류 단계별 계획
 docs/architecture.md  설계 다이어그램(머메이드)
 ```
 
