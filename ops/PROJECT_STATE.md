@@ -33,7 +33,8 @@ Content
 - 팀원 1: Claim
 - 팀원 2: Evidence
 - 팀원 3: Verdict & Service
-- 팀원 4: ClaFact Hermes Agent
+- 팀원 4: (역할 배정 예정 — W1 킥오프에서 확정)
+- 팀원 5: ClaFact Hermes Agent
 
 ## 현재 완료
 

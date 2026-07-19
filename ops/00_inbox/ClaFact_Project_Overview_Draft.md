@@ -21,7 +21,8 @@ ClaFact는 뉴스와 콘텐츠 속의 검증 가능한 Claim을 추출하고,
 - 팀원 1: Claim
 - 팀원 2: Evidence
 - 팀원 3: Verdict & Service
-- 팀원 4: ClaFact Hermes Agent
+- 팀원 4: (역할 배정 예정 — W1 킥오프에서 확정)
+- 팀원 5: ClaFact Hermes Agent
 
 ## 프로젝트 기간
 
@@ -30,6 +31,6 @@ ClaFact는 뉴스와 콘텐츠 속의 검증 가능한 Claim을 추출하고,
 ## 목표
 
 단순한 MVP 구축뿐 아니라,
-3명의 인간 팀원이 AI와 함께 일하고,
+4명의 인간 팀원이 AI와 함께 일하고,
 반복 작업을 Skill, Script, Agent, Automation으로 발전시키는
 AI Native 작업 방식을 습득한다.
