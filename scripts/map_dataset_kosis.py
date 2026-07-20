@@ -125,21 +125,32 @@ def main() -> int:
     from clafact.pipeline.retrieve_kosis import search_kosis
     client = CachedKosisClient(HttpKosisClient())
     out_path = OUT_DIR / "kosis_mapping_results.jsonl"
-    done = 0
+    done = errors = 0
     limit = args.limit or len(uniq)
+    # 질의 하나의 실패가 배치 전체를 죽이면 안 된다 — 기록하고 계속한다.
+    # 오직 예산 소진일 때만 중단(더 돌려봐야 전부 실패이므로).
+    BUDGET_SIGNS = ("예산", "한도", "budget", "quota")
     with out_path.open("a", encoding="utf-8") as f:
-        for q in uniq[:limit]:
+        for i, q in enumerate(uniq[:limit], 1):
             try:
                 hits = search_kosis(q, client, top_k=args.top_k)
-            except RuntimeError as e:  # 예산 소진 등
-                print(f"중단: {e}")
-                break
-            rec = {"query": q, "n_claims": len(plan[q]),
-                   "hits": [{"org_id": h.org_id, "tbl_id": h.tbl_id,
-                             "tbl_name": h.tbl_name, "score": h.score} for h in hits[:5]]}
+                rec = {"query": q, "n_claims": len(plan[q]),
+                       "hits": [{"org_id": h.org_id, "tbl_id": h.tbl_id,
+                                 "tbl_name": h.tbl_name, "score": h.score} for h in hits[:5]]}
+                print(f"[{i}/{limit}] hit {len(hits)}건 ← {q[:40]}")
+            except Exception as e:  # noqa: BLE001
+                msg = f"{type(e).__name__}: {e}"
+                if any(s in msg for s in BUDGET_SIGNS):
+                    print(f"예산 소진으로 중단: {msg[:160]}")
+                    break
+                rec = {"query": q, "n_claims": len(plan[q]), "hits": [],
+                       "error": msg[:200]}
+                errors += 1
+                print(f"[{i}/{limit}] ERR {msg[:90]} ← {q[:30]}")
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.flush()          # 중간에 끊겨도 여기까지는 남는다
             done += 1
-    print(f"검색 완료: {done}건 → {out_path}")
+    print(f"\n검색 완료: {done}건 (에러 {errors}건) → {out_path}")
     return 0
 
 
