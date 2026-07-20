@@ -129,7 +129,7 @@ class FixtureKosisClient:
         # 실 API 의 startPrdDe/endPrdDe 를 흉내: PRD_DE 필터
         prd = params.get("prd_de")
         if prd:
-            rows = [r for r in rows if r.get("PRD_DE") == str(prd).replace("-", "")[:4]]
+            rows = [r for r in rows if str(r.get("PRD_DE", "")).startswith(str(prd).replace("-", ""))]
         return rows
 
     def integrated_search(self, searchNm: str, sort: str = "RANK",
@@ -222,7 +222,8 @@ class HttpKosisClient:
         url = build_url(org_id, tbl_id, self.api_key, **params)
         data = self._call(url, f"data {tbl_id} {params.get('prd_de', '')}")
         rows = data if isinstance(data, list) else []
-        prd = str(params.get("prd_de", "")).replace("-", "")[:4]
+        # 시점 필터는 전체 길이로 — [:4] 절삭 시 월 조회가 연 단위로 뭉개진다
+        prd = str(params.get("prd_de", "")).replace("-", "")
         if prd:
             rows = [r for r in rows if str(r.get("PRD_DE", "")).startswith(prd)]
         return rows

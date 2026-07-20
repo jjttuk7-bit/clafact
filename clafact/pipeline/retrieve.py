@@ -67,8 +67,22 @@ class StatIndex:
 
 def fetch_evidence(client: KosisClient, hit: TableHit, period: str,
                    c1: str = "", c2: str = "", itm: str = "") -> list[Evidence]:
-    """선택된 통계표에서 근거 수치 조회. 분류(C1/C2)·항목(ITM) 필터는 부분 일치."""
-    rows = client.fetch_data(hit.org_id, hit.tbl_id, prd_de=period)
+    """선택된 통계표에서 근거 수치 조회. 분류(C1/C2)·항목(ITM) 필터는 부분 일치.
+
+    주기(prdSe)는 시점 형식에서 유도한다 — 'YYYY-MM'이면 월(M), 'YYYY-Qn'이면 분기(Q),
+    아니면 연(Y). 주기를 연으로 고정하면 월별 통계표에서 자료를 못 받는다
+    (실측 2026-07-20: '월별 소비자물가 등락률'에 prdSe=Y로 조회해 전부 자료 없음).
+    월 조회는 최근 24개월을 받아 클라이언트에서 해당 월을 고른다.
+    """
+    p = str(period or "")
+    if "Q" in p.upper():
+        prd_se, recent = "Q", 8
+    elif len(p.replace("-", "")) >= 6:
+        prd_se, recent = "M", 24
+    else:
+        prd_se, recent = "Y", 5
+    rows = client.fetch_data(hit.org_id, hit.tbl_id, prd_de=period,
+                             prd_se=prd_se, recent_n=recent)
     out = []
     for r in rows:
         if c1 and c1 not in r.get("C1_NM", ""):
