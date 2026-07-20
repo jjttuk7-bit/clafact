@@ -65,6 +65,24 @@ class StatIndex:
         return sorted(hits, key=lambda h: -h.score)[:top_k]
 
 
+RE_PCT_IN_NAME = re.compile(r"\(\s*%\s*\)|비율|구성비|등락률|상승률|증감률")
+
+
+def _infer_unit(itm_nm: str, tbl_nm: str) -> str:
+    """단위 필드가 빈 경우 항목명·통계표명에서 단위를 유추한다.
+
+    KOSIS 등락률 표는 단위를 별도 필드가 아니라 항목명에 넣는다:
+    '전년동월비(%)', '전년누계비(%)'. 이때 UNIT_NM 은 빈 문자열이다.
+    유추 실패 시 빈 문자열을 그대로 돌려준다(없는 단위를 지어내지 않는다).
+    """
+    name = f"{itm_nm} {tbl_nm}"
+    if RE_PCT_IN_NAME.search(name):
+        return "%"
+    if itm_nm.endswith(("비", "률", "율")):
+        return "%"
+    return ""
+
+
 def fetch_evidence(client: KosisClient, hit: TableHit, period: str,
                    c1: str = "", c2: str = "", itm: str = "") -> list[Evidence]:
     """선택된 통계표에서 근거 수치 조회. 분류(C1/C2)·항목(ITM) 필터는 부분 일치.
@@ -95,11 +113,15 @@ def fetch_evidence(client: KosisClient, hit: TableHit, period: str,
             value = float(str(r["DT"]).replace(",", ""))
         except (KeyError, ValueError):
             continue  # 결측(-, X 등) → 스킵, 전량 결측이면 상위에서 판단불가
+        # 단위가 빈 경우 항목명에서 유추한다 — KOSIS 등락률 표는 단위를 항목명에
+        # 넣는다('전년동월비(%)'). UNIT_NM 이 비어 있다고 판정을 포기하면
+        # 정작 맞는 근거를 손에 쥐고도 판단불가가 난다 (실측 2026-07-20).
+        unit = r.get("UNIT_NM", "") or _infer_unit(r.get("ITM_NM", ""), hit.tbl_name)
         out.append(Evidence(
             tbl_id=hit.tbl_id, org_id=hit.org_id, tbl_name=r.get("TBL_NM", hit.tbl_name),
             query_params={"prd_de": period, "c1": c1 or r.get("C1_NM", ""),
                           "c2": r.get("C2_NM", ""), "itm": r.get("ITM_NM", "")},
-            value=value, unit=r.get("UNIT_NM", ""), period=r.get("PRD_DE", period),
+            value=value, unit=unit, period=r.get("PRD_DE", period),
             source_note=f"KOSIS {hit.survey} > {hit.tbl_name}",
             last_change_date=r.get("LST_CHN_DE", ""),  # A2-0012 근거 (실 API 는 항상 제공)
         ))

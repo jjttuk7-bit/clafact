@@ -166,11 +166,21 @@ BASIS_PATTERNS = [
 ]
 
 
-def _claim_basis(sentence: str) -> str:
-    """주장이 명시한 비교 기준 ('전년동월'/'전월'/'전년누계'/'전년'). 없으면 ''."""
+RE_RATE_CLAIM = re.compile(r"상승률|등락률|증감률|올랐|내렸|떨어졌|상승|하락")
+
+
+def _claim_basis(sentence: str, period: str = "") -> str:
+    """주장이 명시한 비교 기준 ('전년동월'/'전월'/'전년누계'/'전년'). 없으면 ''.
+
+    명시가 없어도 물가 '상승률' 주장은 관례상 전년 대비다 — 월 시점이면 전년동월비,
+    연 시점이면 전년비. ('작년 8월(2%) 이후 5개월 만' 처럼 기준을 안 밝힌 주장에
+    전월비를 집어 오'불일치'가 났다 — 실측 2026-07-20.)
+    """
     for rx, key in BASIS_PATTERNS:
         if rx.search(sentence or ""):
             return key
+    if RE_RATE_CLAIM.search(sentence or ""):
+        return "전년동월" if len(str(period).replace("-", "")) >= 6 else "전년"
     return ""
 
 
@@ -309,9 +319,14 @@ def verify_sentence(sentence: str, article_date: str,
 
     # 규칙 A2-0016: 주장이 명시한 비교 기준(전년동월비 등)과 같은 항목만 대조한다.
     # 같은 표·같은 시점이라도 항목이 다르면 다른 수치다 — 기준을 못 맞추면 판정하지 않는다.
-    basis = _claim_basis(sentence)
+    basis = _claim_basis(sentence, r.period)
     if basis:
         matched = _pick_basis(evs, basis)
+        # 기준 항목이 아예 없는 표(단일 항목 표 등)라면 원래 근거를 그대로 쓴다.
+        # 여러 기준이 공존하는 표에서만 '못 고르면 회피'가 의미 있다.
+        multi_basis = len({str(e.query_params.get("itm", "")) for e in evs}) > 1
+        if not matched and not multi_basis:
+            matched, basis = evs, ""
         if not matched:
             rules.append("A2-0016")
             r.label, r.reason = "unverifiable", f"비교 기준({basis}비) 항목 부재"

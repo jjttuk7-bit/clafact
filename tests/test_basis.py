@@ -22,7 +22,10 @@ def test_basis_detection():
     assert _claim_basis("지난달 소비자물가가 전년 동월 대비 2.2% 올랐다.") == "전년동월"
     assert _claim_basis("지난달 소비자물가가 작년 같은 달보다 2.2% 올랐다.") == "전년동월"
     assert _claim_basis("소비자물가가 전월 대비 0.7% 올랐다.") == "전월"
-    assert _claim_basis("소비자물가가 올랐다.") == ""
+    # 증감 표현이 없으면 기준도 없다 (규모형 주장)
+    assert _claim_basis("지난해 출생아 수는 23만 명이었다.") == ""
+    # 증감 표현이 있으면 기준 미명시라도 관례 기본값이 붙는다
+    assert _claim_basis("소비자물가가 올랐다.") == "전년"
 
 
 def test_picks_yoy_not_mom():
@@ -58,3 +61,30 @@ def test_named_index_is_respected():
     evs = [_ev("전년동월비", 1.5, c1="생활물가지수"), _ev("전년동월비", 2.2, c1="총지수")]
     sel = _prefer_total_index(evs, "생활물가지수가 1.5% 올랐다.")
     assert len(sel) == 2
+
+
+# --- 단위 유추 (등락률 표는 단위를 항목명에 넣는다) ---
+from clafact.pipeline.retrieve import _infer_unit
+
+
+def test_infer_unit_from_item_name():
+    """UNIT_NM이 비어도 '전년동월비(%)'에서 %를 읽어낸다 — 맞는 근거를 쥐고
+    판단불가로 빠지던 실측 결함(2026-07-20)."""
+    assert _infer_unit("전년동월비(%)", "월별 소비자물가 등락률") == "%"
+    assert _infer_unit("전월비", "월별 소비자물가 등락률") == "%"
+
+
+def test_infer_unit_does_not_invent():
+    """유추 근거가 없으면 단위를 지어내지 않는다."""
+    assert _infer_unit("가구", "가구수") == ""
+
+
+def test_default_basis_for_rate_claims():
+    """기준을 안 밝힌 상승률 주장 — 월 시점이면 전년동월, 연 시점이면 전년."""
+    s = "소비자물가 상승률이 2%대로 올라선 것은 작년 8월 이후 5개월 만이다."
+    assert _claim_basis(s, "2024-08") == "전년동월"
+    assert _claim_basis("지난해 물가가 2.3% 올랐다.", "2024") == "전년"
+
+
+def test_explicit_basis_beats_default():
+    assert _claim_basis("전월 대비 0.7% 올랐다.", "2025-01") == "전월"
