@@ -46,12 +46,14 @@ class SourceLabel:
     route: str
     confidence: float
     reason: str
+    matched_keyword: str = ""   # 분류를 발동시킨 지표어 — KOSIS 검색 질의의 씨앗
 
     def as_dict(self) -> dict:
         return {
             "source_type": self.source_type, "domain": self.domain,
             "claim_type": self.claim_type, "route": self.route,
             "confidence": self.confidence, "reason": self.reason,
+            "matched_keyword": self.matched_keyword,
         }
 
 
@@ -87,11 +89,17 @@ def claim_type(sentence: str, cfg: dict | None = None) -> str:
     return "규모형"
 
 
-def _match_domain(sentence: str, group: dict) -> str | None:
+def _match_domain(sentence: str, group: dict) -> tuple[str, str] | None:
+    """(도메인, 매칭된 키워드) — 키워드는 KOSIS 검색 질의로 재사용된다.
+
+    가장 긴 키워드 우선: '소비자물가'가 '물가가'보다 구체적이므로 먼저 잡는다.
+    """
+    best = None
     for dom, kws in group.items():
-        if any(kw in sentence for kw in kws):
-            return dom
-    return None
+        for kw in kws:
+            if kw in sentence and (best is None or len(kw) > len(best[1])):
+                best = (dom, kw)
+    return best
 
 
 def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
@@ -105,22 +113,23 @@ def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
                            0.75, "전망·예측 표현 — 현재 공식 통계로 검증 부적합")
 
     # 비-KOSIS 우승 순서 (KOSIS_precision 보호): platform > private > other > kosis
-    if (d := _match_domain(sentence, cfg["platform_source"])):
-        return SourceLabel(PLATFORM_SOURCE, d, ct, ROUTE[PLATFORM_SOURCE],
-                           0.7, "플랫폼 수치(조회수·시청률 등) — KOSIS 범위 밖")
-    if (d := _match_domain(sentence, cfg["private_source"])):
-        return SourceLabel(PRIVATE_SOURCE, d, ct, ROUTE[PRIVATE_SOURCE],
-                           0.7, "기업·시장 자료 — KOSIS 범위 밖")
-    if (d := _match_domain(sentence, cfg["other_official"])):
-        return SourceLabel(OTHER_OFFICIAL, d, ct, ROUTE[OTHER_OFFICIAL],
-                           0.7, "비-KOSIS 공식자료(한국은행·부동산원·관세청 등) 가능성")
-    if (d := _match_domain(sentence, cfg["kosis_domestic"])):
+    if (m := _match_domain(sentence, cfg["platform_source"])):
+        return SourceLabel(PLATFORM_SOURCE, m[0], ct, ROUTE[PLATFORM_SOURCE],
+                           0.7, "플랫폼 수치(조회수·시청률 등) — KOSIS 범위 밖", m[1])
+    if (m := _match_domain(sentence, cfg["private_source"])):
+        return SourceLabel(PRIVATE_SOURCE, m[0], ct, ROUTE[PRIVATE_SOURCE],
+                           0.7, "기업·시장 자료 — KOSIS 범위 밖", m[1])
+    if (m := _match_domain(sentence, cfg["other_official"])):
+        return SourceLabel(OTHER_OFFICIAL, m[0], ct, ROUTE[OTHER_OFFICIAL],
+                           0.7, "비-KOSIS 공식자료(한국은행·부동산원·관세청 등) 가능성", m[1])
+    if (m := _match_domain(sentence, cfg["kosis_domestic"])):
+        d, kw = m
         complex_ = d in cfg["complex_domains"] or ct in _complex_claim_labels(cfg)
         if complex_:
             return SourceLabel(KOSIS_BUT_COMPLEX, d, ct, ROUTE[KOSIS_BUT_COMPLEX],
-                               0.8, "KOSIS 가능하나 파생계산·기준연도·시점/모집단 정렬 필요")
+                               0.8, "KOSIS 가능하나 파생계산·기준연도·시점/모집단 정렬 필요", kw)
         return SourceLabel(KOSIS_DOMESTIC, d, ct, ROUTE[KOSIS_DOMESTIC],
-                           0.85, "KOSIS 국내통계에서 직접 조회 가능한 지표")
+                           0.85, "KOSIS 국내통계에서 직접 조회 가능한 지표", kw)
 
     return SourceLabel(UNKNOWN, "-", ct, ROUTE[UNKNOWN],
                        0.3, "규칙 v0.1 사전 밖 — 사람 검토·사전 확장 대상")
@@ -131,6 +140,19 @@ _CT_LABEL = {"derivation": "파생계산형", "delta": "증감형", "threshold":
 
 def _complex_claim_labels(cfg: dict) -> set[str]:
     return {_CT_LABEL[k] for k in cfg["complex_claim_types"] if k in _CT_LABEL}
+
+
+def kosis_query(sentence: str, cfg: dict | None = None) -> str:
+    """KOSIS 통합검색용 **짧은** 질의 — 매칭된 지표어를 그대로 쓴다.
+
+    실측 근거(2026-07-20, NCP 서버 30건 배치): KOSIS 통합검색은 검색창처럼
+    짧은 키워드를 기대한다. 문장의 잔여 토큰을 이어붙인 긴 질의는
+    `err 30 데이터가 존재하지 않습니다`로 27/30 실패했고, '실업률'·'소비자물'
+    같은 짧은 질의만 10건씩 반환했다. 그래서 지표어 하나로 검색한다.
+    (로컬 픽스처 인덱스는 토큰 OR 매칭이라 긴 질의도 통했다 — 실 API와 다름.)
+    """
+    label = classify(sentence, cfg)
+    return label.matched_keyword
 
 
 def _is_kosis(label: str) -> bool:

@@ -59,11 +59,17 @@ def load_kosis_candidates() -> list[dict]:
 
 
 def build_plan(cands: list[dict]) -> dict:
-    """질의 생성 + 중복 제거 → 실행 계획(고유 질의별 소속 Claim 목록)."""
-    aliases = AliasDict()
+    """질의 생성 + 중복 제거 → 실행 계획(고유 질의별 소속 Claim 목록).
+
+    KOSIS 통합검색은 짧은 지표어를 기대하므로 `kosis_query`(매칭 지표어)를 쓴다.
+    긴 문장형 질의(make_query)는 실측에서 27/30이 err30으로 실패했다.
+    부수 효과: 지표어 단위라 중복 제거율이 급등한다(820건 → 지표어 수십 개).
+    """
     q_to_claims: dict[str, list[dict]] = defaultdict(list)
     for c in cands:
-        q = make_query(c["sentence"], aliases)
+        q = sc.kosis_query(c["sentence"])
+        if not q:                     # 지표어를 못 찾으면 검색 자체를 시도하지 않는다
+            continue                  # (예산 낭비 방지 — 쓰레기 질의 컷)
         q_to_claims[q].append(c)
     return q_to_claims
 
