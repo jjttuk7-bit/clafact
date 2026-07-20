@@ -54,3 +54,30 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+
+# --- 실물 데이터셋(크롤 페이지) 크롬 제거 ---
+from clafact.pipeline.ingest import strip_site_chrome, section_from_url
+
+CRAWLED = ("2026년 4월 20일(월) 신문구독 | English 조선경제 오피니언 정치 사회 "
+           "수출 역대 최대 김철수 기자 입력 2025.01.01. 14:18 업데이트 2025.01.02. 02:53 5 "
+           "정부가 CES 2025에 역대 최대 통합한국관을 마련한다고 밝혔다.")
+
+
+def test_strip_site_chrome_removes_menu_and_stamps():
+    """메뉴·크롤시점 날짜·업데이트 타임스탬프가 제거되고 본문만 남는다"""
+    text, anchored = strip_site_chrome(CRAWLED)
+    assert anchored is True
+    assert text.startswith("정부가 CES 2025")
+    assert "신문구독" not in text and "업데이트" not in text and "2026년 4월" not in text
+
+
+def test_strip_site_chrome_no_anchor_returns_original():
+    """앵커가 없으면 원문 유지 + anchored=False (수동 확인 대상 표시용)"""
+    text, anchored = strip_site_chrome("실업률은 7.2%로 상승했다.")
+    assert anchored is False and text == "실업률은 7.2%로 상승했다."
+
+
+def test_section_from_url():
+    assert section_from_url("https://www.chosun.com/economy/industry/2025/01/01/ABC/") == "economy"
+    assert section_from_url("") == ""
