@@ -24,6 +24,7 @@ OTHER_OFFICIAL = "OTHER_OFFICIAL"
 PRIVATE_SOURCE = "PRIVATE_SOURCE"
 PLATFORM_SOURCE = "PLATFORM_SOURCE"
 FORECAST_OR_OPINION = "FORECAST_OR_OPINION"
+OVERSEAS_SOURCE = "OVERSEAS_SOURCE"   # 규칙 A2-0014 — 해외 주체 주장(KOSIS 범위 밖)
 UNKNOWN = "UNKNOWN"
 
 # route (기획 문서 §5 출력 예시)
@@ -34,6 +35,7 @@ ROUTE = {
     PRIVATE_SOURCE: "NON_KOSIS_QUEUE",
     PLATFORM_SOURCE: "NON_KOSIS_QUEUE",
     FORECAST_OR_OPINION: "OUT_OF_SCOPE",
+    OVERSEAS_SOURCE: "OUT_OF_SCOPE",
     UNKNOWN: "HUMAN_REVIEW",
 }
 
@@ -111,6 +113,14 @@ def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
     if ct == "전망형":
         return SourceLabel(FORECAST_OR_OPINION, "-", ct, ROUTE[FORECAST_OR_OPINION],
                            0.75, "전망·예측 표현 — 현재 공식 통계로 검증 부적합")
+
+    # 규칙 A2-0014: 해외 주체 주장은 국내 통계(KOSIS)로 검증할 수 없다.
+    # 지표어 매칭보다 **먼저** 컷해야 한다 — '일본 소비자물가'가 '소비자물가'에 걸려
+    # 한국 통계와 대조되면 '정확하게 틀린' 불일치 판정이 나온다(실측 3/5).
+    for mk in cfg.get("overseas_markers", []):
+        if mk in sentence:
+            return SourceLabel(OVERSEAS_SOURCE, "-", ct, ROUTE[OVERSEAS_SOURCE], 0.8,
+                               f"해외 주체({mk}) 주장 — KOSIS 국내통계 범위 밖", "")
 
     # 비-KOSIS 우승 순서 (KOSIS_precision 보호): platform > private > other > kosis
     if (m := _match_domain(sentence, cfg["platform_source"])):

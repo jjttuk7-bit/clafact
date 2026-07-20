@@ -45,6 +45,30 @@ def test_forecast_beats_kosis():
     assert sc.classify("실업률이 내년 3%로 전망된다.").source_type == sc.FORECAST_OR_OPINION
 
 
+@pytest.mark.parametrize("sentence", [
+    "이날 발표된 지난해 일본 소비자물가지수는 전년 대비 2.5% 올랐다.",
+    "지난해 9월 2.4%까지 떨어졌던 미국 소비자물가 상승률은 12월 2.9%까지 올랐다.",
+    "작년 12월 소비자물가 상승률은 3%로 일본은행 목표치를 뛰어넘었다.",
+    "OECD 평균 고용률은 70%를 기록했다.",
+])
+def test_overseas_guard(sentence):
+    """규칙 A2-0014 — 해외 주체 주장은 국내 지표어가 있어도 KOSIS로 보내지 않는다.
+
+    유래: 첫 실 판정 5건 중 3건이 해외 주장이었고 전부 오'불일치'였다
+    (일본·미국 물가를 한국 소비자물가와 대조). 틀린 불일치는 최악의 오류다.
+    """
+    label = sc.classify(sentence)
+    assert label.source_type == sc.OVERSEAS_SOURCE
+    assert label.route == "OUT_OF_SCOPE"
+    assert sc.kosis_query(sentence) == ""      # 검색 자체를 하지 않는다(예산·오판 방지)
+
+
+def test_domestic_claim_still_passes():
+    """국내 주장은 그대로 KOSIS 경로 — 해외 가드가 과잉 차단하지 않는지."""
+    label = sc.classify("지난달 소비자물가가 전년 동월 대비 2.2% 올랐다.")
+    assert label.source_type.startswith("KOSIS")
+
+
 def test_claim_type_detection():
     assert sc.claim_type("출생아 수는 23만 명이었다.") == "규모형"
     assert sc.claim_type("농가 수가 4.9% 감소했다.") == "증감형"
