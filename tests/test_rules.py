@@ -41,11 +41,11 @@ def test_next_id_increments_past_existing():
 def test_real_repo_next_id():
     """실제 저장소 기준 다음 ID.
 
-    A2-0012(잠정치)·A2-0013(기준연도)·A2-0014(해외 주체) 등록으로 이제 A2-0015.
+    A2-0012(잠정치)·A2-0013(기준연도)·A2-0014(해외 주체)·A2-0015(시점 입도) 등록으로 이제 A2-0016.
     (A2-0011 은 이중계상용으로 예약 — UP_ITM_ID 필요, 아직 미구현이라 번호 갭.)
     """
     root = Path(__file__).resolve().parents[1]
-    assert RuleRegistry(root / "data/assets/rules").next_id() == "A2-0015"
+    assert RuleRegistry(root / "data/assets/rules").next_id() == "A2-0016"
 
 
 def test_create_detection_requires_pattern():

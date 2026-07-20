@@ -154,6 +154,30 @@ def _pick_c1(evs: list[Evidence], sentence: str) -> list[Evidence]:
     return evs
 
 
+RE_MONTHLY_CLAIM = re.compile(
+    r"지난달|전월|이달|당월|전년\s*동월|작년\s*같은\s*달|\d{1,2}월\b|월간|월별")
+
+
+def _granularity_mismatch(sentence: str, evs: list[Evidence]) -> str | None:
+    """규칙 A2-0015: 주장과 근거의 시점 입도가 다르면 대조하지 않는다.
+
+    월 단위 주장(‘지난달 … 전년 동월 대비 2.2%’)을 연 단위 통계(연간 2.3%)와
+    비교하면 값이 당연히 어긋나 '정확하게 틀린' 불일치가 나온다. 실측(2026-07-20
+    첫 실판정)에서 오'불일치' 4건 중 3건이 이 유형이었다.
+
+    판별: 주장에 월 표지가 있는데 근거의 수록시점(PRD_DE)이 연 단위(YYYY, 4자리)면
+    입도 불일치. 반환값은 회피 사유 표기용 문자열.
+    """
+    if not RE_MONTHLY_CLAIM.search(sentence or ""):
+        return None
+    for e in evs:
+        prd = str(e.period or "")
+        if len(prd) >= 6 and prd[:6].isdigit():
+            return None          # 월 단위 근거가 하나라도 있으면 대조 가능
+    prds = {str(e.period) for e in evs if e.period}
+    return f"주장은 월 단위, 근거는 연 단위({', '.join(sorted(prds)) or '연간'})"
+
+
 def _provisional_stale(evs: list[Evidence], article_date) -> str | None:
     """규칙 A2-0012: 통계가 기사 작성 이후 갱신됐으면 당시 공표값(잠정치)을 알 수 없다.
 
@@ -238,6 +262,19 @@ def verify_sentence(sentence: str, article_date: str,
     if not evs:
         r.label, r.reason = "unverifiable", f"시점({r.period}) 수록 데이터 부재"
         r.explanation = f"판정: 판단불가. {hit.tbl_name}에 {r.period} 시점 자료가 없습니다."
+        return r
+
+    # 규칙 A2-0015: 주장(월 단위)과 근거(연 단위)의 시점 입도가 다르면 대조 불가
+    gran = _granularity_mismatch(sentence, evs)
+    if gran:
+        rules.append("A2-0015")
+        r.label, r.reason = "unverifiable", f"시점 입도 불일치 — {gran}"
+        r.explanation = (
+            f"판정: 판단불가. 기사 주장은 월 단위 수치인데 대응 통계는 연 단위입니다"
+            f"({gran}). 입도가 다른 값을 직접 대조하면 어긋나는 것이 당연하므로 "
+            f"'불일치'로 판정하지 않습니다. 월 단위 통계표를 찾으면 검증 가능합니다."
+        )
+        r.audit = _mk_audit(client, hit, evs, r.period, rules)
         return r
 
     # 규칙 A2-0012: 기사 작성 이후 통계가 갱신됐으면 당시 잠정치를 알 수 없다 → 판단불가
