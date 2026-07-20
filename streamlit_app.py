@@ -102,9 +102,10 @@ def render_card(r, scope="v"):
         f'</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
-    if r.notes:
+    if getattr(r, "notes", None):
         st.caption("⚠ " + " / ".join(r.notes))
-    if r.audit:
+    # getattr 방어 — 결과 객체에 audit이 없어도(구버전 배포·부분결과) 카드가 죽지 않게
+    if getattr(r, "audit", None):
         render_audit(r, scope)
 
 
@@ -224,7 +225,7 @@ with tab_review:
             with st.expander(head, expanded=(status is None)):
                 st.markdown(f"**{r.sentence}**")
                 st.caption(f"자동 판정: {label_ko} (신뢰도 {r.confidence or '-'}) | 근거: {r.reason} | 계산: {r.calculation or '-'}")
-                if r.audit:
+                if getattr(r, "audit", None):
                     render_audit(r, scope="rv")  # 검증자는 승인 전에 근거를 볼 수 있어야 한다
                 if status:
                     st.success(f"처리됨 → {status}")
