@@ -154,6 +154,49 @@ def _pick_c1(evs: list[Evidence], sentence: str) -> list[Evidence]:
     return evs
 
 
+# 주장이 말하는 '비교 기준'과 통계표 항목(ITM)을 맞춘다.
+# 실측(2026-07-20): '전년 동월 대비 2.2%' 주장에 전월비(0.7%)를 가져와 오'불일치'.
+# 같은 표·같은 시점이라도 항목이 다르면 완전히 다른 수치다.
+# 순서 주의 — '전년 동월'을 '전월'보다 먼저 본다.
+BASIS_PATTERNS = [
+    (re.compile(r"전년\s*동월|작년\s*같은\s*달|지난해\s*같은\s*달"), "전년동월"),
+    (re.compile(r"전년\s*누계|누계\s*대비"), "전년누계"),
+    (re.compile(r"전월\s*대비|전달\s*(?:대비|보다)|전월비"), "전월"),
+    (re.compile(r"전년\s*대비|지난해\s*대비|작년보다|지난해보다|전년비"), "전년"),
+]
+
+
+def _claim_basis(sentence: str) -> str:
+    """주장이 명시한 비교 기준 ('전년동월'/'전월'/'전년누계'/'전년'). 없으면 ''."""
+    for rx, key in BASIS_PATTERNS:
+        if rx.search(sentence or ""):
+            return key
+    return ""
+
+
+def _pick_basis(evs: list[Evidence], basis: str) -> list[Evidence]:
+    """항목(ITM)이 주장의 비교 기준과 같은 근거만 남긴다. 없으면 빈 리스트."""
+    if not basis:
+        return evs
+    return [e for e in evs
+            if basis in str(e.query_params.get("itm", "")).replace(" ", "")]
+
+
+def _prefer_total_index(evs: list[Evidence], sentence: str) -> list[Evidence]:
+    """지수종류가 여러 개인 표에서 주장이 특정하지 않으면 '총지수'를 쓴다.
+
+    '소비자물가가 2.2% 올랐다'는 총지수를 말한다 — 생활물가지수·신선식품지수는
+    기사가 그 이름을 직접 부를 때만 대상이다.
+    """
+    named = ("생활물가", "신선식품", "식료품", "에너지", "농산물", "근원")
+    if any(n in (sentence or "") for n in named):
+        return evs
+    total = [e for e in evs
+             if "총지수" in str(e.query_params.get("c1", ""))
+             or "총지수" in str(e.query_params.get("itm", ""))]
+    return total or evs
+
+
 RE_MONTHLY_CLAIM = re.compile(
     r"지난달|전월|이달|당월|전년\s*동월|작년\s*같은\s*달|\d{1,2}월\b|월간|월별")
 
@@ -263,6 +306,25 @@ def verify_sentence(sentence: str, article_date: str,
         r.label, r.reason = "unverifiable", f"시점({r.period}) 수록 데이터 부재"
         r.explanation = f"판정: 판단불가. {hit.tbl_name}에 {r.period} 시점 자료가 없습니다."
         return r
+
+    # 규칙 A2-0016: 주장이 명시한 비교 기준(전년동월비 등)과 같은 항목만 대조한다.
+    # 같은 표·같은 시점이라도 항목이 다르면 다른 수치다 — 기준을 못 맞추면 판정하지 않는다.
+    basis = _claim_basis(sentence)
+    if basis:
+        matched = _pick_basis(evs, basis)
+        if not matched:
+            rules.append("A2-0016")
+            r.label, r.reason = "unverifiable", f"비교 기준({basis}비) 항목 부재"
+            r.explanation = (
+                f"판정: 판단불가. 기사는 '{basis} 대비' 수치를 말하는데, "
+                f"{hit.tbl_name}에서 해당 항목을 찾지 못했습니다. 기준이 다른 항목"
+                f"(예: 전월비)과 대조하면 값이 어긋나는 것이 당연하므로 판정하지 않습니다."
+            )
+            r.audit = _mk_audit(client, hit, evs, r.period, rules)
+            return r
+        rules.append("A2-0016")
+        evs = matched
+    evs = _prefer_total_index(evs, sentence)
 
     # 규칙 A2-0015: 주장(월 단위)과 근거(연 단위)의 시점 입도가 다르면 대조 불가
     gran = _granularity_mismatch(sentence, evs)
