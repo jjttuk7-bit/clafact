@@ -281,6 +281,29 @@ class CachedKosisClient:
             ensure_ascii=False), encoding="utf-8")
         return rows
 
+    def integrated_search(self, searchNm: str, sort: str = "RANK",
+                          resultCount: int = 10) -> list[dict]:
+        """통합검색도 캐시 — 같은 검색어는 예산을 두 번 쓰지 않는다."""
+        raw = json.dumps({"s": "search", "q": searchNm, "sort": sort, "n": resultCount},
+                         sort_keys=True, ensure_ascii=False)
+        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        p = self.dir / f"search_{h}.json"
+        if p.exists():
+            try:
+                blob = json.loads(p.read_text(encoding="utf-8"))
+                fresh = self.ttl is None or (time.time() - blob.get("fetched_at", 0)) < self.ttl
+                if fresh:
+                    self.hits += 1
+                    return blob["rows"]
+            except (json.JSONDecodeError, KeyError, OSError):
+                pass
+        rows = self.inner.integrated_search(searchNm, sort=sort, resultCount=resultCount)
+        self.misses += 1
+        p.write_text(json.dumps(
+            {"fetched_at": time.time(), "fetched_at_h": time.strftime("%Y-%m-%dT%H:%M:%S"),
+             "query": searchNm, "rows": rows}, ensure_ascii=False), encoding="utf-8")
+        return rows
+
     def stats(self) -> dict:
         total = self.hits + self.misses
         return {"hits": self.hits, "misses": self.misses,
