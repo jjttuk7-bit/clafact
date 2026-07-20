@@ -1,0 +1,20 @@
+name: cloud-smoke
+
+# 수동 실행 전용 — 실 HCX·KOSIS가 GitHub 클라우드에서 도달하는지 1회 확인.
+# 키는 리포 Settings → Secrets and variables → Actions 에 등록한다(로그에 안 찍힘).
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 도달 스모크 (코어는 표준 라이브러리라 설치 불필요)
+        env:
+          HCX_API_KEY: ${{ secrets.HCX_API_KEY }}
+          KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
+        run: PYTHONPATH=. python scripts/cloud_smoke.py
