@@ -48,13 +48,14 @@ class MockLLMClient:
 
 
 class HcxClient:
-    """NCP CLOVA Studio HCX API. HCX_API_KEY 환경변수 필요.
+    """NCP CLOVA Studio HCX API (Chat Completions v3). HCX_API_KEY 환경변수 필요.
 
-    ⚠️ 키 발급 후 엔드포인트·요청 형식을 NCP 콘솔 문서 기준으로 검증할 것.
+    엔드포인트: /v3/chat-completions/{model} (구 /testapp/v1 아님 — 2026-07 실측 400 후 정정).
+    헤더: Authorization Bearer + X-NCP-CLOVASTUDIO-REQUEST-ID(UUID) + Content-Type.
     temperature 0 고정 권장 — 멱등성(WF-1 운영 규칙).
     """
 
-    BASE = "https://clovastudio.stream.ntruss.com/testapp/v1/chat-completions"
+    BASE = "https://clovastudio.stream.ntruss.com/v3/chat-completions"
 
     def __init__(self, api_key: str | None = None, timeout: int = 60):
         self.api_key = api_key or os.environ.get("HCX_API_KEY", "")
@@ -63,6 +64,7 @@ class HcxClient:
             raise RuntimeError("HCX_API_KEY 가 없습니다 — .env 설정 또는 MockLLMClient 사용")
 
     def complete(self, system: str, user: str, *, model: str = "HCX-005", temperature: float = 0.0) -> str:
+        import uuid
         payload = {
             "messages": [
                 {"role": "system", "content": system},
@@ -74,10 +76,13 @@ class HcxClient:
             f"{self.BASE}/{model}",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": f"Bearer {self.api_key}",
-                     "Content-Type": "application/json"},
+                     "X-NCP-CLOVASTUDIO-REQUEST-ID": uuid.uuid4().hex,
+                     "Content-Type": "application/json",
+                     "Accept": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
+        # v3 비스트리밍 응답: {"result": {"message": {"content": "..."}}}
         return data.get("result", {}).get("message", {}).get("content", "")
 
 
