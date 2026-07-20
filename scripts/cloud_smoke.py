@@ -23,7 +23,9 @@ def check_hcx() -> bool:
     if not os.environ.get("HCX_API_KEY"):
         print("[HCX] 건너뜀 — HCX_API_KEY 미설정")
         return False
+    import urllib.error
     from clafact.llm import HcxClient
+    key = os.environ.get("HCX_API_KEY", "")
     try:
         resp = HcxClient(timeout=30).complete(
             "예/아니오로만 답하라.",
@@ -31,6 +33,20 @@ def check_hcx() -> bool:
         ok = bool(resp and resp.strip())
         print(f"[HCX] {'✅ 도달' if ok else '⚠️ 빈 응답'} — 응답 {len(resp)}자")
         return ok
+    except urllib.error.HTTPError as e:
+        # 400의 진짜 이유는 응답 본문에 있다 (서버 에러 메시지 — 키는 미포함).
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            pass
+        if key and key in body:               # 만일을 대비한 마스킹
+            body = body.replace(key, "***")
+        print(f"[HCX] ❌ HTTP {e.code} — 서버 응답: {body[:300]}")
+        # 키 형식 힌트(값 미노출): 새 CLOVA Studio 키는 'nv-'로 시작(Bearer 방식)
+        print(f"[HCX] 키가 'nv-'로 시작하는가: {key.startswith('nv-')} "
+              "(False면 구형 키 — Bearer 방식과 안 맞을 수 있음)")
+        return False
     except Exception as e:  # noqa: BLE001
         print(f"[HCX] ❌ 실패 — {type(e).__name__}: {str(e)[:120]}")
         return False
