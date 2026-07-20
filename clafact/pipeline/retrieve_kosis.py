@@ -31,13 +31,19 @@ def _covers_period(row: dict, period: str) -> bool:
     return strt <= yr <= end
 
 
-def search_kosis(query: str, client, *, period: str = "", top_k: int = 10) -> list[TableHit]:
+def search_kosis(query: str, client, *, period: str = "", top_k: int = 10,
+                 sentence: str = "") -> list[TableHit]:
     """통합검색으로 통계표 후보를 뽑는다.
 
     - RANK 순서를 rank 기반 score(1/순위)로 환산해 하류(RRF·정렬)와 호환.
     - period 가 주어지면 수록기간이 안 맞는 표를 조회 전에 제거.
+    - sentence 가 주어지면 **재순위**한다(rerank.py) — RANK 1위가 주장에 맞는
+      표라는 보장이 없기 때문. 추가 호출 없이 검색 응답 메타만으로 판단한다.
     """
     rows = client.integrated_search(searchNm=query, sort="RANK", resultCount=top_k)
+    if sentence:
+        from clafact.pipeline.rerank import rerank_rows
+        rows = rerank_rows(rows, sentence, period)
     hits: list[TableHit] = []
     for i, r in enumerate(rows):
         if period and not _covers_period(r, period):
@@ -78,4 +84,7 @@ class KosisSearchIndex:
         self.last_query = q
         if not q:
             return []              # 지표어 없음 → 억지 매핑 대신 빈 결과(판단불가로 흐른다)
-        return search_kosis(q, self.client, period=self.period, top_k=top_k)
+        # 검색은 짧은 지표어로, 재순위는 주장 문장 전체로 — 검색과 선택의 역할 분리.
+        # 검색어에서 버린 정보(주기·지역·모집단)가 여기서 표 선택에 쓰인다.
+        return search_kosis(q, self.client, period=self.period,
+                            top_k=max(top_k, 10), sentence=query)[:top_k]
