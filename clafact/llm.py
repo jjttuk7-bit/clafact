@@ -6,15 +6,23 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.request
+from pathlib import Path
 from typing import Callable, Protocol
 
 
 class LLMClient(Protocol):
     def complete(self, system: str, user: str, *, model: str = "", temperature: float = 0.0) -> str:
         ...
+
+
+def signature(system: str, user: str, model: str) -> str:
+    """요청의 결정적 서명 — 카세트 키. 키·시크릿은 포함하지 않는다."""
+    raw = json.dumps([system, user, model], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
 class MockLLMClient:
@@ -71,6 +79,72 @@ class HcxClient:
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
         return data.get("result", {}).get("message", {}).get("content", "")
+
+
+class Cassette:
+    """record-replay 카세트 — 요청 서명 → 응답. **API 키는 저장하지 않는다.**
+
+    저장 형식: {signature: {system, user, model, response}}.
+    system/user는 사람이 리뷰할 수 있게 평문 보관(프롬프트 회귀의 근거).
+    """
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.entries: dict[str, dict] = {}
+        if self.path.exists():
+            self.entries = json.loads(self.path.read_text(encoding="utf-8"))
+
+    def get(self, system: str, user: str, model: str) -> str | None:
+        e = self.entries.get(signature(system, user, model))
+        return e["response"] if e else None
+
+    def put(self, system: str, user: str, model: str, response: str) -> None:
+        self.entries[signature(system, user, model)] = {
+            "system": system, "user": user, "model": model, "response": response,
+        }
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps(self.entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class ReplayLLMClient:
+    """카세트에 녹화된 응답만 재생 — 오프라인·결정적·무과금.
+
+    카세트에 없는 요청은 RuntimeError(테스트가 조용히 통과하지 않게).
+    실 API 검증은 record_hcx.py 로 카세트를 갱신하는 방식으로 한다.
+    """
+
+    def __init__(self, cassette: Cassette):
+        self.cassette = cassette
+        self.calls: list[dict] = []
+
+    def complete(self, system: str, user: str, *, model: str = "HCX-005", temperature: float = 0.0) -> str:
+        self.calls.append({"system": system, "user": user, "model": model})
+        resp = self.cassette.get(system, user, model)
+        if resp is None:
+            raise RuntimeError(
+                f"카세트에 없는 요청 (sig={signature(system, user, model)}). "
+                "scripts/record_hcx.py 로 녹화 필요.")
+        return resp
+
+
+class RecordingHcxClient:
+    """실 HCX 호출 + 카세트 자동 저장 — record_hcx.py 에서만 쓴다.
+
+    이 클래스만 실 API를 호출한다. 키는 HcxClient가 환경변수에서 읽고,
+    카세트에는 응답만 남는다(키 미저장).
+    """
+
+    def __init__(self, cassette: Cassette, inner: LLMClient | None = None):
+        self.cassette = cassette
+        self.inner = inner or HcxClient()
+
+    def complete(self, system: str, user: str, *, model: str = "HCX-005", temperature: float = 0.0) -> str:
+        resp = self.inner.complete(system, user, model=model, temperature=temperature)
+        self.cassette.put(system, user, model, resp)
+        return resp
 
 
 def get_client() -> LLMClient:

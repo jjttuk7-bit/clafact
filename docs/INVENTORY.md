@@ -25,9 +25,10 @@
 
 | 자산 | 무엇 | 완성도 |
 |---|---|---|
-| `clafact/pipeline/source_classify.py` | — | **없음** — 모듈 자체 미구현, `run.py`에 배선 없음(grep 0건) |
-| 규칙 v0.1 전수 분류 결과 | 8라벨 분류 16,464건 (`news_data/claims_classified_v01.json`) | **동작 확인됨** — 단, 일회성 스크립트 산출물이며 모듈·테스트 아님 |
-| `data/goldenset/source_routing_seed.jsonl` | — | **없음** (기획 문서가 요구하는 파일) |
+| `clafact/pipeline/source_classify.py` | 8라벨 분류 모듈 + routing_metrics (2026-07-20 승격) | **동작 확인됨** — 단위 테스트 통과, `run.py` 배선은 아직(W1) |
+| `data/assets/routing_v01.json` | 키워드 사전 v0.1 (기획 문서 §4, 코드에서 분리) | **동작 확인됨** — 모듈이 로드 |
+| 규칙 v0.1 전수 분류 결과 | 8라벨 분류 16,464건 (`news_data/claims_classified_v01.json`) | **동작 확인됨** — 일회성 산출물, 이제 로직은 모듈로 승격됨 |
+| `data/goldenset/source_routing_seed.jsonl` | — | **없음** — 정확도 테스트가 이 사람 라벨 시드를 기다림(W1) |
 
 ### Evidence Retrieval (KOSIS)
 
@@ -70,7 +71,9 @@
 | `scripts/review_cli.py`, `demo_server.py`, `streamlit_app.py` | HITL 리뷰, 데모 | 실존 — 데모는 Streamlit Cloud 배포 중 |
 | `ops/` (PROJECT_STATE·인덱스·수신함 3문서) | Hermes 작업 공간 | 실존 — 팀 구조 5인 체제로 갱신됨 |
 | `.claude/agents/` 4종 | 역할 전속 보조 에이전트 정의 | 실존 (오늘 커밋) |
-| 테스트 137건 (`tests/` 15파일) | 규칙·키유출·서비스 포함 | **동작 확인됨** — 오늘 137 passed, 10.6s |
+| 테스트 156+ (`tests/` 18파일) | 4계층 구조: 기본(오프라인)·@dataset(실물 회귀)·@contract(HCX 재생)·@live(실호출)·@eval(정확도 게이트) | **동작 확인됨** — 156 passed·4 skipped(카세트·시드 대기)·1 live deselected |
+| `pyproject.toml` + `tests/conftest.py` | pytest 마커 설정 + 자원 부재 시 skip(조용한 통과 방지) | **동작 확인됨** (2026-07-20 신설) |
+| record-replay 인프라 (`llm.py` Cassette/Replay/Recording + `scripts/record_hcx.py`) | 실 HCX 응답 녹화→오프라인 재생, 카세트에 키 미저장 | **동작 확인됨** — 재생 로직 검증. 실 녹화는 R2가 키 환경에서 |
 
 ## 2. 리포 밖 자산 (참조)
 

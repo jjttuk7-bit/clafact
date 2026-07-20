@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "version": "v0.1",
+    "source": "ClaFact_Source_Classification_기획.pdf §4 키워드 사전",
+    "principle": "KOSIS_precision 최우선 — 충돌 시 비-KOSIS 우승, 애매하면 UNKNOWN",
+    "created": "2026-07-20"
+  },
+  "kosis_domestic": {
+    "employment_labor": ["실업률", "고용률", "취업자", "청년 고용", "경제활동인구"],
+    "prices_inflation": ["소비자물가", "생활물가", "물가지수", "물가상승률", "물가가"],
+    "population_household": ["출생아", "사망자", "1인 가구", "고령", "인구"],
+    "agriculture_fishery": ["농가", "과수", "재배면적", "어가", "농림어업"]
+  },
+  "other_official": {
+    "trade_customs": ["수출", "수입", "무역수지", "관세청"],
+    "real_estate": ["아파트값", "전셋값", "매매가", "한국부동산원", "국토부", "전세가", "집값", "분양가"],
+    "national_accounts_macro": ["GDP", "국내총생산", "경제성장률", "한국은행", "기준금리", "성장률"]
+  },
+  "private_source": {
+    "finance_market": ["코스피", "코스닥", "주가", "시총", "환율", "비트코인", "나스닥", "달러"],
+    "business_company": ["영업이익", "매출", "투자액", "분기 실적", "순이익", "수주"]
+  },
+  "platform_source": {
+    "platform": ["조회수", "팔로워", "시청률", "관객", "음원", "다운로드", "구독자"]
+  },
+  "claim_type_patterns": {
+    "forecast": "전망|예상|예측|추정|것으로 보|목표로|계획이다|할 방침",
+    "threshold": "돌파|넘어섰|넘었|웃돌|밑돌|이상으로|초과|이하로 떨어",
+    "derivation": "곳 중|명 중|중 [0-9]|비율|비중|절반|10곳|차지",
+    "delta": "증가|감소|상승|하락|늘었|늘어|줄었|올랐|내렸|%p|퍼센트포인트|포인트",
+    "rank": "[0-9]+위|순위|1위"
+  },
+  "complex_domains": ["prices_inflation"],
+  "complex_claim_types": ["derivation", "delta", "threshold"]
+}

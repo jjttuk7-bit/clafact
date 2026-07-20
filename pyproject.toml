@@ -1,0 +1,15 @@
+[tool.pytest.ini_options]
+# ClaFact 테스트 구조 (2026-07-20 고도화)
+#   기본(마커 없음) = 오프라인·결정적·무과금 — CI/금요일 리추얼에서 전량 실행
+#   dataset = 실물 데이터셋(news_data/) 있을 때만 — 불변식 회귀
+#   live    = 실 HCX API 호출(과금·키 필요) — 수동/야간만
+#   contract= record-replay 카세트 재생 — 오프라인이지만 실 응답 구조 검증
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers -m 'not live'"
+markers = [
+    "dataset: 실물 조선일보 데이터셋이 있을 때만 실행하는 회귀(불변식) 테스트",
+    "live: 실 HCX API를 호출하는 테스트 — 과금·키 필요, 기본 제외(-m live로만)",
+    "contract: record-replay 카세트로 실 응답 구조를 검증하는 계약 테스트",
+    "eval: 골든셋 기반 정확도 평가 테스트(정밀도/재현율 임계 판정)",
+]
