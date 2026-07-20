@@ -53,3 +53,29 @@ def search_kosis(query: str, client, *, period: str = "", top_k: int = 10) -> li
             score=round(1.0 / (i + 1), 4),   # RANK 순위 → 점수
         ))
     return hits[:top_k]
+
+
+class KosisSearchIndex:
+    """StatIndex 인터페이스를 **실 KOSIS 통합검색**으로 구현한 어댑터 (경로 C).
+
+    `verify_sentence(sentence, date, index, client)` 의 index 자리에 이걸 넣으면
+    픽스처 인덱스 대신 실 KOSIS 28만 표를 검색해 판정 파이프라인이 그대로 돈다.
+    (StatIndex 와 같은 `search(query, top_k) -> list[TableHit]` 계약을 만족)
+
+    질의는 주장 문장 전체가 아니라 **매칭 지표어**를 쓴다 — 실측상 KOSIS 통합검색은
+    검색창처럼 짧은 키워드를 기대하기 때문(긴 문장 질의는 err30). 상세는
+    `source_classify.kosis_query` 주석 참조.
+    """
+
+    def __init__(self, client, period: str = ""):
+        self.client = client
+        self.period = period
+        self.last_query = ""       # 감사·디버깅용: 실제로 던진 검색어
+
+    def search(self, query: str, top_k: int = 3) -> list[TableHit]:
+        from clafact.pipeline.source_classify import kosis_query
+        q = kosis_query(query)
+        self.last_query = q
+        if not q:
+            return []              # 지표어 없음 → 억지 매핑 대신 빈 결과(판단불가로 흐른다)
+        return search_kosis(q, self.client, period=self.period, top_k=top_k)
