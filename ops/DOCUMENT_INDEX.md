@@ -111,3 +111,32 @@ Hermes Agent는 새로운 문서를 확인한 뒤
 - 마지막 업데이트: 2026-07-22
 - 설명: R1~R5의 전체 업무, 산출물, 역할 간 연결과 운영 주기를 추적하는 체크리스트
 - 관련 영역: PM·Evaluation, Claim, Evidence, Verdict·Service, Hermes Agent
+
+
+---
+
+## DOC-006
+
+- 문서명: ClaFact 실제 서비스 풀스택 설계
+- 위치: docs/plans/2026-07-22-clafact-fullstack-design.md
+- 분류: Product Architecture
+- 상태: Approved
+- 담당: Human Team + ClaFact Hermes Agent
+- 작성일: 2026-07-22
+- 마지막 업데이트: 2026-07-22
+- 설명: news_data·HCX·KOSIS·Verdict·Review 기반 실제 팀용 웹서비스 설계
+- 관련 영역: Full-stack Service, R1~R5
+
+---
+
+## DOC-007
+
+- 문서명: ClaFact Full-Stack Service Implementation Plan
+- 위치: docs/plans/2026-07-22-clafact-fullstack-implementation-plan.md
+- 분류: Engineering Plan
+- 상태: Draft
+- 담당: Human Team + ClaFact Hermes Agent
+- 작성일: 2026-07-22
+- 마지막 업데이트: 2026-07-22
+- 설명: 실제 서비스 전환을 위한 단계별 구현·테스트·출시 계획
+- 관련 영역: Backend, Frontend, Worker, Operations
