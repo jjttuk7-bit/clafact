@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from backend.app.ingest_service import import_article_file
 from clafact.kosis import CachedKosisClient, FixtureKosisClient, HttpKosisClient
 from clafact.pipeline.retrieve import StatIndex
 from clafact.service.batch import process_pending
@@ -39,5 +40,19 @@ def process_pending_batch(request: ProcessPendingRequest) -> dict:
     try:
         index, client = build_kosis_engine()
         return process_pending(store, index, client, limit=request.limit)
+    finally:
+        store.close()
+
+class ArticleImportRequest(BaseModel):
+    path: str
+
+
+@app.post("/internal/articles/import", tags=["internal"])
+def import_article(request: ArticleImportRequest) -> dict[str, int]:
+    root = Path(__file__).resolve().parents[2]
+    db_path = Path(os.environ.get("CLAFACT_SERVICE_DB", root / "data/service/clafact.db"))
+    store = Store(db_path)
+    try:
+        return import_article_file(request.path, store)
     finally:
         store.close()
