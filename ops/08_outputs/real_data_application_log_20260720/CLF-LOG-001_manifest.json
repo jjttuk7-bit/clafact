@@ -1,0 +1,40 @@
+{
+  "doc_id": "CLF-LOG-001",
+  "title": "REAL-DATA APPLICATION LOG — PLAN vs REALITY",
+  "version": "v1.0",
+  "record_period": "2026-07-20",
+  "stored_at": "2026-07-21 23:15:41 UTC",
+  "source_pdf": "/opt/data/cache/documents/doc_24341b736553_c3680c4151635316.pdf",
+  "saved_pdf": "/opt/data/profiles/clafact/workspace/clafact_repo/ops/08_outputs/real_data_application_log_20260720/CLF-LOG-001_Real_Data_Application_Log_v1.0.pdf",
+  "extracted_markdown": "/opt/data/profiles/clafact/workspace/clafact_repo/ops/08_outputs/real_data_application_log_20260720/CLF-LOG-001_Real_Data_Application_Log_v1.0_extracted.md",
+  "pages": 5,
+  "pdf_metadata": {
+    "format": "PDF 1.7",
+    "title": "",
+    "author": "",
+    "subject": "",
+    "keywords": "",
+    "creator": "Microsoft® Word Microsoft 365용",
+    "producer": "Microsoft® Word Microsoft 365용",
+    "creationDate": "D:20260721112622+09'00'",
+    "modDate": "D:20260721112622+09'00'",
+    "trapped": "",
+    "encryption": null
+  },
+  "key_results": {
+    "articles_processed": 2649,
+    "claim_candidates": 16464,
+    "kosis_candidates": 820,
+    "kosis_search_success": "19/19 queries",
+    "first_accurate_real_verdicts": "3 matches on 7th run",
+    "false_mismatch_reduction": "5 -> 0",
+    "new_rule_cards": [
+      "A2-0014 overseas subject guard",
+      "A2-0015 time granularity guard",
+      "A2-0016 comparison-basis alignment"
+    ],
+    "tests": "137 -> 185",
+    "commits": 22,
+    "kosis_budget_used": "~65/1000 calls"
+  }
+}

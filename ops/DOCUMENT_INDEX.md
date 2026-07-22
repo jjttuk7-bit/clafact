@@ -38,6 +38,21 @@ Hermes Agent는 새로운 문서를 확인한 뒤
 
 ---
 
+## DOC-003
+
+- 문서명: CLF-LOG-001 1차 실데이터 작동 결과물 저장본
+- 위치: ops/08_outputs/real_data_application_log_20260720/CLF-LOG-001_result_summary.md
+- 분류: Real Data Execution Result
+- 상태: Review
+- 담당: Human Team + ClaFact Hermes Agent
+- 작성일: 2026-07-20
+- 마지막 업데이트: 2026-07-21
+- 설명: 조선일보 2025년 기사 데이터셋, KOSIS Open API, NCP HCX를 사용한 ClaFact 1차 실데이터·실API 관통 실행 기록. 원본 PDF, 추출 Markdown, manifest JSON, 요약본을 함께 저장한다.
+- 관련 영역: Claim, Evidence, Verdict, Evaluation, Project
+- 대체 문서: 없음
+
+---
+
 ## 새 문서 등록 형식
 
 ### DOC-XXX
