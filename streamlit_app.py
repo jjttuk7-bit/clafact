@@ -22,6 +22,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import FixtureKosisClient
+from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.service.store import Store
 from clafact.pipeline import detect
 from clafact.pipeline.retrieve import StatIndex
@@ -153,39 +154,53 @@ def render_audit(r, scope="v"):
                          "코드나 자산이 바뀌었습니다. 이 경우 실패 레코드 대상입니다.")
 
 
-st.set_page_config(page_title="ClaFact — 뉴스 수치 검증 MVP", page_icon="🔎", layout="centered")
-st.title("🔎 ClaFact")
-st.markdown("**뉴스 속 수치 주장을 국가통계(KOSIS)로 자동 검증합니다** — "
-            "근거 없으면 판정하지 않습니다(판단불가 우선), 판정은 결정적 로직(환각 0)")
+st.set_page_config(page_title="ClaFact — 뉴스 수치 검증 MVP", page_icon="◈", layout="wide")
+st.markdown("""
+<style>
+  .stApp { background:#071d2b; color:#e7f0ef; }
+  [data-testid="stHeader"] { background:rgba(7,29,43,.9); }
+  .block-container { max-width:1440px; padding-top:2rem; padding-bottom:4rem; }
+  h1,h2,h3,p,label { color:#e7f0ef !important; }
+  [data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid #234252; }
+  [data-testid="stTabs"] button { color:#a9bec3; font-weight:650; }
+  [data-testid="stTabs"] button[aria-selected="true"] { color:#eafffa; background:#123748; }
+  [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input { background:#0b2636; color:#e7f0ef; border-color:#31576a; }
+  [data-testid="stDataFrame"] { border:1px solid #234252; border-radius:.75rem; overflow:hidden; }
+  .ops-hero { background:radial-gradient(circle at 90% 0%,rgba(70,213,199,.18),transparent 31%),#0b2636; border:1px solid #31576a; border-radius:1rem; padding:clamp(1.25rem,3vw,2.25rem); margin-bottom:1.25rem; }
+  .ops-kicker { color:#71eee0; font-size:.75rem; font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
+  .ops-title { color:#f1fbfa; font-size:clamp(1.7rem,3.5vw,2.65rem); font-weight:760; line-height:1.1; margin:.5rem 0; }
+  .ops-copy,.ops-note { color:#b3c7ca; line-height:1.65; }
+  .ops-chip { display:inline-block; margin-top:.8rem; padding:.35rem .65rem; border:1px solid #3e887f; border-radius:99px; color:#91f0e4; font-size:.82rem; }
+  .ops-card { min-height:8rem; background:#0b2636; border:1px solid #234252; border-top:3px solid var(--accent); border-radius:.8rem; padding:1rem 1.1rem; }
+  .ops-label { color:#a9bec3; font-size:.83rem; font-weight:650; }
+  .ops-value { color:#f4fbfa; font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
+  .ops-note { color:#89a6aa; font-size:.78rem; margin-top:.4rem; }
+  :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
+  @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
+</style>
+""", unsafe_allow_html=True)
+st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 감사까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 감사 로그 보존</span></section>""", unsafe_allow_html=True)
 
 tab_ops, tab_verify, tab_review, tab_flywheel, tab_assets = st.tabs(
     ["📡 운영 홈", "🔎 검증", "👤 검증자 리뷰", "🔥 플라이휠", "🔄 자산 현황"])
 
 with tab_ops:
-    st.header("서비스 운영 홈")
     store = Store(ROOT / "data/service/clafact.db")
     try:
         summary = store.summary()
     finally:
         store.close()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("등록 기사", summary["articles"])
-    c2.metric("처리 대기", summary["claims_by_status"].get("PENDING", 0))
-    c3.metric("처리 실패", summary["claims_by_status"].get("FAILED", 0))
-    c4.metric("리뷰 대기", summary["review_queue"])
-    st.caption("기사 등록·배치 처리는 내부 FastAPI를 통해 실행됩니다.")
+    metrics = [
+        ("등록 기사", summary["articles"], "누적 수집", "#46d5c7"),
+        ("처리 대기", summary["claims_by_status"].get("PENDING", 0), "다음 배치 대상", "#f1c96b"),
+        ("처리 실패", summary["claims_by_status"].get("FAILED", 0), "조치 필요", "#ed7b72"),
+        ("리뷰 대기", summary["review_queue"], "검토자 확인", "#88a9ff"),
+    ]
+    for column, (label, value, note, accent) in zip(st.columns(4), metrics):
+        column.markdown(f'<div class="ops-card" style="--accent:{accent}"><div class="ops-label">{label}</div><div class="ops-value">{value:,}</div><div class="ops-note">{note}</div></div>', unsafe_allow_html=True)
 
-    st.subheader("최근 Claim")
-    claims = Store(ROOT / "data/service/clafact.db").conn.execute(
-        "SELECT sentence, status, label, tier, audit_json, error FROM claims ORDER BY created_at DESC LIMIT 20"
-    ).fetchall()
-    rows = []
-    for claim in claims:
-        audit = json.loads(claim["audit_json"] or "{}")
-        hcx = audit.get("hcx_detection", {})
-        rows.append({"문장": claim["sentence"], "상태": claim["status"], "판정": claim["label"], "등급": claim["tier"], "HCX": hcx.get("mode") or hcx.get("fallback", "-"), "오류": claim["error"]})
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-
+    st.markdown("#### 운영 실행")
+    st.caption("기사 파일을 등록한 뒤, 큐에 쌓인 수치 주장을 지정한 한도만큼 처리합니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     path = st.text_input("기사 파일 경로 (JSONL/CSV)", placeholder="data/incoming/articles.jsonl")
     limit = st.number_input("처리 한도", min_value=1, value=50)
@@ -195,7 +210,7 @@ with tab_ops:
             req = urllib.request.Request(f"{api_url}/internal/articles/import", data=json.dumps({"path": path.strip()}).encode(), headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=30) as response:
                 out = json.loads(response.read())
-                st.success("등록 완료")
+                st.success(f"등록 완료 · 신규 기사 {out['imported']}건")
         except Exception as error:
             st.error(f"등록 실패: {error}")
     if b.button("대기 Claim 처리", type="primary", use_container_width=True):
@@ -207,6 +222,14 @@ with tab_ops:
         except Exception as error:
             st.error(f"처리 실패: {error}")
 
+    st.markdown("#### 최근 감사 로그")
+    st.caption("최근 등록된 수치 주장과 처리·판정·보조 신호를 확인합니다.")
+    claims_store = Store(ROOT / "data/service/clafact.db")
+    try:
+        claims = claims_store.conn.execute("SELECT sentence, status, label, tier, audit_json, error FROM claims ORDER BY created_at DESC LIMIT 20").fetchall()
+    finally:
+        claims_store.close()
+    st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
 
 # ═════════════ 탭 1: 검증 (WF-1) ═════════════
 with tab_verify:
