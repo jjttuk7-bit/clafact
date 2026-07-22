@@ -21,3 +21,5 @@ data/service/
 
 # 외부 수집 데이터 (SNU팩트체크 등 — 저작권상 재배포 불가, 로컬 분석 전용)
 data/external/
+
+.hermes/
