@@ -124,20 +124,17 @@ class Store:
         self.conn.commit()
         return True
 
-    def enqueue_claim(self, claim_id: str, article_id: str, sentence: str) -> bool:
-        """신규면 PENDING 으로 큐잉하고 True. 이미 있으면(처리됐든 대기든) 그대로 둔다
-        — 같은 파일을 두 번 넣어도 재처리가 일어나지 않는 멱등성의 두 번째 축."""
-        cur = self.conn.execute(
-            "SELECT 1 FROM claims WHERE claim_id = ?", (claim_id,))
-        if cur.fetchone():
+    def enqueue_claim(self, claim_id: str, article_id: str, sentence: str, audit: dict | None = None) -> bool:
+        """신규 Claim을 PENDING 큐에 감사 메타데이터와 함께 저장한다."""
+        if self.conn.execute("SELECT 1 FROM claims WHERE claim_id = ?", (claim_id,)).fetchone():
             return False
         self.conn.execute(
-            "INSERT INTO claims (claim_id, article_id, sentence, status, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (claim_id, article_id, sentence, PENDING, now_iso()))
+            "INSERT INTO claims (claim_id, article_id, sentence, status, audit_json, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (claim_id, article_id, sentence, PENDING, json.dumps(audit or {}, ensure_ascii=False), now_iso()),
+        )
         self.conn.commit()
         return True
-
     # ── 큐 소비 ─────────────────────────────────────────────────
 
     def fetch_pending(self, limit: int | None = None) -> list[sqlite3.Row]:
