@@ -67,3 +67,31 @@ Hermes Agent는 새로운 문서를 확인한 뒤
 - 설명:
 - 관련 영역:
 - 대체 문서:
+
+---
+
+## DOC-003
+
+- 문서명: DECISION_LOG.md
+- 위치: ops/DECISION_LOG.md
+- 분류: Project Management
+- 상태: Draft
+- 담당: Human Team + ClaFact Hermes Agent
+- 작성일: 2026-07-22
+- 마지막 업데이트: 2026-07-22
+- 설명: 확정된 운영·제품 결정을 기록하는 공식 로그
+- 관련 영역: Project, Operations
+
+---
+
+## DOC-004
+
+- 문서명: 역할별 작업 로그 운영체계
+- 위치: ops/10_roles/
+- 분류: Project Operations
+- 상태: Draft
+- 담당: R1~R5 Role Owners
+- 작성일: 2026-07-22
+- 마지막 업데이트: 2026-07-22
+- 설명: 역할별 책임, Daily Log, Backlog, 정책·자동화 문서를 관리하는 공식 운영 공간
+- 관련 영역: PM·Evaluation, Claim, Evidence, Verdict·Service, Hermes Agent

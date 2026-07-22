@@ -64,6 +64,9 @@ Content
 - 신규 규칙 카드 A2-0014, A2-0015, A2-0016 도출
 - 테스트 수 137건 → 185건 확대
 - Hermes 일일 오전 9시 브리핑 Workflow 생성 및 수동 실행 성공
+- 역할별 작업 로그 운영체계 `ops/10_roles/` 생성
+- R1~R5 역할별 README·Daily Log·Backlog·특수 문서 생성
+- 공식 결정 로그 `ops/DECISION_LOG.md` 추가
 
 ## 현재 진행 중
 
@@ -106,6 +109,12 @@ Content
 - DOCUMENT_INDEX.md
 - CLF-LOG-001 1차 실데이터 작동 결과물 저장본
 - ops/08_outputs/real_data_application_log_20260720/CLF-LOG-001_result_summary.md
+
+## 마지막 업데이트
+
+2026-07-22
+- Discord 논의와 GitHub 공식 기록이 충돌하면 GitHub 문서를 우선하고 충돌 사실을 보고한다.
+- Daily Log에는 API 키·토큰·개인정보·내부 접근 링크를 기록하지 않는다.
 
 ## 마지막 업데이트
 
