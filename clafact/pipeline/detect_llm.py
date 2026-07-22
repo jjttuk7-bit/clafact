@@ -44,6 +44,12 @@ def judge(sentence: str, client: LLMClient | None = None) -> tuple[bool, str]:
     return _parse(resp)
 
 
+def assist(sentence: str, client: LLMClient | None = None) -> tuple[bool, bool]:
+    """규칙 후보를 보존하고 HCX의 판별 신호만 반환한다."""
+    signal, _reason = judge(sentence, client)
+    return True, signal
+
+
 def refine(candidates: list[tuple[int, str]],
            client: LLMClient | None = None) -> list[tuple[int, str]]:
     """규칙 필터 후보 리스트를 2차 판별로 정밀화.
