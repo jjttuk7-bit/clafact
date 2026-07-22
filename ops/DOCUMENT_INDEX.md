@@ -95,3 +95,19 @@ Hermes Agent는 새로운 문서를 확인한 뒤
 - 마지막 업데이트: 2026-07-22
 - 설명: 역할별 책임, Daily Log, Backlog, 정책·자동화 문서를 관리하는 공식 운영 공간
 - 관련 영역: PM·Evaluation, Claim, Evidence, Verdict·Service, Hermes Agent
+
+
+---
+
+## DOC-005
+
+- 문서명: R1~R5 전체 역할 체크리스트
+- 위치: ops/ROLE_CHECKLIST.md
+- HTML 버전: ops/ROLE_CHECKLIST.html
+- 분류: Project Operations
+- 상태: Draft
+- 담당: Human Team + ClaFact Hermes Agent
+- 작성일: 2026-07-22
+- 마지막 업데이트: 2026-07-22
+- 설명: R1~R5의 전체 업무, 산출물, 역할 간 연결과 운영 주기를 추적하는 체크리스트
+- 관련 영역: PM·Evaluation, Claim, Evidence, Verdict·Service, Hermes Agent
