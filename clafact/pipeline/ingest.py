@@ -23,6 +23,7 @@ FIELD_ALIASES = {
 
 # 비본문 요소 제거 패턴 (문서 04 §1.3 전처리 규칙)
 RE_REPORTER = re.compile(r"^[가-힣]{2,4}\s*기자\s*(=|$)|[가-힣]{2,4}\s*기자입니다\.?$")
+RE_REPORTER_TAIL = re.compile(r"\s+[가-힣]{2,4}\s*기자$")
 RE_COPYRIGHT = re.compile(r"무단\s*전재|재배포\s*금지|저작권자|ⓒ|©|Copyright", re.I)
 RE_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 RE_MULTISPACE = re.compile(r"[ \t ]+")
@@ -100,7 +101,7 @@ def clean_body(body: str) -> str:
     lines = []
     for line in body.splitlines():
         # 이메일을 먼저 제거해야 "홍길동 기자 x@y.com" 줄이 기자명 패턴에 걸린다
-        s = RE_EMAIL.sub("", line).strip()
+        s = RE_REPORTER_TAIL.sub("", RE_EMAIL.sub("", line).strip()).strip()
         if not s or RE_COPYRIGHT.search(s) or RE_REPORTER.search(s):
             continue
         lines.append(s)
