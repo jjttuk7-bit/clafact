@@ -23,3 +23,6 @@ data/service/
 data/external/
 
 .hermes/
+
+# Local Git worktrees — independent working directories, never repository content
+.worktrees/
