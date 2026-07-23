@@ -274,6 +274,20 @@ st.markdown("""
   .ops-route-note { color:var(--ops-muted); font-size:.75rem; line-height:1.45; margin-top:.25rem; }
   .ops-next-action { display:flex; gap:.65rem; align-items:baseline; background:color-mix(in srgb,var(--primary-color) 10%,var(--ops-surface)); border:1px solid color-mix(in srgb,var(--primary-color) 35%,var(--ops-border)); border-radius:.75rem; color:var(--ops-text); padding:.85rem 1rem; margin-top:1rem; }
   .ops-next-label { color:var(--primary-color); font-size:.78rem; font-weight:760; white-space:nowrap; }
+  .verification-summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin:.9rem 0 1.25rem; }
+  .verification-summary-card { background:var(--ops-surface); border:1px solid var(--ops-border); border-top:3px solid var(--verify-accent); border-radius:.8rem; padding:.85rem 1rem; min-height:5.8rem; }
+  .verification-summary-label { color:var(--ops-muted); font-size:.76rem; font-weight:680; }
+  .verification-summary-value { color:var(--ops-text); font-size:1.8rem; font-weight:780; letter-spacing:-.04em; margin-top:.3rem; }
+  .verification-summary-note { color:var(--ops-muted); font-size:.73rem; margin-top:.2rem; }
+  .verification-workspace { background:var(--ops-surface); border:1px solid var(--ops-border); border-radius:1rem; padding:1rem 1.15rem 1.25rem; margin:0 0 1.2rem; }
+  .verification-section-title { color:var(--ops-text); font-size:1.15rem; font-weight:750; margin:0; }
+  .verification-section-copy { color:var(--ops-muted); font-size:.82rem; line-height:1.5; margin:.25rem 0 .8rem; }
+  .verification-action-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:color-mix(in srgb,#087f73 9%,var(--ops-surface)); border:1px solid color-mix(in srgb,#087f73 30%,var(--ops-border)); border-radius:.75rem; padding:.75rem .9rem; margin:.7rem 0 .85rem; }
+  .verification-action-label { color:var(--ops-text); font-size:.84rem; font-weight:700; }
+  .verification-action-note { color:var(--ops-muted); font-size:.75rem; }
+  .verification-reason { margin:.85rem 0 1rem; }
+  @media (max-width:900px) { .verification-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .verification-action-bar { display:block; } }
+  @media (max-width:640px) { .verification-summary-grid { grid-template-columns:1fr 1fr; } .verification-workspace { padding:.85rem; } }
   @media (max-width:900px) { .ops-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .ops-route-grid { grid-template-columns:1fr; } }
   @media (max-width:640px) { .ops-summary-grid { grid-template-columns:1fr 1fr; } .ops-workspace { padding:.9rem; } .ops-next-action { display:block; } }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
@@ -380,8 +394,7 @@ if view == "운영 홈":
     else:
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":
-    st.markdown("#### 이번 업로드 검증 결과")
-    st.caption("운영 홈에서 등록·처리한 Claim의 저장된 KOSIS 판정과 HCX 설명을 다시 실행하지 않고 확인합니다.")
+    st.markdown("""<div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 03</div><h2 class="ops-section-title">이번 업로드 검증 결과</h2><p class="ops-section-copy">저장된 KOSIS 판정과 HCX 설명을 확인하고, 필요한 Claim만 다시 검증합니다.</p></div>""", unsafe_allow_html=True)
     uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
     if uploaded_article_ids:
         result_store = Store(ROOT / "data/service/clafact.db")
@@ -401,8 +414,7 @@ if view == "검증":
             for row in unverifiable_rows:
                 reason = row["reason"] or row["classification_reason"] or "근거 부족"
                 reason_counts[reason] = reason_counts.get(reason, 0) + 1
-            st.markdown("#### 판단불가 사유")
-            st.caption("현재 업로드에서 자동 검증으로 결론을 내리지 못한 Claim의 사유입니다.")
+            st.markdown("""<div class="verification-reason"><h3 class="verification-section-title">판단불가 사유</h3><p class="verification-section-copy">자동 검증으로 결론을 내리지 못한 Claim을 사유별로 묶었습니다.</p></div>""", unsafe_allow_html=True)
             st.dataframe(
                 [{"사유": reason, "건수": count} for reason, count in sorted(reason_counts.items())],
                 hide_index=True,
@@ -410,8 +422,7 @@ if view == "검증":
             )
 
         if official_announcements:
-            st.markdown("#### 공식 공지 검증")
-            st.caption("KOSIS 표 해당 없음 · 공식 공지 검증")
+            st.markdown("""<div class="verification-reason"><h3 class="verification-section-title">공식 공지 확인 필요</h3><p class="verification-section-copy">KOSIS 표 해당 없음 · 공식 공지 검증 · 공식 기관 공지는 별도 근거를 등록합니다.</p></div>""", unsafe_allow_html=True)
             for row in official_announcements:
                 evidence = _stored_json(row["evidence_json"])
                 registered_notice = evidence.get("official_notice") or evidence.get("official_url")
@@ -439,12 +450,14 @@ if view == "검증":
             pending = sum(row["status"] == "PENDING" for row in upload_results)
             completed = sum(row["status"] == "DONE" for row in upload_results)
             failed = sum(row["status"] == "FAILED" for row in upload_results)
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("이번 업로드 수치 주장", len(upload_results))
-            m2.metric("판정 완료", completed)
-            m3.metric("처리 대기", pending)
-            m4.metric("처리 실패", failed)
-
+            st.markdown("""<h3 class="verification-section-title">검증 현황</h3>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="verification-summary-grid">
+              <div class="verification-summary-card" style="--verify-accent:#46d5c7"><div class="verification-summary-label">이번 업로드 수치 주장</div><div class="verification-summary-value">{len(upload_results):,}</div><div class="verification-summary-note">전체 검증 후보</div></div>
+              <div class="verification-summary-card" style="--verify-accent:#087f73"><div class="verification-summary-label">판정 완료</div><div class="verification-summary-value">{completed:,}</div><div class="verification-summary-note">검증 결과 저장</div></div>
+              <div class="verification-summary-card" style="--verify-accent:#d99718"><div class="verification-summary-label">처리 대기</div><div class="verification-summary-value">{pending:,}</div><div class="verification-summary-note">다음 검증 대상</div></div>
+              <div class="verification-summary-card" style="--verify-accent:#ed7b72"><div class="verification-summary-label">처리 실패</div><div class="verification-summary-value">{failed:,}</div><div class="verification-summary-note">오류 확인 필요</div></div>
+            </div>""", unsafe_allow_html=True)
+            st.markdown("""<div class="verification-workspace"><h3 class="verification-section-title">검증 작업</h3><p class="verification-section-copy">기사 단위로 확인하거나 전체 Claim을 필터링해 일괄 검증할 수 있습니다.</p>""", unsafe_allow_html=True)
             view_mode = st.radio("결과 보기", ("선택 기사", "전체 수치 주장"), horizontal=True)
             if view_mode == "전체 수치 주장":
                 filter_status, filter_label, filter_search = st.columns([1, 1, 2])
@@ -470,6 +483,7 @@ if view == "검증":
                 end = min(int(page) * page_size, total)
                 st.caption(f"검색 결과 {total:,}건 · {start:,}–{end:,}번 표시 · 50건씩 페이지 이동")
                 pending_ids = [row["claim_id"] for row in page_rows if row["status"] == "PENDING"]
+                st.markdown(f"""<div class="verification-action-bar"><span class="verification-action-label">일괄 검증</span><span class="verification-action-note">현재 페이지 대기 Claim {len(pending_ids):,}건 · 최대 50건 처리</span></div>""", unsafe_allow_html=True)
                 if pending_ids and st.button("현재 페이지 50건 검증", type="primary"):
                     batch_store = Store(ROOT / "data/service/clafact.db")
                     try:
@@ -498,6 +512,7 @@ if view == "검증":
                 st.caption(f"선택 기사 수치 주장 {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
                 for number, row in enumerate(selected, start=1):
                     render_stored_claim(row, number)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.info("이번 업로드에서 검증 후보 Claim이 추출되지 않았습니다.")
     else:

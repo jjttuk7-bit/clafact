@@ -156,3 +156,23 @@ def test_operations_home_labels_the_three_routing_cards() -> None:
     assert "자동 검증 가능" in home
     assert "복합 KOSIS 사람 검토" in home
     assert "별도 근거 확인" in home
+
+
+def test_verification_tab_uses_a_clear_workflow_hierarchy() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "verification-summary-grid" in section
+    assert "verification-workspace" in section
+    assert "verification-action-bar" in section
+    assert "검증 현황" in section
+
+
+def test_verification_tab_keeps_batch_action_prominent() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "현재 페이지 50건 검증" in section
+    assert "대기" in section
+    assert "검증 대기" in section
+    assert "판단불가" in section
