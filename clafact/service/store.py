@@ -302,7 +302,7 @@ class Store:
                      reviewer: str = "", note: str = "") -> None:
         """approve → CONFIRMED / correct → CORRECTED(+A4 연계는 배치 층에서)
         / reject → PENDING 재처리 (상태 머신 IN_REVIEW 분기와 동일)."""
-        if action not in ("approve", "correct", "reject"):
+        if action not in ("approve", "correct", "reject", "hold"):
             raise ValueError(f"알 수 없는 리뷰 액션: {action}")
         self.conn.execute(
             "INSERT INTO reviews (review_id, claim_id, action, reviewer, note, created_at)"
@@ -314,6 +314,9 @@ class Store:
         elif action == "correct":
             self.conn.execute("UPDATE claims SET tier=? WHERE claim_id=?",
                               (CORRECTED, claim_id))
+        elif action == "hold":
+            self.conn.execute("UPDATE claims SET tier=?, reason=? WHERE claim_id=?",
+                              (UNVERIFIABLE, note or "공식 근거 확인 필요", claim_id))
         else:  # reject → 재처리 큐로
             self.conn.execute(
                 "UPDATE claims SET status=?, tier=NULL, label=NULL, confidence=NULL"

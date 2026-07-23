@@ -76,3 +76,8 @@ def test_verification_tab_offers_current_page_batch_verification() -> None:
     section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
     assert '현재 페이지 50건 검증' in section
     assert 'claim_ids=' in section
+def test_reviewer_tab_offers_official_evidence_replacement() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증자 리뷰":'):source.index('# ═════════════ 탭 3: 플라이휠')]
+    assert '공식 근거 교체 후 재검증' in section
+    assert 'review_notice_url_' in section

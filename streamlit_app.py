@@ -510,6 +510,18 @@ if view == "검증자 리뷰":
             with st.expander(f"{row['label'] or '판정 확인'} · {row['sentence'][:64]}"):
                 st.write(row["sentence"])
                 st.caption(row["reason"] or "자동 판정 근거 확인 필요")
+                review_org = st.text_input("공식 기관명", key=f"review_notice_org_{row['claim_id']}")
+                review_url = st.text_input("공식 공지 URL", key=f"review_notice_url_{row['claim_id']}")
+                review_date = st.date_input("시행일", key=f"review_notice_date_{row['claim_id']}")
+                if st.button("공식 근거 교체 후 재검증", key=f"review_notice_verify_{row['claim_id']}"):
+                    import requests
+                    api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
+                    response = requests.post(f"{api_url}/internal/claims/{row['claim_id']}/official-notice", json={"organization": review_org, "url": review_url, "effective_date": str(review_date)}, timeout=10)
+                    if response.ok:
+                        st.success("공식 근거로 재검증했습니다.")
+                        st.rerun()
+                    else:
+                        st.error(response.json().get("detail", "재검증에 실패했습니다."))
                 approve, hold = st.columns(2)
                 if approve.button("자동 판정 승인", key=f"approve_{row['claim_id']}"):
                     review_store = Store(ROOT / "data/service/clafact.db")
@@ -519,7 +531,12 @@ if view == "검증자 리뷰":
                         review_store.close()
                     st.rerun()
                 if hold.button("판단 보류", key=f"hold_{row['claim_id']}"):
-                    st.warning("판단 보류: 추가 공식 근거 확인이 필요합니다.")
+                    hold_store = Store(ROOT / "data/service/clafact.db")
+                    try:
+                        hold_store.apply_review(row["claim_id"], "hold", note="공식 근거 확인 필요")
+                    finally:
+                        hold_store.close()
+                    st.rerun()
     results = st.session_state.get("results", [])
     reviews = st.session_state.setdefault("reviews", {})
     if not results:

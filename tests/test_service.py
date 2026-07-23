@@ -275,3 +275,10 @@ def test_register_official_notice_verdicts_and_validation():
     with pytest.raises(ValueError):
         s.register_official_notice("clm_match", "통계청", "https://kostat.go.kr/notice", "2025-13-22")
     s.close()
+def test_review_hold_keeps_claim_in_review_with_note():
+    s = _store(); s.upsert_article("a", "t", "2025-01-01", "", "u", "b"); s.enqueue_claim("c", "a", "수치 주장")
+    s.save_result("c", label="unverifiable", confidence=None, tier=st.NEEDS_REVIEW)
+    s.apply_review("c", "hold", note="공식 근거 확인 필요")
+    row = s.conn.execute("SELECT tier FROM claims WHERE claim_id='c'").fetchone()
+    assert row["tier"] == st.UNVERIFIABLE
+    s.close()
