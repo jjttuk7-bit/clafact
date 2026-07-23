@@ -144,17 +144,17 @@ def render_card(r, scope="v"):
     #   다음 줄의 들여쓰기를 마크다운이 '코드 블록'으로 해석해 HTML 이 날것으로 노출된다.
     #   하필 판단불가는 시연 3막의 주인공이다 (문서 20 §2.3).
     evidence_html = (
-        f'<div style="font-size:13px;color:#5A6B85">근거: {r.evidence.get("tbl", "")} '
+        f'<div style="font-size:13px;color:var(--ops-muted)">근거: {r.evidence.get("tbl", "")} '
         f'→ <b>{r.evidence.get("value", "")}</b></div>'
     ) if r.evidence else ""
     html = (
-        f'<div style="border:1px solid #DDE5EF;border-left:6px solid {color};'
-        f'border-radius:10px;padding:14px 16px;margin:10px 0;background:#fff">'
+        f'<div style="border:1px solid var(--ops-border);border-left:6px solid {color};color:var(--ops-text);'
+        f'border-radius:10px;padding:14px 16px;margin:10px 0;background:var(--ops-surface)">'
         f'<b style="color:{color}">{label_ko}</b>'
-        f'&nbsp;<span style="font-size:12px;color:#5A6B85">{" · ".join(chips)}</span>'
+        f'&nbsp;<span style="font-size:12px;color:var(--ops-muted)">{" · ".join(chips)}</span>'
         f'<div style="font-weight:bold;margin:6px 0">{r.sentence}</div>'
         f'{evidence_html}'
-        f'<div style="font-size:13px;color:#44546A;background:#F6F8FB;border-radius:8px;'
+        f'<div style="font-size:13px;color:var(--ops-text);background:var(--ops-page);border-radius:8px;'
         f'padding:10px;margin-top:8px;line-height:1.6">{r.explanation}</div>'
         f'</div>'
     )
@@ -209,9 +209,13 @@ def render_audit(r, scope="v"):
 st.set_page_config(page_title="ClaFact — 뉴스 수치 검증 MVP", page_icon="◈", layout="wide")
 st.markdown("""
 <style>
-  :root { --ops-page:#F3F6F8; --ops-surface:#FFFFFF; --ops-border:#C8D4DC; --ops-text:#102A3A; --ops-muted:#4D6473; }
-  @media (prefers-color-scheme: dark) {
-    :root { --ops-page:#071D2B; --ops-surface:#0B2636; --ops-border:#31576A; --ops-text:#E7F0EF; --ops-muted:#B3C7CA; }
+  :root {
+    color-scheme:light dark;
+    --ops-page:var(--background-color,#F3F6F8);
+    --ops-surface:var(--secondary-background-color,#FFFFFF);
+    --ops-text:var(--text-color,#102A3A);
+    --ops-muted:color-mix(in srgb,var(--text-color,#102A3A) 66%,var(--background-color,#F3F6F8));
+    --ops-border:color-mix(in srgb,var(--text-color,#102A3A) 24%,var(--background-color,#F3F6F8));
   }
   [data-testid="stSidebar"] { background:var(--ops-surface); border-right:1px solid var(--ops-border); }
   [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top:1.2rem; }
@@ -229,17 +233,17 @@ st.markdown("""
   [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stTextArea"] textarea { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }
   [data-testid="stDataFrame"] { border:1px solid var(--ops-border); border-radius:.75rem; overflow:hidden; }
   .ops-hero { background:radial-gradient(circle at 90% 0%,rgba(70,213,199,.12),transparent 31%),var(--ops-surface); border:1px solid var(--ops-border); border-radius:1rem; padding:clamp(1.25rem,3vw,2.25rem); margin-bottom:1.25rem; }
-  .ops-kicker { color:#71eee0; font-size:.75rem; font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
+  .ops-kicker { color:var(--primary-color); font-size:.75rem; font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
   .ops-title { color:var(--ops-text); font-size:clamp(1.7rem,3.5vw,2.65rem); font-weight:760; line-height:1.1; margin:.5rem 0; }
   .ops-copy,.ops-note { color:var(--ops-muted); line-height:1.65; }
-  .ops-chip { display:inline-block; margin-top:.8rem; padding:.35rem .65rem; border:1px solid #3e887f; border-radius:99px; color:#91f0e4; font-size:.82rem; }
+  .ops-chip { display:inline-block; margin-top:.8rem; padding:.35rem .65rem; border:1px solid var(--primary-color); border-radius:99px; color:var(--primary-color); font-size:.82rem; }
   .ops-card { min-height:8rem; background:var(--ops-surface); border:1px solid var(--ops-border); border-top:3px solid var(--accent); border-radius:.8rem; padding:1rem 1.1rem; }
   .ops-label { color:var(--ops-muted); font-size:.83rem; font-weight:650; }
   .ops-value { color:var(--ops-text); font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
-  .ops-note { color:#89a6aa; font-size:.78rem; margin-top:.4rem; }
-  div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }`r
-  div.stButton > button[kind="primary"] { background:var(--primary-color); color:#FFFFFF; }`r
-  div.stButton > button p { color:inherit !important; }`r
+  .ops-note { color:var(--ops-muted); font-size:.78rem; margin-top:.4rem; }
+  div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }
+  div.stButton > button[kind="primary"] { background:var(--primary-color); color:#FFFFFF; }
+  div.stButton > button p { color:inherit !important; }
   :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
 </style>

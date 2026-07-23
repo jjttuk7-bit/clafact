@@ -39,3 +39,11 @@ def test_verification_tab_offers_all_claim_view_with_filters_and_pagination():
     assert 'Claim 검색' in verification_section
     assert '50건씩' in verification_section
     assert 'count_upload_results' in verification_section
+
+def test_dashboard_custom_colors_follow_streamlit_theme_tokens():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '--ops-page:var(--background-color' in source
+    assert '--ops-surface:var(--secondary-background-color' in source
+    assert '--ops-text:var(--text-color' in source
+    assert 'background:var(--ops-surface)' in source
