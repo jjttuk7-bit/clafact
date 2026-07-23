@@ -285,6 +285,12 @@ st.markdown("""
   .verification-action-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:color-mix(in srgb,#087f73 9%,var(--ops-surface)); border:1px solid color-mix(in srgb,#087f73 30%,var(--ops-border)); border-radius:.75rem; padding:.75rem .9rem; margin:.7rem 0 .85rem; }
   .verification-action-label { color:var(--ops-text); font-size:.84rem; font-weight:700; }
   .verification-action-note { color:var(--ops-muted); font-size:.75rem; }
+  .verification-controls { background:var(--ops-page); border:1px solid var(--ops-border); border-radius:.75rem; padding:.75rem .9rem .85rem; margin:.25rem 0 1rem; }
+  .verification-controls-title { color:var(--ops-text); font-size:.86rem; font-weight:740; margin:0 0 .25rem; }
+  .verification-controls-copy { color:var(--ops-muted); font-size:.74rem; margin:0 0 .5rem; }
+  .verification-claim-context { display:flex; align-items:center; justify-content:space-between; gap:.75rem; background:color-mix(in srgb,var(--primary-color) 7%,var(--ops-surface)); border:1px solid color-mix(in srgb,var(--primary-color) 25%,var(--ops-border)); border-radius:.65rem; padding:.65rem .8rem; margin:.55rem 0 .8rem; }
+  .verification-claim-context strong { color:var(--ops-text); font-size:.8rem; }
+  .verification-claim-context span { color:var(--ops-muted); font-size:.74rem; }
   .verification-reason { margin:.85rem 0 1rem; }
   @media (max-width:900px) { .verification-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .verification-action-bar { display:block; } }
   @media (max-width:640px) { .verification-summary-grid { grid-template-columns:1fr 1fr; } .verification-workspace { padding:.85rem; } }
@@ -457,7 +463,8 @@ if view == "검증":
               <div class="verification-summary-card" style="--verify-accent:#d99718"><div class="verification-summary-label">처리 대기</div><div class="verification-summary-value">{pending:,}</div><div class="verification-summary-note">다음 검증 대상</div></div>
               <div class="verification-summary-card" style="--verify-accent:#ed7b72"><div class="verification-summary-label">처리 실패</div><div class="verification-summary-value">{failed:,}</div><div class="verification-summary-note">오류 확인 필요</div></div>
             </div>""", unsafe_allow_html=True)
-            st.markdown("""<div class="verification-workspace"><h3 class="verification-section-title">검증 작업</h3><p class="verification-section-copy">기사 단위로 확인하거나 전체 Claim을 필터링해 일괄 검증할 수 있습니다.</p>""", unsafe_allow_html=True)
+            st.markdown("""<div class="verification-workspace"><h3 class="verification-section-title">검증 작업</h3><p class="verification-section-copy">기사 단위로 확인하거나 전체 Claim을 필터링해 일괄 검증할 수 있습니다.</p>
+            <div class="verification-controls"><div class="verification-controls-title">검증 대상 선택</div><p class="verification-controls-copy">선택한 기사만 보거나 전체 수치 주장을 검색할 수 있습니다.</p></div>""", unsafe_allow_html=True)
             view_mode = st.radio("결과 보기", ("선택 기사", "전체 수치 주장"), horizontal=True)
             if view_mode == "전체 수치 주장":
                 filter_status, filter_label, filter_search = st.columns([1, 1, 2])
@@ -509,7 +516,7 @@ if view == "검증":
                     ),
                 )
                 selected = [row for row in upload_results if row["article_id"] == selected_article_id]
-                st.caption(f"선택 기사 수치 주장 {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
+                st.markdown(f"""<div class="verification-claim-context"><strong>선택한 기사</strong><span>수치 주장 {len(selected):,}건 · Claim을 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.</span></div>""", unsafe_allow_html=True)
                 for number, row in enumerate(selected, start=1):
                     render_stored_claim(row, number)
             st.markdown("</div>", unsafe_allow_html=True)

@@ -176,3 +176,13 @@ def test_verification_tab_keeps_batch_action_prominent() -> None:
     assert "대기" in section
     assert "검증 대기" in section
     assert "판단불가" in section
+
+
+def test_verification_tab_groups_claim_selection_controls() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "verification-controls" in section
+    assert "verification-claim-context" in section
+    assert "검증 대상 선택" in section
+    assert "선택한 기사" in section
