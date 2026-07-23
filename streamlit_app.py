@@ -257,6 +257,25 @@ st.markdown("""
   div.stButton > button[kind="primary"] { background:#087f73 !important; color:#FFFFFF !important; border-color:#087f73 !important; }`n  div.stButton > button[kind="primary"] p { color:#FFFFFF !important; }
   div.stButton > button p { color:inherit !important; }
   :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
+  .ops-workspace { background:var(--ops-surface); border:1px solid var(--ops-border); border-radius:1rem; padding:1.15rem 1.25rem 1.3rem; margin:0 0 1.4rem; box-shadow:0 8px 24px rgba(16,42,58,.05); }
+  .ops-section-head { margin:.2rem 0 1rem; }
+  .ops-section-kicker { color:var(--primary-color); font-size:.72rem; font-weight:760; letter-spacing:.12em; text-transform:uppercase; margin-bottom:.25rem; }
+  .ops-section-title { color:var(--ops-text); font-size:1.35rem; font-weight:760; letter-spacing:-.025em; margin:0; }
+  .ops-section-copy { color:var(--ops-muted); font-size:.88rem; line-height:1.55; margin:.3rem 0 0; }
+  .ops-summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin:.6rem 0 1.35rem; }
+  .ops-summary-card { background:var(--ops-surface); border:1px solid var(--ops-border); border-radius:.8rem; padding:.9rem 1rem; min-height:6.2rem; }
+  .ops-summary-label { color:var(--ops-muted); font-size:.78rem; font-weight:670; }
+  .ops-summary-value { color:var(--ops-text); font-size:1.9rem; font-weight:780; letter-spacing:-.045em; margin-top:.35rem; }
+  .ops-summary-note { color:var(--ops-muted); font-size:.74rem; margin-top:.25rem; }
+  .ops-route-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:.85rem 0 .8rem; }
+  .ops-route-card { border:1px solid var(--ops-border); border-left:4px solid var(--route-accent); border-radius:.75rem; background:var(--ops-page); padding:.9rem 1rem; min-height:7.2rem; }
+  .ops-route-label { color:var(--ops-text); font-size:.9rem; font-weight:740; }
+  .ops-route-value { color:var(--ops-text); font-size:1.7rem; font-weight:780; margin-top:.4rem; }
+  .ops-route-note { color:var(--ops-muted); font-size:.75rem; line-height:1.45; margin-top:.25rem; }
+  .ops-next-action { display:flex; gap:.65rem; align-items:baseline; background:color-mix(in srgb,var(--primary-color) 10%,var(--ops-surface)); border:1px solid color-mix(in srgb,var(--primary-color) 35%,var(--ops-border)); border-radius:.75rem; color:var(--ops-text); padding:.85rem 1rem; margin-top:1rem; }
+  .ops-next-label { color:var(--primary-color); font-size:.78rem; font-weight:760; white-space:nowrap; }
+  @media (max-width:900px) { .ops-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .ops-route-grid { grid-template-columns:1fr; } }
+  @media (max-width:640px) { .ops-summary-grid { grid-template-columns:1fr 1fr; } .ops-workspace { padding:.9rem; } .ops-next-action { display:block; } }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
 </style>
 """, unsafe_allow_html=True)
@@ -274,21 +293,19 @@ if view == "운영 홈":
         summary = store.summary()
     finally:
         store.close()
-    metrics = [
-        ("누적 등록 기사", summary["articles"], "누적 수집", "#46d5c7"),
-        ("처리 대기", summary["claims_by_status"].get("PENDING", 0), "다음 배치 대상", "#f1c96b"),
-        ("처리 실패", summary["claims_by_status"].get("FAILED", 0), "조치 필요", "#ed7b72"),
-        ("리뷰 대기", summary["review_queue"], "검토자 확인", "#88a9ff"),
-    ]
-    for column, (label, value, note, accent) in zip(st.columns(4), metrics):
-        column.markdown(f'<div class="ops-card" style="--accent:{accent}"><div class="ops-label">{label}</div><div class="ops-value">{value:,}</div><div class="ops-note">{note}</div></div>', unsafe_allow_html=True)
+    st.markdown(f"""<div class="ops-summary-grid">
+      <div class="ops-summary-card"><div class="ops-summary-label">누적 등록 기사</div><div class="ops-summary-value">{summary["articles"]:,}</div><div class="ops-summary-note">누적 수집</div></div>
+      <div class="ops-summary-card"><div class="ops-summary-label">처리 대기</div><div class="ops-summary-value">{summary["claims_by_status"].get("PENDING", 0):,}</div><div class="ops-summary-note">다음 배치 대상</div></div>
+      <div class="ops-summary-card"><div class="ops-summary-label">처리 실패</div><div class="ops-summary-value">{summary["claims_by_status"].get("FAILED", 0):,}</div><div class="ops-summary-note">조치 필요</div></div>
+      <div class="ops-summary-card"><div class="ops-summary-label">리뷰 대기</div><div class="ops-summary-value">{summary["review_queue"]:,}</div><div class="ops-summary-note">검토자 확인</div></div>
+    </div>""", unsafe_allow_html=True)
 
-    st.markdown("#### 운영 실행")
-    st.caption("기사 파일에서 수치 주장을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
+    st.markdown("""<div class="ops-workspace">
+      <div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 01</div><h2 class="ops-section-title">운영 실행</h2><p class="ops-section-copy">CSV 기사를 등록하면 수치 주장을 분류하고, KOSIS 분석 대상만 검증 탭으로 전달합니다.</p></div>""", unsafe_allow_html=True)
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
 
-    if st.button("기사 등록", use_container_width=True):
+    if st.button("기사 등록", use_container_width=True, type="primary"):
         if uploaded_csv is None:
             st.warning("등록할 CSV 기사 파일을 먼저 선택하세요.")
         else:
@@ -336,24 +353,30 @@ if view == "운영 홈":
         st.caption("검증 탭에서 수치 주장별로 실행하세요.")
     else:
         st.info("CSV 기사 파일을 등록하면 KOSIS 후보와 분류 결과가 표시됩니다.")
-    st.markdown("#### 이번 업로드 전처리 요약")
-    st.caption("원본 → 유효 기사 → 문장 → 수치 주장 → 출처 분류 → 검증 처리")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("""<div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 02</div><h2 class="ops-section-title">이번 업로드 전처리 요약</h2><p class="ops-section-copy">원본 → 유효 기사 → 문장 → 수치 주장 → 출처 분류 → 검증 처리</p></div>""", unsafe_allow_html=True)
     upload = st.session_state.get("upload_summary", {})
     if upload:
-        a, b, c, d = st.columns(4)
-        a.metric("원본 행", upload.get("source_rows", 0))
-        b.metric("유효 기사", upload.get("read", 0))
-        c.metric("문장", upload.get("sentences", 0))
-        d.metric("수치 주장", upload.get("candidates", 0))
+        st.markdown(f"""<div class="ops-summary-grid">
+          <div class="ops-summary-card"><div class="ops-summary-label">원본 행</div><div class="ops-summary-value">{upload.get("source_rows", 0):,}</div><div class="ops-summary-note">업로드 원본</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">유효 기사</div><div class="ops-summary-value">{upload.get("read", 0):,}</div><div class="ops-summary-note">등록 완료</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">문장</div><div class="ops-summary-value">{upload.get("sentences", 0):,}</div><div class="ops-summary-note">문장 분리</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">수치 주장</div><div class="ops-summary-value">{upload.get("candidates", 0):,}</div><div class="ops-summary-note">분류 대상</div></div>
+        </div>""", unsafe_allow_html=True)
         kosis_count = upload.get("routes", {}).get("KOSIS_RETRIEVAL", 0)
         source_types = upload.get("source_types", {})
         direct_kosis_count = source_types.get("KOSIS_DOMESTIC", 0)
         complex_kosis_count = source_types.get("KOSIS_BUT_COMPLEX", 0)
         other_count = upload.get("candidates", 0) - kosis_count
-        st.markdown(f"**분류 퍼널:** 수치 주장 {upload.get('candidates', 0):,}건 → **KOSIS 분석 대상** {kosis_count:,}건 (자동 검증 가능 {direct_kosis_count:,}건 · 복합 KOSIS 사람 검토 {complex_kosis_count:,}건) / **별도 근거 확인 대상** {other_count:,}건")
-        st.caption("KOSIS 분석 대상은 직접 조회형과 복합형을 모두 포함합니다. 자동 검증 가능은 직접 조회형만 해당하며, 복합 KOSIS는 KOSIS 분석 후 최종 판정만 사람이 검토합니다.")
-        st.caption(f"별도 근거 확인: 공식 공지 {source_types.get('OFFICIAL_ANNOUNCEMENT', 0):,} · 비KOSIS 공식자료 {source_types.get('OTHER_OFFICIAL', 0):,} · 민간·플랫폼 {source_types.get('PRIVATE_SOURCE', 0) + source_types.get('PLATFORM_SOURCE', 0):,} · 사람 검토 {source_types.get('UNKNOWN', 0):,}")
-        st.info("다음 행동: 검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.")
+        st.markdown(f"""<div class="ops-route-grid">
+          <div class="ops-route-card" style="--route-accent:#087f73"><div class="ops-route-label">자동 검증 가능</div><div class="ops-route-value">{direct_kosis_count:,}건</div><div class="ops-route-note">직접 조회형 KOSIS · 자동 판정</div></div>
+          <div class="ops-route-card" style="--route-accent:#d99718"><div class="ops-route-label">복합 KOSIS 사람 검토</div><div class="ops-route-value">{complex_kosis_count:,}건</div><div class="ops-route-note">KOSIS 분석 후 최종 확정은 검토자</div></div>
+          <div class="ops-route-card" style="--route-accent:#718096"><div class="ops-route-label">별도 근거 확인 대상</div><div class="ops-route-value">{other_count:,}건</div><div class="ops-route-note">공식 공지·비KOSIS·민간 자료</div></div>
+        </div>""", unsafe_allow_html=True)
+        st.caption(f"KOSIS 분석 대상은 직접 조회형과 복합형을 모두 포함합니다 · 총 {kosis_count:,}건 = 직접 조회형 {direct_kosis_count:,}건 + 복합형 {complex_kosis_count:,}건")
+        st.caption("복합 KOSIS는 KOSIS 분석 후 최종 판정만 사람이 검토합니다. KOSIS 조회·분석 결과는 함께 보존합니다.")
+        st.caption(f"별도 근거 세부: 공식 공지 {source_types.get('OFFICIAL_ANNOUNCEMENT', 0):,} · 비KOSIS 공식자료 {source_types.get('OTHER_OFFICIAL', 0):,} · 민간·플랫폼 {source_types.get('PRIVATE_SOURCE', 0) + source_types.get('PLATFORM_SOURCE', 0):,} · 사람 검토 {source_types.get('UNKNOWN', 0):,}")
+        st.markdown("""<div class="ops-next-action"><span class="ops-next-label">다음 행동</span><span>검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.</span></div>""", unsafe_allow_html=True)
     else:
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":

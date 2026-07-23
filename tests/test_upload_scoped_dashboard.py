@@ -136,3 +136,23 @@ def test_operations_home_explains_kosis_analysis_and_review_routes() -> None:
 
     assert "KOSIS 분석 대상은 직접 조회형과 복합형을 모두 포함합니다" in home
     assert "복합 KOSIS는 KOSIS 분석 후 최종 판정만 사람이 검토합니다" in home
+
+
+def test_operations_home_uses_a_clear_workflow_hierarchy() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "ops-workspace" in home
+    assert "ops-summary-grid" in home
+    assert "ops-route-grid" in home
+    assert "ops-next-action" in home
+    assert 'type="primary"' in home
+
+
+def test_operations_home_labels_the_three_routing_cards() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "자동 검증 가능" in home
+    assert "복합 KOSIS 사람 검토" in home
+    assert "별도 근거 확인" in home
