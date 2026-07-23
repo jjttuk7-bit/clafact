@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from pathlib import Path
 
-from clafact.pipeline import detect
+from clafact.pipeline import detect, source_classify
 from clafact.pipeline.ingest import load_articles
 from clafact.service.store import Store, stable_article_id, stable_claim_id
 
@@ -20,11 +21,13 @@ def _source_row_count(path: str | Path) -> int:
     raise ValueError(f"지원하지 않는 형식: {path.suffix}")
 
 
-def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict[str, int]:
+def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict[str, object]:
     """Store articles, queue claim candidates, and report pipeline counts."""
     source_rows = _source_row_count(path)
     articles = load_articles(path)
-    imported = candidates = queued = sentences = 0
+    imported = candidates = queued = classified = sentences = 0
+    routes: Counter[str] = Counter()
+    source_types: Counter[str] = Counter()
     exclusion_reasons: dict[str, int] = {}
     for article in articles:
         article_id = stable_article_id(article.url, article.title, article.date)
@@ -35,14 +38,23 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
             if not detect.is_candidate(sentence):
                 continue
             candidates += 1
-            audit = None
+            classification = source_classify.classify(sentence).as_dict()
+            audit = {"source_classification": classification}
             if hcx_signal:
                 try:
-                    audit = {"hcx_detection": hcx_signal(sentence)}
+                    audit["hcx_detection"] = hcx_signal(sentence)
                 except Exception as error:
-                    audit = {"hcx_detection": {"fallback": str(error)}}
-            if store.enqueue_claim(stable_claim_id(article_id, sentence), article_id, sentence, audit=audit):
-                queued += 1
+                    audit["hcx_detection"] = {"fallback": str(error)}
+            if store.enqueue_claim(
+                stable_claim_id(article_id, sentence), article_id, sentence,
+                audit=audit, classification=classification,
+            ):
+                routes[classification["route"]] += 1
+                source_types[classification["source_type"]] += 1
+                if classification["route"] == "KOSIS_RETRIEVAL":
+                    queued += 1
+                else:
+                    classified += 1
     return {
         "source_rows": source_rows,
         "read": len(articles),
@@ -52,6 +64,9 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
         "sentences": sentences,
         "candidates": candidates,
         "queued": queued,
+        "classified": classified,
+        "routes": dict(routes),
+        "source_types": dict(source_types),
         "excluded_candidates": sum(exclusion_reasons.values()),
         "exclusion_reasons": exclusion_reasons,
     }

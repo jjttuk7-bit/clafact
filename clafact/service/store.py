@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 
 # claims.status — 작업 큐 상태
-PENDING, DONE, FAILED = "PENDING", "DONE", "FAILED"
+PENDING, DONE, FAILED, CLASSIFIED = "PENDING", "DONE", "FAILED", "CLASSIFIED"
 # claims.tier — 발행 등급 (문서 25 §5.1)
 AUTO_CONFIRMED = "AUTO_CONFIRMED"    # 사람 없이 발행 가능 (표본 감사 대상)
 NEEDS_REVIEW = "NEEDS_REVIEW"        # 검증자 승인 전 발행 불가
@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS claims (
     article_id   TEXT NOT NULL,
     sentence     TEXT NOT NULL,
     status       TEXT NOT NULL,
+    source_type  TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+    claim_type   TEXT NOT NULL DEFAULT '',
+    route        TEXT NOT NULL DEFAULT 'KOSIS_RETRIEVAL',
+    classification_reason TEXT NOT NULL DEFAULT '',
     label        TEXT,
     confidence   TEXT,
     tier         TEXT,
@@ -103,11 +107,28 @@ class Store:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
 
+    def _migrate_schema(self) -> None:
+        """기존 서비스 DB에 출처 분류 열을 안전하게 보강한다."""
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(claims)")}
+        additions = {
+            "source_type": "TEXT NOT NULL DEFAULT 'UNCLASSIFIED'",
+            "claim_type": "TEXT NOT NULL DEFAULT ''",
+            "route": "TEXT NOT NULL DEFAULT 'LEGACY_UNCLASSIFIED'",
+            "classification_reason": "TEXT NOT NULL DEFAULT ''",
+        }
+        for name, definition in additions.items():
+            if name not in existing:
+                self.conn.execute(f"ALTER TABLE claims ADD COLUMN {name} {definition}")
+        self.conn.execute(
+            "UPDATE claims SET route='LEGACY_UNCLASSIFIED' "
+            "WHERE route IS NULL OR route=''"
+        )
     # ── 적재 (멱등) ──────────────────────────────────────────────
 
     def upsert_article(self, article_id: str, title: str, date: str,
@@ -124,39 +145,52 @@ class Store:
         self.conn.commit()
         return True
 
-    def enqueue_claim(self, claim_id: str, article_id: str, sentence: str, audit: dict | None = None) -> bool:
-        """신규 Claim을 PENDING 큐에 감사 메타데이터와 함께 저장한다."""
+    def enqueue_claim(self, claim_id: str, article_id: str, sentence: str,
+                      audit: dict | None = None, classification: dict | None = None) -> bool:
+        """신규 Claim을 출처 라우팅과 함께 저장한다."""
         if self.conn.execute("SELECT 1 FROM claims WHERE claim_id = ?", (claim_id,)).fetchone():
             return False
+        classification = classification or {}
+        route = classification.get("route", "KOSIS_RETRIEVAL")
+        status = PENDING if route == "KOSIS_RETRIEVAL" else CLASSIFIED
         self.conn.execute(
-            "INSERT INTO claims (claim_id, article_id, sentence, status, audit_json, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (claim_id, article_id, sentence, PENDING, json.dumps(audit or {}, ensure_ascii=False), now_iso()),
+            "INSERT INTO claims (claim_id, article_id, sentence, status, source_type, claim_type, route, "
+            "classification_reason, audit_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (claim_id, article_id, sentence, status,
+             classification.get("source_type", "UNCLASSIFIED"),
+             classification.get("claim_type", ""), route,
+             classification.get("reason", ""), json.dumps(audit or {}, ensure_ascii=False), now_iso()),
         )
         self.conn.commit()
-        return True
-    # ── 큐 소비 ─────────────────────────────────────────────────
+        return True    # ── 큐 소비 ─────────────────────────────────────────────────
 
     def fetch_pending(self, limit: int | None = None,
-                      article_ids: list[str] | None = None) -> list[sqlite3.Row]:
+                      article_ids: list[str] | None = None,
+                      claim_ids: list[str] | None = None) -> list[sqlite3.Row]:
         sql = ("SELECT c.claim_id, c.sentence, c.article_id, a.date AS article_date"
                " FROM claims c JOIN articles a ON a.article_id = c.article_id"
-               " WHERE c.status = ?")
-        params: list[str] = [PENDING]
+               " WHERE c.status = ? AND c.route = ?")
+        params: list[str] = [PENDING, "KOSIS_RETRIEVAL"]
         if article_ids is not None:
             if not article_ids:
                 return []
             placeholders = ", ".join("?" for _ in article_ids)
             sql += f" AND c.article_id IN ({placeholders})"
             params.extend(article_ids)
+        if claim_ids is not None:
+            if not claim_ids:
+                return []
+            placeholders = ", ".join("?" for _ in claim_ids)
+            sql += f" AND c.claim_id IN ({placeholders})"
+            params.extend(claim_ids)
         sql += " ORDER BY c.created_at, c.claim_id"
         if limit:
             sql += f" LIMIT {int(limit)}"
         return self.conn.execute(sql, params).fetchall()
 
     def count_pending(self, article_ids: list[str] | None = None) -> int:
-        sql = "SELECT COUNT(*) AS n FROM claims WHERE status = ?"
-        params: list[str] = [PENDING]
+        sql = "SELECT COUNT(*) AS n FROM claims WHERE status = ? AND route = ?"
+        params: list[str] = [PENDING, "KOSIS_RETRIEVAL"]
         if article_ids is not None:
             if not article_ids:
                 return 0
@@ -165,7 +199,7 @@ class Store:
             params.extend(article_ids)
         return int(self.conn.execute(sql, params).fetchone()["n"])
     def _upload_result_filter(self, article_ids: list[str], *, status: str | None = None,
-                              label: str | None = None, search: str = "") -> tuple[str, list[str]]:
+                              label: str | None = None, route: str | None = None, search: str = "") -> tuple[str, list[str]]:
         if not article_ids:
             return "", []
         placeholders = ", ".join("?" for _ in article_ids)
@@ -177,25 +211,28 @@ class Store:
         if label:
             clauses.append("c.label = ?")
             params.append(label)
+        if route:
+            clauses.append("c.route = ?")
+            params.append(route)
         if search.strip():
             clauses.append("c.sentence LIKE ?")
             params.append(f"%{search.strip()}%")
         return " WHERE " + " AND ".join(clauses), params
 
     def count_upload_results(self, article_ids: list[str], *, status: str | None = None,
-                             label: str | None = None, search: str = "") -> int:
+                             label: str | None = None, route: str | None = None, search: str = "") -> int:
         """선택 업로드에서 필터에 맞는 Claim 수를 반환한다."""
-        where, params = self._upload_result_filter(article_ids, status=status, label=label, search=search)
+        where, params = self._upload_result_filter(article_ids, status=status, label=label, route=route, search=search)
         if not where:
             return 0
         row = self.conn.execute("SELECT COUNT(*) AS n FROM claims c" + where, params).fetchone()
         return int(row["n"])
 
     def fetch_upload_results(self, article_ids: list[str], *, status: str | None = None,
-                             label: str | None = None, search: str = "",
+                             label: str | None = None, route: str | None = None, search: str = "",
                              limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
         """선택한 업로드의 기사와 Claim 판정 원본을 필터·페이지 단위로 반환한다."""
-        where, params = self._upload_result_filter(article_ids, status=status, label=label, search=search)
+        where, params = self._upload_result_filter(article_ids, status=status, label=label, route=route, search=search)
         if not where:
             return []
         sql = (

@@ -64,7 +64,7 @@ def ingest_file(store: Store, path: str | Path) -> dict:
 
 def process_pending(store: Store, index=None, client=None,
                     limit: int | None = None, article_ids: list[str] | None = None,
-                    verify=None) -> dict:
+                    claim_ids: list[str] | None = None, verify=None) -> dict:
     """PENDING Claim 을 순서대로 판정. verify 는 테스트 주입용
     (기본: 기존 파이프라인 verify_sentence)."""
     if verify is None:
@@ -74,7 +74,7 @@ def process_pending(store: Store, index=None, client=None,
     stats = {"processed": 0, "failed": 0,
              "by_tier": {}, "by_label": {}}
     started = st.now_iso()
-    for row in store.fetch_pending(limit, article_ids=article_ids):
+    for row in store.fetch_pending(limit, article_ids=article_ids, claim_ids=claim_ids):
         try:
             r = verify(row["sentence"], row["article_date"])
             tier = triage(r)

@@ -207,3 +207,50 @@ def test_fetch_upload_results_filters_and_pages_claims_within_the_upload():
     rows = s.fetch_upload_results(["art_current"], search="수출", limit=1, offset=0)
     assert [row["claim_id"] for row in rows] == ["clm_pending"]
     s.close()
+
+def test_enqueue_claim_preserves_non_kosis_classification_without_adding_to_pending_queue():
+    s = _store()
+    s.upsert_article("art_source", "출처 분류", "2025-01-01", "", "u", "b")
+
+    s.enqueue_claim(
+        "clm_private", "art_source", "코스피가 3% 올랐다.",
+        classification={
+            "source_type": "PRIVATE_SOURCE", "claim_type": "증감형",
+            "route": "NON_KOSIS_QUEUE", "reason": "기업·시장 자료",
+        },
+    )
+
+    row = s.conn.execute("SELECT status, source_type, claim_type, route, classification_reason FROM claims").fetchone()
+    assert dict(row) == {
+        "status": "CLASSIFIED", "source_type": "PRIVATE_SOURCE", "claim_type": "증감형",
+        "route": "NON_KOSIS_QUEUE", "classification_reason": "기업·시장 자료",
+    }
+    assert s.count_pending() == 0
+    s.close()
+
+def test_process_pending_can_process_one_selected_claim_only():
+    s = _store()
+    s.upsert_article("art_manual", "수동 검증", "2025-02-05", "", "u", "b")
+    s.enqueue_claim("clm_first", "art_manual", "소비자물가 2.2%")
+    s.enqueue_claim("clm_second", "art_manual", "실업률 3.7%")
+
+    def verify(sentence, article_date):
+        return ClaimResult(sentence=sentence, label="unverifiable", reason="테스트")
+
+    stats = batch.process_pending(s, claim_ids=["clm_second"], verify=verify)
+    statuses = {row["claim_id"]: row["status"] for row in s.conn.execute("SELECT claim_id, status FROM claims")}
+
+    assert stats["processed"] == 1
+    assert statuses == {"clm_first": st.PENDING, "clm_second": st.DONE}
+    s.close()
+
+def test_fetch_upload_results_can_filter_by_source_route():
+    s = _store()
+    s.upsert_article("art_routes", "라우팅", "2025-02-05", "", "u", "b")
+    s.enqueue_claim("clm_kosis", "art_routes", "소비자물가 2.2%", classification={"route": "KOSIS_RETRIEVAL"})
+    s.enqueue_claim("clm_private", "art_routes", "코스피 3%", classification={"route": "NON_KOSIS_QUEUE"})
+
+    rows = s.fetch_upload_results(["art_routes"], route="KOSIS_RETRIEVAL")
+
+    assert [row["claim_id"] for row in rows] == ["clm_kosis"]
+    s.close()

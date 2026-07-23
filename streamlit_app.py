@@ -272,7 +272,7 @@ if view == "운영 홈":
         column.markdown(f'<div class="ops-card" style="--accent:{accent}"><div class="ops-label">{label}</div><div class="ops-value">{value:,}</div><div class="ops-note">{note}</div></div>', unsafe_allow_html=True)
 
     st.markdown("#### 운영 실행")
-    st.caption("기사 파일을 등록한 뒤, 큐에 쌓인 수치 주장을 지정한 한도만큼 처리합니다.")
+    st.caption("기사 파일에서 수치 Claim을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
     a, b = st.columns(2)
@@ -351,7 +351,7 @@ if view == "검증":
     if uploaded_article_ids:
         result_store = Store(ROOT / "data/service/clafact.db")
         try:
-            upload_results = result_store.fetch_upload_results(uploaded_article_ids)
+            upload_results = result_store.fetch_upload_results(uploaded_article_ids, route="KOSIS_RETRIEVAL")
         finally:
             result_store.close()
 
@@ -378,11 +378,11 @@ if view == "검증":
                 filtered_store = Store(ROOT / "data/service/clafact.db")
                 try:
                     total = filtered_store.count_upload_results(
-                        uploaded_article_ids, status=status, label=label, search=search)
+                        uploaded_article_ids, status=status, label=label, route="KOSIS_RETRIEVAL", search=search)
                     page_count = max(1, (total + page_size - 1) // page_size)
                     page = st.number_input("페이지", min_value=1, max_value=page_count, value=1, step=1)
                     page_rows = filtered_store.fetch_upload_results(
-                        uploaded_article_ids, status=status, label=label, search=search,
+                        uploaded_article_ids, status=status, label=label, route="KOSIS_RETRIEVAL", search=search,
                         limit=page_size, offset=(int(page) - 1) * page_size)
                 finally:
                     filtered_store.close()
