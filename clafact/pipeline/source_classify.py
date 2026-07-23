@@ -21,6 +21,7 @@ _ROUTING_PATH = Path(__file__).resolve().parents[2] / "data/assets/routing_v01.j
 KOSIS_DOMESTIC = "KOSIS_DOMESTIC"
 KOSIS_BUT_COMPLEX = "KOSIS_BUT_COMPLEX"
 OTHER_OFFICIAL = "OTHER_OFFICIAL"
+OFFICIAL_ANNOUNCEMENT = "OFFICIAL_ANNOUNCEMENT"
 PRIVATE_SOURCE = "PRIVATE_SOURCE"
 PLATFORM_SOURCE = "PLATFORM_SOURCE"
 FORECAST_OR_OPINION = "FORECAST_OR_OPINION"
@@ -31,6 +32,7 @@ UNKNOWN = "UNKNOWN"
 ROUTE = {
     KOSIS_DOMESTIC: "KOSIS_RETRIEVAL",
     KOSIS_BUT_COMPLEX: "KOSIS_RETRIEVAL",
+    OFFICIAL_ANNOUNCEMENT: "NON_KOSIS_QUEUE",
     OTHER_OFFICIAL: "NON_KOSIS_QUEUE",
     PRIVATE_SOURCE: "NON_KOSIS_QUEUE",
     PLATFORM_SOURCE: "NON_KOSIS_QUEUE",
@@ -39,6 +41,9 @@ ROUTE = {
     UNKNOWN: "HUMAN_REVIEW",
 }
 
+
+_OFFICIAL_SURVEY_PATTERN = re.compile(r"(?:인구주택총조사|농림어업총조사|경제총조사|전국사업체조사)")
+_OFFICIAL_SCHEDULE_PATTERN = re.compile(r"(?:시행|실시|조사\s*일정|조사\s*기간|접수|개시|시작)")
 
 @dataclass
 class SourceLabel:
@@ -121,6 +126,14 @@ def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
         if mk in sentence:
             return SourceLabel(OVERSEAS_SOURCE, "-", ct, ROUTE[OVERSEAS_SOURCE], 0.8,
                                f"해외 주체({mk}) 주장 — KOSIS 국내통계 범위 밖", "")
+
+    # 공식 조사·행사 일정은 KOSIS 수치표 비교 대상이 아니다.
+    # 반드시 도메인 매칭보다 먼저 분기해 무관한 수치표 검색을 막는다.
+    if _OFFICIAL_SURVEY_PATTERN.search(sentence) and _OFFICIAL_SCHEDULE_PATTERN.search(sentence):
+        return SourceLabel(
+            OFFICIAL_ANNOUNCEMENT, "-", ct, ROUTE[OFFICIAL_ANNOUNCEMENT], 0.9,
+            "공식 조사·시행 일정 — KOSIS 표 해당 없음 · 공식 공지 검증 필요", ""
+        )
 
     # 비-KOSIS 우승 순서 (KOSIS_precision 보호): platform > private > other > kosis
     if (m := _match_domain(sentence, cfg["platform_source"])):

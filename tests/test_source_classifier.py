@@ -69,6 +69,17 @@ def test_domestic_claim_still_passes():
     assert label.source_type.startswith("KOSIS")
 
 
+def test_official_announcement_is_not_sent_to_kosis():
+    """Official survey schedules use announcement evidence, not KOSIS tables."""
+    sentence = "2025 인구주택총조사는 10월 22일부터 시행된다."
+
+    label = sc.classify(sentence)
+
+    assert label.source_type == sc.OFFICIAL_ANNOUNCEMENT
+    assert label.route == "NON_KOSIS_QUEUE"
+    assert sc.kosis_query(sentence) == ""
+
+
 def test_claim_type_detection():
     assert sc.claim_type("출생아 수는 23만 명이었다.") == "규모형"
     assert sc.claim_type("농가 수가 4.9% 감소했다.") == "증감형"

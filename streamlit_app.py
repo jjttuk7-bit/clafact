@@ -352,8 +352,27 @@ if view == "검증":
         result_store = Store(ROOT / "data/service/clafact.db")
         try:
             upload_results = result_store.fetch_upload_results(uploaded_article_ids, route="KOSIS_RETRIEVAL")
+            non_kosis_results = result_store.fetch_upload_results(uploaded_article_ids, route="NON_KOSIS_QUEUE")
+            official_announcements = [
+                row for row in non_kosis_results
+                if row["source_type"] == "OFFICIAL_ANNOUNCEMENT"
+            ]
         finally:
             result_store.close()
+
+        if official_announcements:
+            st.markdown("#### 공식 공지 검증")
+            st.caption("KOSIS 표 해당 없음 · 공식 공지 검증")
+            for row in official_announcements:
+                evidence = _stored_json(row["evidence_json"])
+                registered_notice = evidence.get("official_notice") or evidence.get("official_url")
+                with st.expander(f"공식 조사·시행 일정 · {row['sentence'][:64]}", expanded=False):
+                    st.markdown(f"**주장:** {row['sentence']}")
+                    if registered_notice:
+                        st.success("공식 공지 근거 등록 · 일치")
+                        st.caption(f"공식 근거: {registered_notice}")
+                    else:
+                        st.warning("공식 근거 확인 필요")
 
         if upload_results:
             pending = sum(row["status"] == "PENDING" for row in upload_results)
