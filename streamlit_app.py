@@ -275,8 +275,8 @@ if view == "운영 홈":
     st.caption("기사 파일에서 수치 Claim을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
-    a, b = st.columns(2)
-    if a.button("기사 등록", use_container_width=True):
+
+    if st.button("기사 등록", use_container_width=True):
         if uploaded_csv is None:
             st.warning("등록할 CSV 기사 파일을 먼저 선택하세요.")
         else:
@@ -304,28 +304,16 @@ if view == "운영 홈":
                     temporary_path.unlink(missing_ok=True)
     uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
     if uploaded_article_ids:
-        process_mode = st.radio("처리 방식", ("50건 처리", "이번 업로드 전체 처리"), horizontal=True)
-        limit = st.number_input("처리 한도", min_value=1, value=50,
-                                disabled=process_mode == "이번 업로드 전체 처리")
         pending_store = Store(ROOT / "data/service/clafact.db")
         try:
             pending_count = pending_store.count_pending(uploaded_article_ids)
+            classified_count = pending_store.count_upload_results(uploaded_article_ids) - pending_count
         finally:
             pending_store.close()
-        st.caption(f"이번 업로드 처리 대기 Claim: {pending_count}건")
-        if b.button("대기 Claim 처리", type="primary", use_container_width=True):
-            store = Store(ROOT / "data/service/clafact.db")
-            try:
-                index, client = load_engine()
-                batch_limit = None if process_mode == "이번 업로드 전체 처리" else int(limit)
-                out = process_pending(store, index, client, limit=batch_limit, article_ids=uploaded_article_ids)
-                st.success(f"처리 완료: {out['processed']}건 · 실패: {out['failed']}건")
-            except Exception as error:
-                st.error(f"처리 실패: {error}")
-            finally:
-                store.close()
+        st.success(f"KOSIS 검증 후보 {pending_count}건 · 분류 보존 {classified_count}건")
+        st.caption("검증 탭에서 Claim별로 실행하세요.")
     else:
-        st.info("CSV 기사 파일을 등록하면 처리 방식과 Claim 처리 버튼이 표시됩니다.")
+        st.info("CSV 기사 파일을 등록하면 KOSIS 후보와 분류 결과가 표시됩니다.")
     st.markdown("#### 이번 업로드 감사 로그")
     st.caption("현재 세션에서 업로드한 CSV의 수치 주장과 처리·판정·보조 신호만 표시합니다.")
     if not uploaded_article_ids:
