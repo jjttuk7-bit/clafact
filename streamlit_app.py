@@ -285,6 +285,16 @@ if view == "운영 홈":
 
     st.markdown("#### 운영 실행")
     st.caption("기사 파일에서 수치 주장을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
+    if st.button("전체 새 정책 적용", use_container_width=True):
+        policy_store = Store(ROOT / "data/service/clafact.db")
+        try:
+            stats = policy_store.reclassify_all_claims()
+        finally:
+            policy_store.close()
+        st.success(
+            f"새 정책 적용 완료 · KOSIS 자동 검증 {stats.get('KOSIS_RETRIEVAL', 0)}건 · "
+            f"사람 검토 {stats.get('HUMAN_REVIEW', 0)}건"
+        )
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
 
@@ -352,12 +362,26 @@ if view == "검증":
         try:
             upload_results = result_store.fetch_upload_results(uploaded_article_ids, route="KOSIS_RETRIEVAL")
             non_kosis_results = result_store.fetch_upload_results(uploaded_article_ids, route="NON_KOSIS_QUEUE")
+            unverifiable_rows = result_store.fetch_upload_results(uploaded_article_ids, label="unverifiable")
             official_announcements = [
                 row for row in non_kosis_results
                 if row["source_type"] == "OFFICIAL_ANNOUNCEMENT"
             ]
         finally:
             result_store.close()
+
+        if unverifiable_rows:
+            reason_counts = {}
+            for row in unverifiable_rows:
+                reason = row["reason"] or row["classification_reason"] or "근거 부족"
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            st.markdown("#### 판단불가 사유")
+            st.caption("현재 업로드에서 자동 검증으로 결론을 내리지 못한 Claim의 사유입니다.")
+            st.dataframe(
+                [{"사유": reason, "건수": count} for reason, count in sorted(reason_counts.items())],
+                hide_index=True,
+                use_container_width=True,
+            )
 
         if official_announcements:
             st.markdown("#### 공식 공지 검증")

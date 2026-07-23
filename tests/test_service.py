@@ -282,3 +282,41 @@ def test_review_hold_keeps_claim_in_review_with_note():
     row = s.conn.execute("SELECT tier FROM claims WHERE claim_id='c'").fetchone()
     assert row["tier"] == st.UNVERIFIABLE
     s.close()
+
+def test_reclassify_moves_complex_done_claim_to_human_review_and_keeps_audit():
+    s = _store()
+    s.upsert_article("art_reclassify", "t", "2025-01-01", "", "u", "b")
+    s.enqueue_claim(
+        "clm_reclassify", "art_reclassify", "\uc18c\ube44\uc790\ubb3c\uac00\uc9c0\uc218\ub294 117.42(2020\ub144=100)\ub2e4.",
+        classification={"source_type": "KOSIS_BUT_COMPLEX", "claim_type": "\uaddc\ubaa8\ud615", "route": "KOSIS_RETRIEVAL"},
+    )
+    s.save_result("clm_reclassify", label="unverifiable", confidence=None, tier=st.UNVERIFIABLE)
+
+    stats = s.reclassify_all_claims()
+
+    row = s.conn.execute("SELECT * FROM claims WHERE claim_id='clm_reclassify'").fetchone()
+    previous = json.loads(row["audit_json"])["reclassification"]["previous_result"]
+    assert row["route"] == "HUMAN_REVIEW"
+    assert row["status"] == st.CLASSIFIED
+    assert row["label"] is None
+    assert previous["label"] == "unverifiable"
+    assert stats["HUMAN_REVIEW"] == 1
+    s.close()
+
+
+def test_reclassify_skips_reviewer_confirmed_claims():
+    s = _store()
+    s.upsert_article("art_confirmed", "t", "2025-01-01", "", "u", "b")
+    s.enqueue_claim(
+        "clm_confirmed", "art_confirmed", "\uc18c\ube44\uc790\ubb3c\uac00\uc9c0\uc218\ub294 117.42(2020\ub144=100)\ub2e4.",
+        classification={"source_type": "KOSIS_BUT_COMPLEX", "claim_type": "\uaddc\ubaa8\ud615", "route": "KOSIS_RETRIEVAL"},
+    )
+    s.save_result("clm_confirmed", label="match", confidence="high", tier=st.NEEDS_REVIEW)
+    s.apply_review("clm_confirmed", "approve")
+
+    stats = s.reclassify_all_claims()
+
+    row = s.conn.execute("SELECT route, status, tier FROM claims WHERE claim_id='clm_confirmed'").fetchone()
+    assert dict(row) == {"route": "KOSIS_RETRIEVAL", "status": st.DONE, "tier": st.CONFIRMED}
+    assert stats["skipped_reviewed"] == 1
+    s.close()

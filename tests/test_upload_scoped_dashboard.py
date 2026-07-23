@@ -102,3 +102,18 @@ def test_operations_home_breaks_out_non_kosis_routes() -> None:
     assert '비KOSIS 공식자료' in home
     assert '민간·플랫폼' in home
     assert '사람 검토' in home
+
+def test_operations_home_offers_safe_policy_reclassification():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "\uc804\uccb4 \uc0c8 \uc815\ucc45 \uc801\uc6a9" in home
+    assert "reclassify_all_claims" in home
+
+
+def test_verification_tab_shows_unverifiable_reason_summary():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    verification_section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "\ud310\ub2e8\ubd88\uac00 \uc0ac\uc720" in verification_section
+    assert 'label="unverifiable"' in verification_section

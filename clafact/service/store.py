@@ -18,6 +18,8 @@ import time
 import uuid
 from pathlib import Path
 
+from clafact.pipeline.source_classify import classify
+
 # claims.status — 작업 큐 상태
 PENDING, DONE, FAILED, CLASSIFIED = "PENDING", "DONE", "FAILED", "CLASSIFIED"
 # claims.tier — 발행 등급 (문서 25 §5.1)
@@ -280,6 +282,57 @@ class Store:
         self.conn.execute("UPDATE claims SET status=?, label=?, reason=?, evidence_json=?, processed_at=? WHERE claim_id=?", (DONE, label, reason, json.dumps(evidence, ensure_ascii=False), now_iso(), claim_id))
         self.conn.commit()
         return self.conn.execute("SELECT * FROM claims WHERE claim_id=?", (claim_id,)).fetchone()
+
+    def reclassify_all_claims(self) -> dict[str, int]:
+        """Apply the current source-routing policy without overwriting human decisions."""
+        route_counts: dict[str, int] = {}
+        skipped_reviewed = 0
+        rows = self.conn.execute("SELECT * FROM claims").fetchall()
+
+        for row in rows:
+            if row["tier"] in (CONFIRMED, CORRECTED):
+                skipped_reviewed += 1
+                continue
+
+            source = classify(row["sentence"])
+            new_status = PENDING if source.route == "KOSIS_RETRIEVAL" else CLASSIFIED
+            route_counts[source.route] = route_counts.get(source.route, 0) + 1
+            route_changed = row["route"] != source.route
+            status_changed = row["status"] != new_status
+
+            fields = (
+                source.source_type, source.claim_type, source.route, source.reason,
+                new_status, row["claim_id"],
+            )
+            if not route_changed and not status_changed:
+                self.conn.execute(
+                    "UPDATE claims SET source_type=?, claim_type=?, route=?, classification_reason=?, status=?"
+                    " WHERE claim_id=?",
+                    fields,
+                )
+                continue
+
+            try:
+                audit = json.loads(row["audit_json"] or "{}")
+            except json.JSONDecodeError:
+                audit = {}
+            audit["reclassification"] = {"previous_result": {
+                key: row[key] for key in (
+                    "label", "confidence", "tier", "reason", "quantity", "period",
+                    "calculation", "explanation", "evidence_json", "error", "processed_at",
+                )
+            }}
+            self.conn.execute(
+                "UPDATE claims SET source_type=?, claim_type=?, route=?, classification_reason=?, status=?,"
+                " label=NULL, confidence=NULL, tier=NULL, reason='', quantity='', period='',"
+                " calculation='', explanation='', evidence_json='{}', audit_json=?, error='', processed_at=NULL"
+                " WHERE claim_id=?",
+                fields[:-1] + (json.dumps(audit, ensure_ascii=False), row["claim_id"]),
+            )
+
+        self.conn.commit()
+        route_counts["skipped_reviewed"] = skipped_reviewed
+        return route_counts
     def mark_failed(self, claim_id: str, error: str) -> None:
         """Claim 1건의 실패를 격리한다 — 배치는 계속 (문서 25 §4.2 원칙 2)."""
         self.conn.execute(
