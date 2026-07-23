@@ -63,3 +63,37 @@ def upload_article_csv(
         store.close()
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+class OfficialNoticeRequest(BaseModel):
+    organization: str = Field(min_length=1, max_length=120)
+    url: str
+    effective_date: str
+
+@app.post("/internal/claims/{claim_id}/official-notice")
+def register_official_notice(claim_id: str, request: OfficialNoticeRequest) -> dict:
+    if not request.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="url must use http or https")
+    root = Path(__file__).resolve().parents[2]
+    store = Store(Path(os.environ.get("CLAFACT_SERVICE_DB", root / "data/service/clafact.db")))
+    try:
+        try:
+            row = store.register_official_notice(claim_id, request.organization, request.url, request.effective_date)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="claim not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"claim_id": row["claim_id"], "label": row["label"], "reason": row["reason"], "evidence": __import__("json").loads(row["evidence_json"])}
+    finally:
+        store.close()
+@app.get("/internal/claims/{claim_id}/official-notice")
+def get_official_notice(claim_id: str) -> dict:
+    root = Path(__file__).resolve().parents[2]
+    store = Store(Path(os.environ.get("CLAFACT_SERVICE_DB", root / "data/service/clafact.db")))
+    try:
+        row = store.conn.execute("SELECT claim_id, source_type, label, reason, evidence_json FROM claims WHERE claim_id=?", (claim_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="claim not found")
+        if row["source_type"] != "OFFICIAL_ANNOUNCEMENT":
+            raise HTTPException(status_code=422, detail="claim is not an official announcement")
+        return {"claim_id": row["claim_id"], "label": row["label"], "reason": row["reason"], "evidence": __import__("json").loads(row["evidence_json"])}
+    finally:
+        store.close()
