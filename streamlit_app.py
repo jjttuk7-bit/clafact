@@ -161,7 +161,13 @@ st.markdown("""
   @media (prefers-color-scheme: dark) {
     :root { --ops-page:#071D2B; --ops-surface:#0B2636; --ops-border:#31576A; --ops-text:#E7F0EF; --ops-muted:#B3C7CA; }
   }
-  .stApp { background:var(--ops-page); color:var(--ops-text); }
+  [data-testid="stSidebar"] { background:var(--ops-surface); border-right:1px solid var(--ops-border); }
+  [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top:1.2rem; }
+  .sidebar-brand { color:var(--ops-text); font-size:1.25rem; font-weight:780; letter-spacing:-.04em; margin:.25rem 0 .2rem; }
+  .sidebar-caption { color:var(--ops-muted); font-size:.78rem; line-height:1.5; margin-bottom:1.4rem; }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label { border-radius:.55rem; color:var(--ops-text); padding:.48rem .55rem; margin:.12rem 0; }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:var(--ops-page); }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background:var(--ops-page); border-left:3px solid var(--primary-color); font-weight:720; }  .stApp { background:var(--ops-page); color:var(--ops-text); }
   [data-testid="stHeader"] { background:var(--ops-page); }
   .block-container { max-width:1440px; padding-top:2rem; padding-bottom:4rem; }
   h1,h2,h3 { color:var(--ops-text) !important; }
@@ -185,10 +191,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 감사까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 감사 로그 보존</span></section>""", unsafe_allow_html=True)
 
-tab_ops, tab_verify, tab_review, tab_flywheel, tab_assets = st.tabs(
-    ["📡 운영 홈", "🔎 검증", "👤 검증자 리뷰", "🔥 플라이휠", "🔄 자산 현황"])
+NAV_ITEMS = ("운영 홈", "검증", "검증자 리뷰", "플라이휠", "자산 현황")
+st.sidebar.markdown('<div class="ops-kicker">ClaFact</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-brand">검증 운영 콘솔</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-caption">근거 기반 뉴스 수치 검증과 리뷰 흐름을 관리합니다.</div>', unsafe_allow_html=True)
+view = st.sidebar.radio("주요 화면", NAV_ITEMS, label_visibility="collapsed")
 
-with tab_ops:
+if view == "운영 홈":
     store = Store(ROOT / "data/service/clafact.db")
     try:
         summary = store.summary()
@@ -236,7 +245,7 @@ with tab_ops:
     st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
 
 # ═════════════ 탭 1: 검증 (WF-1) ═════════════
-with tab_verify:
+if view == "검증":
     st.session_state.setdefault("text", "")
     st.session_state.setdefault("date", "2025-07-14")
     clicked_sample = False
@@ -280,7 +289,7 @@ with tab_verify:
         st.info("👤 자동 판정은 최종이 아닙니다 — **검증자 리뷰 탭**에서 승인/보정해야 발행됩니다 (Human-in-the-Loop)")
 
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
-with tab_review:
+if view == "검증자 리뷰":
     results = st.session_state.get("results", [])
     reviews = st.session_state.setdefault("reviews", {})
     if not results:
@@ -361,7 +370,7 @@ def show_metrics(rep, caption=""):
         st.caption(caption)
 
 
-with tab_flywheel:
+if view == "플라이휠":
     st.markdown("#### 🔥 실패 1건 = 자산 1줄 — 라이브")
     st.caption("검증 탭에서 시스템을 속인 문장을 여기서 자산으로 바꿉니다. "
                "**골든셋에 넣으면 점수가 일단 떨어집니다 — 그 하락이 골든셋이 진짜라는 증거입니다.**")
@@ -468,7 +477,7 @@ with tab_flywheel:
 
 
 # ═════════════ 탭 4: 자산 현황 (문서 11 플라이휠) ═════════════
-with tab_assets:
+if view == "자산 현황":
     st.markdown("#### 실패 1건 = 자산 1줄 — 축적 현황")
     aliases = AliasDict(ROOT / "data/assets/aliases.jsonl")
     reg = RuleRegistry(RULES_DIR)
