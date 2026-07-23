@@ -220,7 +220,6 @@ if view == "운영 홈":
     st.caption("기사 파일을 등록한 뒤, 큐에 쌓인 수치 주장을 지정한 한도만큼 처리합니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
-    limit = st.number_input("처리 한도", min_value=1, value=50, disabled=process_mode == "이번 업로드 전체 처리")
     a, b = st.columns(2)
     if a.button("기사 등록", use_container_width=True):
         if uploaded_csv is None:
