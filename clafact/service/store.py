@@ -137,13 +137,22 @@ class Store:
         return True
     # ── 큐 소비 ─────────────────────────────────────────────────
 
-    def fetch_pending(self, limit: int | None = None) -> list[sqlite3.Row]:
+    def fetch_pending(self, limit: int | None = None,
+                      article_ids: list[str] | None = None) -> list[sqlite3.Row]:
         sql = ("SELECT c.claim_id, c.sentence, c.article_id, a.date AS article_date"
                " FROM claims c JOIN articles a ON a.article_id = c.article_id"
-               " WHERE c.status = ? ORDER BY c.created_at, c.claim_id")
+               " WHERE c.status = ?")
+        params: list[str] = [PENDING]
+        if article_ids is not None:
+            if not article_ids:
+                return []
+            placeholders = ", ".join("?" for _ in article_ids)
+            sql += f" AND c.article_id IN ({placeholders})"
+            params.extend(article_ids)
+        sql += " ORDER BY c.created_at, c.claim_id"
         if limit:
             sql += f" LIMIT {int(limit)}"
-        return self.conn.execute(sql, (PENDING,)).fetchall()
+        return self.conn.execute(sql, params).fetchall()
 
     def save_result(self, claim_id: str, *, label: str, confidence: str | None,
                     tier: str, reason: str = "", quantity: str = "", period: str = "",

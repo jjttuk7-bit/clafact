@@ -6,11 +6,8 @@
   🔥 플라이휠   — 실패 → 골든셋 → 재평가 → 규칙 → 재평가를 라이브로 (문서 20 4막)
   🔄 자산 현황  — 자산 축적 대시보드 (문서 11)
 """
-import json
 import os
 import tempfile
-import urllib.error
-import urllib.request
 import sys
 from pathlib import Path
 
@@ -25,7 +22,9 @@ from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import FixtureKosisClient
 from clafact.ops_dashboard import build_ops_claim_rows
-from clafact.service.store import Store
+from clafact.pipeline.ingest import load_articles
+from clafact.service.batch import process_pending
+from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.pipeline.retrieve import StatIndex
 from clafact.pipeline.run import verify_article, verify_sentence
@@ -230,7 +229,12 @@ if view == "운영 홈":
                 with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temporary_file:
                     temporary_file.write(uploaded_csv.getvalue())
                     temporary_path = Path(temporary_file.name)
+                articles = load_articles(temporary_path)
                 out = import_article_file(temporary_path, store)
+                st.session_state["uploaded_article_ids"] = [
+                    stable_article_id(article.url, article.title, article.date)
+                    for article in articles
+                ]
                 st.success(f"등록 완료 · 읽음 {out['read']}건 · 신규 기사 {out['imported']}건 · 중복 {out['duplicates']}건")
             except (OSError, UnicodeDecodeError, ValueError) as error:
                 st.error(f"등록 실패: {error}")
@@ -238,24 +242,38 @@ if view == "운영 홈":
                 store.close()
                 if temporary_path is not None:
                     temporary_path.unlink(missing_ok=True)
+    uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
     if b.button("대기 Claim 처리", type="primary", use_container_width=True):
-        try:
-            req = urllib.request.Request(f"{api_url}/internal/batches/process-pending", data=json.dumps({"limit": int(limit)}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=60) as response:
-                out = json.loads(response.read())
+        if not uploaded_article_ids:
+            st.warning("먼저 CSV 기사 파일을 등록하세요.")
+        else:
+            store = Store(ROOT / "data/service/clafact.db")
+            try:
+                index, client = load_engine()
+                out = process_pending(store, index, client, limit=int(limit), article_ids=uploaded_article_ids)
                 st.success(f"처리 완료: {out['processed']}건 · 실패: {out['failed']}건")
-        except Exception as error:
-            st.error(f"처리 실패: {error}")
+            except Exception as error:
+                st.error(f"처리 실패: {error}")
+            finally:
+                store.close()
 
-    st.markdown("#### 최근 감사 로그")
-    st.caption("최근 등록된 수치 주장과 처리·판정·보조 신호를 확인합니다.")
-    claims_store = Store(ROOT / "data/service/clafact.db")
-    try:
-        claims = claims_store.conn.execute("SELECT sentence, status, label, tier, audit_json, error FROM claims ORDER BY created_at DESC LIMIT 20").fetchall()
-    finally:
-        claims_store.close()
-    st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
-
+    st.markdown("#### 이번 업로드 감사 로그")
+    st.caption("현재 세션에서 업로드한 CSV의 수치 주장과 처리·판정·보조 신호만 표시합니다.")
+    if not uploaded_article_ids:
+        st.info("CSV 기사 파일을 등록하면 해당 업로드의 감사 로그가 여기에 표시됩니다.")
+    else:
+        placeholders = ", ".join("?" for _ in uploaded_article_ids)
+        claims_store = Store(ROOT / "data/service/clafact.db")
+        try:
+            claims = claims_store.conn.execute(
+                "SELECT c.sentence, c.status, c.label, c.tier, c.audit_json, c.error "
+                "FROM claims c WHERE c.article_id IN (" + placeholders + ") "
+                "ORDER BY c.created_at DESC LIMIT 20",
+                uploaded_article_ids,
+            ).fetchall()
+        finally:
+            claims_store.close()
+        st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
 # ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":
     st.session_state.setdefault("text", "")

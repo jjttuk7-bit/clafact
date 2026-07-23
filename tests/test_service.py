@@ -72,6 +72,24 @@ def test_reprocess_is_noop():
     s.close()
 
 
+def test_process_pending_limits_work_to_selected_article_ids():
+    """업로드 범위를 지정하면 기존 대기열은 처리하지 않는다."""
+    s = _store()
+    s.upsert_article("art_uploaded", "새 업로드", "2025-01-01", "", "u1", "b")
+    s.upsert_article("art_existing", "기존 기사", "2025-01-01", "", "u2", "b")
+    s.enqueue_claim("clm_uploaded", "art_uploaded", "새 기사 수치는 1%다.")
+    s.enqueue_claim("clm_existing", "art_existing", "기존 기사 수치는 2%다.")
+
+    def unverifiable(sentence, article_date):
+        return ClaimResult(sentence=sentence, label="unverifiable", reason="테스트")
+
+    stats = batch.process_pending(s, article_ids=["art_uploaded"], verify=unverifiable)
+
+    assert stats["processed"] == 1
+    statuses = {row["claim_id"]: row["status"] for row in s.conn.execute(
+        "SELECT claim_id, status FROM claims").fetchall()}
+    assert statuses == {"clm_uploaded": st.DONE, "clm_existing": st.PENDING}
+    s.close()
 def test_failure_isolation():
     """Claim 1건의 예외가 배치를 죽이지 않는다 (§4.2 원칙 2)."""
     s = _store()
