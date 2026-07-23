@@ -129,3 +129,10 @@ def test_operations_home_shows_registration_progress_stages():
     assert "출처 분류" in home
     assert "검증 후보 준비" in home
     assert "st.status" in home
+
+def test_operations_home_explains_kosis_analysis_and_review_routes() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "KOSIS 분석 대상은 직접 조회형과 복합형을 모두 포함합니다" in home
+    assert "복합 KOSIS는 KOSIS 분석 후 최종 판정만 사람이 검토합니다" in home
