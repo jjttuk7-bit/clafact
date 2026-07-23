@@ -8,6 +8,7 @@
 """
 import json
 import os
+import tempfile
 import urllib.error
 import urllib.request
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from backend.app.ingest_service import import_article_file
 from clafact.assets.alias_dict import AliasDict
 from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
 from clafact.assets.rules import RuleRegistry
@@ -222,18 +224,20 @@ if view == "운영 홈":
         if uploaded_csv is None:
             st.warning("등록할 CSV 기사 파일을 먼저 선택하세요.")
         else:
+            temporary_path = None
+            store = Store(ROOT / "data/service/clafact.db")
             try:
-                req = urllib.request.Request(
-                    f"{api_url}/internal/articles/upload",
-                    data=uploaded_csv.getvalue(),
-                    headers={"Content-Type": "text/csv"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=60) as response:
-                    out = json.loads(response.read())
-                    st.success(f"등록 완료 · 읽음 {out['read']}건 · 신규 기사 {out['imported']}건 · 중복 {out['duplicates']}건")
-            except Exception as error:
+                with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temporary_file:
+                    temporary_file.write(uploaded_csv.getvalue())
+                    temporary_path = Path(temporary_file.name)
+                out = import_article_file(temporary_path, store)
+                st.success(f"등록 완료 · 읽음 {out['read']}건 · 신규 기사 {out['imported']}건 · 중복 {out['duplicates']}건")
+            except (OSError, UnicodeDecodeError, ValueError) as error:
                 st.error(f"등록 실패: {error}")
+            finally:
+                store.close()
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
     if b.button("대기 Claim 처리", type="primary", use_container_width=True):
         try:
             req = urllib.request.Request(f"{api_url}/internal/batches/process-pending", data=json.dumps({"limit": int(limit)}).encode(), headers={"Content-Type": "application/json"}, method="POST")
