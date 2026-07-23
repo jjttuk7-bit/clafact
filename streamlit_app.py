@@ -326,24 +326,18 @@ if view == "운영 홈":
         st.caption("검증 탭에서 수치 주장별로 실행하세요.")
     else:
         st.info("CSV 기사 파일을 등록하면 KOSIS 후보와 분류 결과가 표시됩니다.")
-    st.markdown("#### 이번 업로드 감사 로그")
-    st.caption("현재 세션에서 업로드한 CSV의 수치 주장과 처리·판정·보조 신호만 표시합니다.")
-    if not uploaded_article_ids:
-        st.info("CSV 기사 파일을 등록하면 해당 업로드의 감사 로그가 여기에 표시됩니다.")
+    st.markdown("#### 이번 업로드 전처리 요약")
+    st.caption("원본 → 유효 기사 → 문장 → 수치 주장 → 출처 분류 → 검증 처리")
+    upload = st.session_state.get("upload_summary", {})
+    if upload:
+        a, b, c, d = st.columns(4)
+        a.metric("원본 행", upload.get("source_rows", 0))
+        b.metric("유효 기사", upload.get("read", 0))
+        c.metric("문장", upload.get("sentences", 0))
+        d.metric("수치 주장", upload.get("candidates", 0))
+        st.info("다음 행동: 검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.")
     else:
-        placeholders = ", ".join("?" for _ in uploaded_article_ids)
-        claims_store = Store(ROOT / "data/service/clafact.db")
-        try:
-            claims = claims_store.conn.execute(
-                "SELECT c.sentence, c.status, c.label, c.tier, c.audit_json, c.error "
-                "FROM claims c WHERE c.article_id IN (" + placeholders + ") "
-                "ORDER BY c.created_at DESC LIMIT 20",
-                uploaded_article_ids,
-            ).fetchall()
-        finally:
-            claims_store.close()
-        st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
-# ═════════════ 탭 1: 검증 (WF-1) ═════════════
+        st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":
     st.markdown("#### 이번 업로드 검증 결과")
     st.caption("운영 홈에서 등록·처리한 Claim의 저장된 KOSIS 판정과 HCX 설명을 다시 실행하지 않고 확인합니다.")

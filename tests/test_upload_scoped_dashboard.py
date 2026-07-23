@@ -81,3 +81,9 @@ def test_reviewer_tab_offers_official_evidence_replacement() -> None:
     section = source[source.index('if view == "검증자 리뷰":'):source.index('# ═════════════ 탭 3: 플라이휠')]
     assert '공식 근거 교체 후 재검증' in section
     assert 'review_notice_url_' in section
+def test_operations_home_explains_preprocessing_not_audit_log() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+    assert '이번 업로드 전처리 요약' in home
+    assert '원본 → 유효 기사 → 문장 → 수치 주장' in home
+    assert '이번 업로드 감사 로그' not in home
