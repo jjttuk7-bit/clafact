@@ -407,6 +407,7 @@ if view == "운영 홈":
             extraction_rows = [
                 {
                     "기사": preview.get("title") or "제목 없음",
+                    "기사 등록일": preview.get("article_date") or preview.get("date") or "미확인",
                     "수치 주장 문장": preview.get("sentence", ""),
                     "추출 수치": preview.get("quantity_display", "수치 미검출"),
                     "시점": preview.get("period") or "미검출",

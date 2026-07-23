@@ -71,4 +71,5 @@ def test_import_returns_kosis_claim_previews_with_extracted_quantities(tmp_path)
     assert previews[0]["route"] == "KOSIS_RETRIEVAL"
     assert previews[0]["quantity_display"] == "2.2%"
     assert previews[0]["source_type"] in {"KOSIS_DOMESTIC", "KOSIS_BUT_COMPLEX"}
+    assert previews[0]["article_date"] == "2025-02-05"
     store.close()

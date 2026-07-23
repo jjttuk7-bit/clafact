@@ -48,6 +48,7 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
                     "article_id": article_id,
                     "title": article.title,
                     "date": article.date,
+                    "article_date": article.date,
                     "sentence": sentence,
                     "source_type": classification["source_type"],
                     "route": classification["route"],

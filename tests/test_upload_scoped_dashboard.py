@@ -205,3 +205,11 @@ def test_operations_home_shows_kosis_claim_extraction_preview() -> None:
     assert "claim_previews" in home
     assert "추출 수치" in home
     assert "출처 분류" in home
+
+
+def test_operations_home_shows_article_date_for_extraction_preview() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "기사 등록일" in home
+    assert "article_date" in home
