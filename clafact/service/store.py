@@ -112,6 +112,7 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self._migrate_schema()
+        self._migrate_legacy_kosis_routes()
         self.conn.commit()
 
     def close(self) -> None:
@@ -133,6 +134,28 @@ class Store:
             "UPDATE claims SET route='LEGACY_UNCLASSIFIED' "
             "WHERE route IS NULL OR route=''"
         )
+    def _migrate_legacy_kosis_routes(self) -> None:
+        """Move pre-safe-policy complex KOSIS claims back into analysis queue once."""
+        rows = self.conn.execute(
+            "SELECT * FROM claims WHERE source_type=? AND route=?"
+            " AND (tier IS NULL OR tier NOT IN (?, ?))",
+            ("KOSIS_BUT_COMPLEX", "HUMAN_REVIEW", CONFIRMED, CORRECTED),
+        ).fetchall()
+        for row in rows:
+            try:
+                audit = json.loads(row["audit_json"] or "{}")
+            except json.JSONDecodeError:
+                audit = {}
+            audit["reclassification"] = {"previous_result": {
+                key: row[key] for key in ("status", "label", "confidence", "tier", "reason")
+            }, "policy": "kosis_analysis_v1"}
+            self.conn.execute(
+                "UPDATE claims SET route=?, status=?, label=NULL, confidence=NULL, tier=NULL,"
+                " reason='', quantity='', period='', calculation='', explanation='',"
+                " evidence_json='{}', audit_json=?, error='', processed_at=NULL WHERE claim_id=?",
+                ("KOSIS_RETRIEVAL", PENDING, json.dumps(audit, ensure_ascii=False), row["claim_id"]),
+            )
+
     # ── 적재 (멱등) ──────────────────────────────────────────────
 
     def upsert_article(self, article_id: str, title: str, date: str,

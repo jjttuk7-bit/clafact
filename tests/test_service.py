@@ -338,3 +338,21 @@ def test_complex_kosis_claim_is_analyzed_but_requires_human_review():
     assert stats["processed"] == 1
     assert (row["status"], row["tier"]) == (st.DONE, st.NEEDS_REVIEW)
     s.close()
+
+def test_store_migrates_legacy_complex_kosis_claims_into_analysis_queue(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    first = Store(db_path)
+    first.upsert_article("art_legacy", "t", "2025-01-01", "", "u", "b")
+    first.enqueue_claim(
+        "clm_legacy", "art_legacy", "소비자물가지수는 117.42(2020년=100)다.",
+        classification={"source_type": "KOSIS_BUT_COMPLEX", "route": "HUMAN_REVIEW"},
+    )
+    first.save_result("clm_legacy", label="unverifiable", confidence=None, tier=st.UNVERIFIABLE)
+    first.close()
+
+    migrated = Store(db_path)
+    row = migrated.conn.execute("SELECT route, status, label, audit_json FROM claims").fetchone()
+
+    assert (row["route"], row["status"], row["label"]) == ("KOSIS_RETRIEVAL", st.PENDING, None)
+    assert json.loads(row["audit_json"])["reclassification"]["previous_result"]["label"] == "unverifiable"
+    migrated.close()
