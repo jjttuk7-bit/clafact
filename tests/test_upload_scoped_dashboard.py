@@ -103,12 +103,12 @@ def test_operations_home_breaks_out_non_kosis_routes() -> None:
     assert '민간·플랫폼' in home
     assert '사람 검토' in home
 
-def test_operations_home_offers_safe_policy_reclassification():
+def test_operations_home_hides_manual_policy_reclassification():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
 
-    assert "\uc804\uccb4 \uc0c8 \uc815\ucc45 \uc801\uc6a9" in home
-    assert "reclassify_all_claims" in home
+    assert "\uc804\uccb4 \uc0c8 \uc815\ucc45 \uc801\uc6a9" not in home
+    assert "reclassify_all_claims" not in home
 
 
 def test_verification_tab_shows_unverifiable_reason_summary():

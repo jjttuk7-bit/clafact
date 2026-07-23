@@ -285,16 +285,6 @@ if view == "운영 홈":
 
     st.markdown("#### 운영 실행")
     st.caption("기사 파일에서 수치 주장을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
-    if st.button("전체 새 정책 적용", use_container_width=True):
-        policy_store = Store(ROOT / "data/service/clafact.db")
-        try:
-            stats = policy_store.reclassify_all_claims()
-        finally:
-            policy_store.close()
-        st.success(
-            f"새 정책 적용 완료 · KOSIS 자동 검증 {stats.get('KOSIS_RETRIEVAL', 0)}건 · "
-            f"사람 검토 {stats.get('HUMAN_REVIEW', 0)}건"
-        )
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
 
