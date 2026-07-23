@@ -186,3 +186,12 @@ def test_verification_tab_groups_claim_selection_controls() -> None:
     assert "verification-claim-context" in section
     assert "검증 대상 선택" in section
     assert "선택한 기사" in section
+
+
+def test_selected_article_mode_offers_a_next_verification_action() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "선택 기사 검증 실행" in section
+    assert "pending_selected_ids" in section
+    assert 'key="verify_selected_article"' in section

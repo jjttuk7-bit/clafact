@@ -516,7 +516,23 @@ if view == "검증":
                     ),
                 )
                 selected = [row for row in upload_results if row["article_id"] == selected_article_id]
-                st.markdown(f"""<div class="verification-claim-context"><strong>선택한 기사</strong><span>수치 주장 {len(selected):,}건 · Claim을 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.</span></div>""", unsafe_allow_html=True)
+                pending_selected_ids = [row["claim_id"] for row in selected if row["status"] == "PENDING"]
+                st.markdown(f"""<div class="verification-claim-context"><strong>선택한 기사</strong><span>수치 주장 {len(selected):,}건 · 대기 {len(pending_selected_ids):,}건</span></div>""", unsafe_allow_html=True)
+                if pending_selected_ids:
+                    st.markdown(f"""<div class="verification-action-bar"><span class="verification-action-label">선택 기사 검증</span><span class="verification-action-note">이 기사에서 대기 중인 Claim {len(pending_selected_ids):,}건을 검증합니다.</span></div>""", unsafe_allow_html=True)
+                    if st.button("선택 기사 검증 실행", key="verify_selected_article", type="primary", use_container_width=True):
+                        selected_store = Store(ROOT / "data/service/clafact.db")
+                        try:
+                            index, client = load_engine()
+                            stats = process_pending(selected_store, index, client, claim_ids=pending_selected_ids)
+                            st.success(f"기사 검증 완료 · 처리 {stats['processed']}건 · 실패 {stats['failed']}건")
+                        except Exception as error:
+                            st.error(f"검증 실패: {error}")
+                        finally:
+                            selected_store.close()
+                        st.rerun()
+                else:
+                    st.success("선택한 기사의 대기 Claim이 없습니다. 아래에서 저장된 결과를 확인하세요.")
                 for number, row in enumerate(selected, start=1):
                     render_stored_claim(row, number)
             st.markdown("</div>", unsafe_allow_html=True)
