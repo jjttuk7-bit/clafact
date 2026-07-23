@@ -226,7 +226,7 @@ if view == "운영 홈":
                 req = urllib.request.Request(
                     f"{api_url}/internal/articles/upload",
                     data=uploaded_csv.getvalue(),
-                    headers={"Content-Type": "text/csv", "X-Filename": uploaded_csv.name},
+                    headers={"Content-Type": "text/csv"},
                     method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=60) as response:
