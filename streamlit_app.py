@@ -63,6 +63,8 @@ SAMPLES = {
     },
 }
 
+STATUS_KO = {"PENDING": "검증 대기", "DONE": "검증 완료", "FAILED": "검증 실패", "CLASSIFIED": "분류 완료"}
+
 STYLE = {
     "match": ("🟢 일치", "#2E8B57"),
     "mismatch": ("🔴 불일치", "#C0392B"),
@@ -91,10 +93,10 @@ def render_stored_claim(row, number: int) -> None:
         st.markdown(f"**주장:** {row['sentence']}")
         st.caption(
             f"기사일: {row['article_date'] or '-'} | 시점: {row['period'] or '-'} | "
-            f"수치: {row['quantity'] or '-'} | 처리 상태: {status}"
+            f"수치: {row['quantity'] or '-'} | 처리 상태: {STATUS_KO.get(status, status)}"
         )
         if status == "PENDING":
-            st.info("아직 판정 전입니다. 아래 버튼으로 이 Claim만 KOSIS 검증합니다.")
+            st.info("아직 판정 전입니다. 아래 버튼으로 이 수치 주장만 KOSIS 검증합니다.")
             if st.button("KOSIS 검증 실행", key=f"verify_{row['claim_id']}", type="primary"):
                 verify_store = Store(ROOT / "data/service/clafact.db")
                 try:
@@ -282,7 +284,7 @@ if view == "운영 홈":
         column.markdown(f'<div class="ops-card" style="--accent:{accent}"><div class="ops-label">{label}</div><div class="ops-value">{value:,}</div><div class="ops-note">{note}</div></div>', unsafe_allow_html=True)
 
     st.markdown("#### 운영 실행")
-    st.caption("기사 파일에서 수치 Claim을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
+    st.caption("기사 파일에서 수치 주장을 분류합니다. KOSIS 검증 후보만 검증 탭으로 전달됩니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
 
@@ -303,7 +305,7 @@ if view == "운영 홈":
                     for article in articles
                 ]
                 st.session_state["upload_summary"] = out
-                st.success(f"등록 완료 · 원본 {out['source_rows']}행 → 유효 기사 {out['read']}건 → 문장 {out['sentences']}건 → Claim 후보 {out['candidates']}건 → 큐 등록 {out['queued']}건")
+                st.success(f"등록 완료 · 원본 {out['source_rows']}행 → 유효 기사 {out['read']}건 → 문장 {out['sentences']}건 → 수치 주장 후보 {out['candidates']}건 → 큐 등록 {out['queued']}건")
                 if out['excluded_candidates']:
                     st.caption('제외: ' + ', '.join(f'{reason} {count}건' for reason, count in out['exclusion_reasons'].items()))
             except (OSError, UnicodeDecodeError, ValueError) as error:
@@ -321,7 +323,7 @@ if view == "운영 홈":
         finally:
             pending_store.close()
         st.success(f"KOSIS 검증 후보 {pending_count}건 · 분류 보존 {classified_count}건")
-        st.caption("검증 탭에서 Claim별로 실행하세요.")
+        st.caption("검증 탭에서 수치 주장별로 실행하세요.")
     else:
         st.info("CSV 기사 파일을 등록하면 KOSIS 후보와 분류 결과가 표시됩니다.")
     st.markdown("#### 이번 업로드 감사 로그")
@@ -358,19 +360,19 @@ if view == "검증":
             completed = sum(row["status"] == "DONE" for row in upload_results)
             failed = sum(row["status"] == "FAILED" for row in upload_results)
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("이번 업로드 Claim", len(upload_results))
+            m1.metric("이번 업로드 수치 주장", len(upload_results))
             m2.metric("판정 완료", completed)
             m3.metric("처리 대기", pending)
             m4.metric("처리 실패", failed)
 
-            view_mode = st.radio("결과 보기", ("선택 기사", "전체 Claim"), horizontal=True)
-            if view_mode == "전체 Claim":
+            view_mode = st.radio("결과 보기", ("선택 기사", "전체 수치 주장"), horizontal=True)
+            if view_mode == "전체 수치 주장":
                 filter_status, filter_label, filter_search = st.columns([1, 1, 2])
-                status_option = filter_status.selectbox("처리 상태", ("전체", "PENDING", "DONE", "FAILED"))
+                status_option = filter_status.selectbox("처리 상태", ("전체", "검증 대기", "검증 완료", "검증 실패"))
                 label_option = filter_label.selectbox("판정", ("전체", "일치", "불일치", "판단불가"))
-                search = filter_search.text_input("Claim 검색", placeholder="주장 문장에 포함된 단어")
+                search = filter_search.text_input("수치 주장 검색", placeholder="주장 문장에 포함된 단어")
                 label_map = {"일치": "match", "불일치": "mismatch", "판단불가": "unverifiable"}
-                status = None if status_option == "전체" else status_option
+                status = {"검증 대기": "PENDING", "검증 완료": "DONE", "검증 실패": "FAILED"}.get(status_option)
                 label = label_map.get(label_option)
                 page_size = 50
                 filtered_store = Store(ROOT / "data/service/clafact.db")
@@ -403,7 +405,7 @@ if view == "검증":
                     ),
                 )
                 selected = [row for row in upload_results if row["article_id"] == selected_article_id]
-                st.caption(f"선택 기사 Claim {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
+                st.caption(f"선택 기사 수치 주장 {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
                 for number, row in enumerate(selected, start=1):
                     render_stored_claim(row, number)
         else:
