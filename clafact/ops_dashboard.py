@@ -20,6 +20,7 @@ def build_ops_claim_rows(claims: Iterable[Mapping[str, Any]]) -> list[dict[str, 
     """Map stored claims into readable, presentation-ready audit rows."""
     rows = []
     for claim in claims:
+        claim = dict(claim)
         try:
             audit = json.loads(claim.get("audit_json") or "{}")
         except json.JSONDecodeError:
