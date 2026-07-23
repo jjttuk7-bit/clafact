@@ -36,6 +36,7 @@ RE_SUPERLATIVE = re.compile(r"(?:사상|역대)\s*(?:최악|최고|최대|최소
 
 # 검증 대상이 아닐 가능성이 높은 패턴 (날짜·전화번호 등 노이즈 컷)
 RE_NOISE_ONLY = re.compile(r"^\s*(?:\d{4}년\s*)?\d{1,2}월\s*\d{1,2}일\s*$")
+RE_SITE_CHROME = re.compile(r"(?:실시간\s*뉴스|뉴스\s*\d+\s*분\s*전|구독하기|로그인|더보기)")
 
 # ── 규칙 카드에서 오는 탐지 패턴 ──────────────────────────────
 RULES_DIR = Path(__file__).resolve().parents[2] / "data" / "assets" / "rules"
@@ -89,10 +90,17 @@ def reload_rules() -> int:
     return len(rule_patterns())
 
 
+def exclusion_reason(sentence: str) -> str | None:
+    """Return a user-facing reason when a sentence is crawler chrome, not article text."""
+    if RE_SITE_CHROME.search(sentence):
+        return "실시간 뉴스·사이트 크롬"
+    return None
+
+
 def is_candidate(sentence: str) -> bool:
     """검증 가능 주장 '후보' 여부 — 재현율 우선, 관대한 기준."""
     s = sentence.strip()
-    if not s or RE_NOISE_ONLY.match(s):
+    if not s or RE_NOISE_ONLY.match(s) or exclusion_reason(s):
         return False
     # 숫자+단위 조합이 있으면 후보
     if RE_NUM_UNIT.search(s):

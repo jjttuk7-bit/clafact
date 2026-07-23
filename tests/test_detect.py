@@ -1,4 +1,5 @@
 """탐지 규칙 필터 테스트."""
+from clafact.pipeline import detect
 from clafact.pipeline.detect import is_candidate
 
 
@@ -25,17 +26,8 @@ def test_date_noise_cut():
     assert not is_candidate("3월 10일")
 
 
-if __name__ == "__main__":
-    import sys, traceback
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    failed = 0
-    for fn in fns:
-        try:
-            fn()
-            print(f"  PASS  {fn.__name__}")
-        except Exception:
-            failed += 1
-            print(f"  FAIL  {fn.__name__}")
-            traceback.print_exc()
-    print(f"\n{len(fns) - failed}/{len(fns)} passed")
-    sys.exit(1 if failed else 0)
+def test_rejects_live_news_chrome_before_claim_detection() -> None:
+    sentence = "실시간 뉴스 10분 전 [사이언스샷] 인간은 또 다른 원숭이"
+
+    assert detect.exclusion_reason(sentence) == "실시간 뉴스·사이트 크롬"
+    assert detect.is_candidate(sentence) is False

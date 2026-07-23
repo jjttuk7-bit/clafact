@@ -25,8 +25,8 @@ def test_import_article_file_persists_clean_articles_and_pending_claims(tmp_path
     first = import_article_file(source, store)
     second = import_article_file(source, store)
 
-    assert first == {"read": 1, "imported": 1, "duplicates": 0}
-    assert second == {"read": 1, "imported": 0, "duplicates": 1}
+    assert first["read"] == 1 and first["imported"] == 1 and first["queued"] == 1
+    assert second["read"] == 1 and second["imported"] == 0 and second["duplicates"] == 1
     assert store.summary()["articles"] == 1
     article = store.conn.execute("SELECT title, body FROM articles").fetchone()
     claim = store.conn.execute(

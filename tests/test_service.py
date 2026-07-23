@@ -158,3 +158,15 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_count_pending_scopes_to_uploaded_articles():
+    s = _store()
+    s.upsert_article("art_uploaded", "업로드", "2025-01-01", "", "u1", "b")
+    s.upsert_article("art_existing", "기존", "2025-01-01", "", "u2", "b")
+    s.enqueue_claim("clm_uploaded", "art_uploaded", "업로드 수치는 1%다.")
+    s.enqueue_claim("clm_existing", "art_existing", "기존 수치는 2%다.")
+
+    assert s.count_pending(["art_uploaded"]) == 1
+    assert s.count_pending([]) == 0
+    s.close()

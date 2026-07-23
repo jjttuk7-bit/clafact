@@ -31,7 +31,9 @@ def test_article_import_api_registers_file_into_service_store(tmp_path, monkeypa
     )
 
     assert response.status_code == 200
-    assert response.json() == {"read": 1, "imported": 1, "duplicates": 0}
+    assert response.json()["read"] == 1
+    assert response.json()["imported"] == 1
+    assert response.json()["queued"] == 1
 
     store = Store(db_path)
     assert store.summary()["articles"] == 1

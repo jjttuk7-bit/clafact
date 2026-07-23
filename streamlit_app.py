@@ -186,7 +186,10 @@ st.markdown("""
   .ops-label { color:var(--ops-muted); font-size:.83rem; font-weight:650; }
   .ops-value { color:var(--ops-text); font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
   .ops-note { color:#89a6aa; font-size:.78rem; margin-top:.4rem; }
-  div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }`r`n  div.stButton > button[kind="primary"] { background:var(--primary-color); color:#FFFFFF; }`r`n  div.stButton > button p { color:inherit !important; }`r`n  :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
+  div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }`r
+  div.stButton > button[kind="primary"] { background:var(--primary-color); color:#FFFFFF; }`r
+  div.stButton > button p { color:inherit !important; }`r
+  :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
 </style>
 """, unsafe_allow_html=True)
@@ -217,7 +220,8 @@ if view == "운영 홈":
     st.caption("기사 파일을 등록한 뒤, 큐에 쌓인 수치 주장을 지정한 한도만큼 처리합니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
-    limit = st.number_input("처리 한도", min_value=1, value=50)
+    process_mode = st.radio("처리 방식", ("50건 처리", "이번 업로드 전체 처리"), horizontal=True)
+    limit = st.number_input("처리 한도", min_value=1, value=50, disabled=process_mode == "이번 업로드 전체 처리")
     a, b = st.columns(2)
     if a.button("기사 등록", use_container_width=True):
         if uploaded_csv is None:
@@ -235,7 +239,10 @@ if view == "운영 홈":
                     stable_article_id(article.url, article.title, article.date)
                     for article in articles
                 ]
-                st.success(f"등록 완료 · 읽음 {out['read']}건 · 신규 기사 {out['imported']}건 · 중복 {out['duplicates']}건")
+                st.session_state["upload_summary"] = out
+                st.success(f"등록 완료 · 원본 {out['source_rows']}행 → 유효 기사 {out['read']}건 → 문장 {out['sentences']}건 → Claim 후보 {out['candidates']}건 → 큐 등록 {out['queued']}건")
+                if out['excluded_candidates']:
+                    st.caption('제외: ' + ', '.join(f'{reason} {count}건' for reason, count in out['exclusion_reasons'].items()))
             except (OSError, UnicodeDecodeError, ValueError) as error:
                 st.error(f"등록 실패: {error}")
             finally:
@@ -243,6 +250,13 @@ if view == "운영 홈":
                 if temporary_path is not None:
                     temporary_path.unlink(missing_ok=True)
     uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
+    if uploaded_article_ids:
+        pending_store = Store(ROOT / "data/service/clafact.db")
+        try:
+            pending_count = pending_store.count_pending(uploaded_article_ids)
+        finally:
+            pending_store.close()
+        st.caption(f"이번 업로드 처리 대기 Claim: {pending_count}건")
     if b.button("대기 Claim 처리", type="primary", use_container_width=True):
         if not uploaded_article_ids:
             st.warning("먼저 CSV 기사 파일을 등록하세요.")
@@ -250,7 +264,8 @@ if view == "운영 홈":
             store = Store(ROOT / "data/service/clafact.db")
             try:
                 index, client = load_engine()
-                out = process_pending(store, index, client, limit=int(limit), article_ids=uploaded_article_ids)
+                batch_limit = None if process_mode == "이번 업로드 전체 처리" else int(limit)
+                out = process_pending(store, index, client, limit=batch_limit, article_ids=uploaded_article_ids)
                 st.success(f"처리 완료: {out['processed']}건 · 실패: {out['failed']}건")
             except Exception as error:
                 st.error(f"처리 실패: {error}")

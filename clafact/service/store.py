@@ -154,6 +154,16 @@ class Store:
             sql += f" LIMIT {int(limit)}"
         return self.conn.execute(sql, params).fetchall()
 
+    def count_pending(self, article_ids: list[str] | None = None) -> int:
+        sql = "SELECT COUNT(*) AS n FROM claims WHERE status = ?"
+        params: list[str] = [PENDING]
+        if article_ids is not None:
+            if not article_ids:
+                return 0
+            placeholders = ", ".join("?" for _ in article_ids)
+            sql += f" AND article_id IN ({placeholders})"
+            params.extend(article_ids)
+        return int(self.conn.execute(sql, params).fetchone()["n"])
     def save_result(self, claim_id: str, *, label: str, confidence: str | None,
                     tier: str, reason: str = "", quantity: str = "", period: str = "",
                     calculation: str = "", explanation: str = "",

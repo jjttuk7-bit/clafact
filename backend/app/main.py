@@ -30,7 +30,7 @@ def process_pending_batch(request:ProcessPendingRequest)->dict:
         index,client=build_kosis_engine(); return process_pending(store,index,client,limit=request.limit)
     finally: store.close()
 @app.post("/internal/articles/import")
-def import_article(request:ArticleImportRequest)->dict[str,int]:
+def import_article(request:ArticleImportRequest)->dict[str, object]:
     root=Path(__file__).resolve().parents[2]; store=Store(Path(os.environ.get("CLAFACT_SERVICE_DB",root/"data/service/clafact.db")))
     try:
         signal=hcx_detection_signal if os.environ.get("CLAFACT_HCX_MODE","fixture").lower()=="live" else None
@@ -41,7 +41,7 @@ def import_article(request:ArticleImportRequest)->dict[str,int]:
 def upload_article_csv(
     content: bytes = Body(...),
     x_filename: str = Header(default="articles.csv"),
-) -> dict[str, int]:
+) -> dict[str, object]:
     """Register an uploaded CSV through the existing article ingest boundary."""
     if not x_filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="CSV 파일만 업로드할 수 있습니다.")
