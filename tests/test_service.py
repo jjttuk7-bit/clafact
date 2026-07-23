@@ -254,3 +254,24 @@ def test_fetch_upload_results_can_filter_by_source_route():
 
     assert [row["claim_id"] for row in rows] == ["clm_kosis"]
     s.close()
+
+def test_register_official_notice_verdicts_and_validation():
+    s = _store()
+    s.upsert_article("art_notice", "총조사", "2025-01-01", "", "u", "b")
+    classification = {"source_type": "OFFICIAL_ANNOUNCEMENT", "route": "NON_KOSIS_QUEUE"}
+    s.enqueue_claim("clm_match", "art_notice", "2025 인구주택총조사는 10월 22일부터 시행된다.", classification=classification)
+    s.enqueue_claim("clm_mismatch", "art_notice", "2025 인구주택총조사는 10월 22일부터 시행된다.", classification=classification)
+    s.enqueue_claim("clm_kosis", "art_notice", "실업률은 3%다.")
+
+    matched = s.register_official_notice("clm_match", "통계청", "https://kostat.go.kr/notice", "2025-10-22")
+    mismatched = s.register_official_notice("clm_mismatch", "통계청", "https://kostat.go.kr/notice", "2025-10-23")
+
+    assert (matched["status"], matched["label"]) == (st.DONE, "match")
+    assert json.loads(matched["evidence_json"])["effective_date"] == "2025-10-22"
+    assert (mismatched["status"], mismatched["label"]) == (st.DONE, "mismatch")
+    import pytest
+    with pytest.raises(ValueError):
+        s.register_official_notice("clm_kosis", "통계청", "https://kostat.go.kr/notice", "2025-10-22")
+    with pytest.raises(ValueError):
+        s.register_official_notice("clm_match", "통계청", "https://kostat.go.kr/notice", "2025-13-22")
+    s.close()

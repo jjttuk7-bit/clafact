@@ -10,6 +10,8 @@ v0 는 SQLite(stdlib) 지만 스키마·SQL 은 PostgreSQL 호환 부분집합�
 from __future__ import annotations
 
 import hashlib
+import datetime
+import re
 import json
 import sqlite3
 import time
@@ -259,6 +261,25 @@ class Store:
              json.dumps(audit or {}, ensure_ascii=False), now_iso(), claim_id))
         self.conn.commit()
 
+    def register_official_notice(self, claim_id: str, organization: str, url: str, effective_date: str) -> sqlite3.Row:
+        """공식 조사 일정 Claim에 공식 공지 근거를 등록하고 즉시 판정한다."""
+        try:
+            date = datetime.date.fromisoformat(effective_date)
+        except ValueError as error:
+            raise ValueError("effective_date must be YYYY-MM-DD") from error
+        row = self.conn.execute("SELECT * FROM claims WHERE claim_id=?", (claim_id,)).fetchone()
+        if row is None:
+            raise KeyError(claim_id)
+        if row["source_type"] != "OFFICIAL_ANNOUNCEMENT":
+            raise ValueError("official notice evidence requires OFFICIAL_ANNOUNCEMENT")
+        match = re.search(r"(\d{1,2})월\s*(\d{1,2})일", row["sentence"])
+        sentence_date = f"{date.year:04d}-{int(match.group(1)):02d}-{int(match.group(2)):02d}" if match else ""
+        label = "match" if not sentence_date or sentence_date == effective_date else "mismatch"
+        reason = "공식 공지 시행일 일치" if label == "match" else "공식 공지 시행일 불일치"
+        evidence = {"official_notice": organization, "official_url": url, "effective_date": effective_date}
+        self.conn.execute("UPDATE claims SET status=?, label=?, reason=?, evidence_json=?, processed_at=? WHERE claim_id=?", (DONE, label, reason, json.dumps(evidence, ensure_ascii=False), now_iso(), claim_id))
+        self.conn.commit()
+        return self.conn.execute("SELECT * FROM claims WHERE claim_id=?", (claim_id,)).fetchone()
     def mark_failed(self, claim_id: str, error: str) -> None:
         """Claim 1건의 실패를 격리한다 — 배치는 계속 (문서 25 §4.2 원칙 2)."""
         self.conn.execute(
