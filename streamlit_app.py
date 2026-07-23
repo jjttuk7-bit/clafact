@@ -275,7 +275,7 @@ if view == "운영 홈":
     finally:
         store.close()
     metrics = [
-        ("등록 기사", summary["articles"], "누적 수집", "#46d5c7"),
+        ("누적 등록 기사", summary["articles"], "누적 수집", "#46d5c7"),
         ("처리 대기", summary["claims_by_status"].get("PENDING", 0), "다음 배치 대상", "#f1c96b"),
         ("처리 실패", summary["claims_by_status"].get("FAILED", 0), "조치 필요", "#ed7b72"),
         ("리뷰 대기", summary["review_queue"], "검토자 확인", "#88a9ff"),
@@ -335,6 +335,9 @@ if view == "운영 홈":
         b.metric("유효 기사", upload.get("read", 0))
         c.metric("문장", upload.get("sentences", 0))
         d.metric("수치 주장", upload.get("candidates", 0))
+        kosis_count = upload.get("routes", {}).get("KOSIS_RETRIEVAL", 0)
+        other_count = upload.get("candidates", 0) - kosis_count
+        st.markdown(f"**분류 퍼널:** 수치 주장 {upload.get('candidates', 0):,}건 → **KOSIS 자동 검증 대상** {kosis_count:,}건 / **별도 근거 확인 대상** {other_count:,}건")
         st.info("다음 행동: 검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.")
     else:
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════

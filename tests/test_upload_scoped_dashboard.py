@@ -87,3 +87,9 @@ def test_operations_home_explains_preprocessing_not_audit_log() -> None:
     assert '이번 업로드 전처리 요약' in home
     assert '원본 → 유효 기사 → 문장 → 수치 주장' in home
     assert '이번 업로드 감사 로그' not in home
+def test_operations_home_shows_routing_funnel() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+    assert 'KOSIS 자동 검증 대상' in home
+    assert '별도 근거 확인 대상' in home
+    assert '누적 등록 기사' in home
