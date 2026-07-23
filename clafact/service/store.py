@@ -164,18 +164,50 @@ class Store:
             sql += f" AND article_id IN ({placeholders})"
             params.extend(article_ids)
         return int(self.conn.execute(sql, params).fetchone()["n"])
-    def fetch_upload_results(self, article_ids: list[str]) -> list[sqlite3.Row]:
-        """선택한 업로드에 속한 기사와 Claim 판정 원본을 함께 반환한다."""
+    def _upload_result_filter(self, article_ids: list[str], *, status: str | None = None,
+                              label: str | None = None, search: str = "") -> tuple[str, list[str]]:
         if not article_ids:
-            return []
+            return "", []
         placeholders = ", ".join("?" for _ in article_ids)
+        clauses = [f"c.article_id IN ({placeholders})"]
+        params = list(article_ids)
+        if status:
+            clauses.append("c.status = ?")
+            params.append(status)
+        if label:
+            clauses.append("c.label = ?")
+            params.append(label)
+        if search.strip():
+            clauses.append("c.sentence LIKE ?")
+            params.append(f"%{search.strip()}%")
+        return " WHERE " + " AND ".join(clauses), params
+
+    def count_upload_results(self, article_ids: list[str], *, status: str | None = None,
+                             label: str | None = None, search: str = "") -> int:
+        """선택 업로드에서 필터에 맞는 Claim 수를 반환한다."""
+        where, params = self._upload_result_filter(article_ids, status=status, label=label, search=search)
+        if not where:
+            return 0
+        row = self.conn.execute("SELECT COUNT(*) AS n FROM claims c" + where, params).fetchone()
+        return int(row["n"])
+
+    def fetch_upload_results(self, article_ids: list[str], *, status: str | None = None,
+                             label: str | None = None, search: str = "",
+                             limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
+        """선택한 업로드의 기사와 Claim 판정 원본을 필터·페이지 단위로 반환한다."""
+        where, params = self._upload_result_filter(article_ids, status=status, label=label, search=search)
+        if not where:
+            return []
         sql = (
             "SELECT c.*, a.title, a.date AS article_date, a.section, a.url "
-            "FROM claims c JOIN articles a ON a.article_id = c.article_id "
-            f"WHERE c.article_id IN ({placeholders}) "
-            "ORDER BY a.date DESC, a.title, c.created_at, c.claim_id"
+            "FROM claims c JOIN articles a ON a.article_id = c.article_id"
+            + where + " ORDER BY a.date DESC, a.title, c.created_at, c.claim_id"
         )
-        return self.conn.execute(sql, article_ids).fetchall()
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([int(limit), max(0, int(offset))])
+        return self.conn.execute(sql, params).fetchall()
+
     def save_result(self, claim_id: str, *, label: str, confidence: str | None,
                     tier: str, reason: str = "", quantity: str = "", period: str = "",
                     calculation: str = "", explanation: str = "",

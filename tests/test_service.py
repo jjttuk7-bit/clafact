@@ -191,3 +191,19 @@ def test_fetch_upload_results_returns_saved_claim_details_only_for_selected_arti
     assert rows[0]["label"] == "match"
     assert rows[0]["evidence_json"] == '{"tbl": "소비자물가", "value": "2.2%"}'
     s.close()
+
+def test_fetch_upload_results_filters_and_pages_claims_within_the_upload():
+    s = _store()
+    s.upsert_article("art_current", "이번 업로드", "2025-02-05", "경제", "u1", "본문")
+    s.upsert_article("art_old", "이전 업로드", "2025-01-01", "경제", "u2", "본문")
+    for claim_id, sentence in (("clm_match", "소비자물가 2.2%"), ("clm_pending", "수출은 4%")):
+        s.enqueue_claim(claim_id, "art_current", sentence)
+    s.enqueue_claim("clm_old", "art_old", "소비자물가 9%")
+    s.save_result("clm_match", label="match", confidence="high", tier=st.AUTO_CONFIRMED)
+
+    assert s.count_upload_results(["art_current"]) == 2
+    rows = s.fetch_upload_results(["art_current"], status=st.DONE, limit=50, offset=0)
+    assert [row["claim_id"] for row in rows] == ["clm_match"]
+    rows = s.fetch_upload_results(["art_current"], search="수출", limit=1, offset=0)
+    assert [row["claim_id"] for row in rows] == ["clm_pending"]
+    s.close()

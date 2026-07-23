@@ -361,22 +361,49 @@ if view == "검증":
             m3.metric("처리 대기", pending)
             m4.metric("처리 실패", failed)
 
-            article_rows = {}
-            for row in upload_results:
-                article_rows.setdefault(row["article_id"], row)
-            article_ids = list(article_rows)
-            selected_article_id = st.selectbox(
-                "검증할 기사",
-                article_ids,
-                format_func=lambda article_id: (
-                    f"{article_rows[article_id]['article_date']} · "
-                    f"{article_rows[article_id]['title'] or article_id}"
-                ),
-            )
-            selected = [row for row in upload_results if row["article_id"] == selected_article_id]
-            st.caption(f"선택 기사 Claim {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
-            for number, row in enumerate(selected, start=1):
-                render_stored_claim(row, number)
+            view_mode = st.radio("결과 보기", ("선택 기사", "전체 Claim"), horizontal=True)
+            if view_mode == "전체 Claim":
+                filter_status, filter_label, filter_search = st.columns([1, 1, 2])
+                status_option = filter_status.selectbox("처리 상태", ("전체", "PENDING", "DONE", "FAILED"))
+                label_option = filter_label.selectbox("판정", ("전체", "일치", "불일치", "판단불가"))
+                search = filter_search.text_input("Claim 검색", placeholder="주장 문장에 포함된 단어")
+                label_map = {"일치": "match", "불일치": "mismatch", "판단불가": "unverifiable"}
+                status = None if status_option == "전체" else status_option
+                label = label_map.get(label_option)
+                page_size = 50
+                filtered_store = Store(ROOT / "data/service/clafact.db")
+                try:
+                    total = filtered_store.count_upload_results(
+                        uploaded_article_ids, status=status, label=label, search=search)
+                    page_count = max(1, (total + page_size - 1) // page_size)
+                    page = st.number_input("페이지", min_value=1, max_value=page_count, value=1, step=1)
+                    page_rows = filtered_store.fetch_upload_results(
+                        uploaded_article_ids, status=status, label=label, search=search,
+                        limit=page_size, offset=(int(page) - 1) * page_size)
+                finally:
+                    filtered_store.close()
+                start = 0 if total == 0 else (int(page) - 1) * page_size + 1
+                end = min(int(page) * page_size, total)
+                st.caption(f"검색 결과 {total:,}건 · {start:,}–{end:,}번 표시 · 50건씩 페이지 이동")
+                for number, row in enumerate(page_rows, start=start):
+                    render_stored_claim(row, number)
+            else:
+                article_rows = {}
+                for row in upload_results:
+                    article_rows.setdefault(row["article_id"], row)
+                article_ids = list(article_rows)
+                selected_article_id = st.selectbox(
+                    "검증할 기사",
+                    article_ids,
+                    format_func=lambda article_id: (
+                        f"{article_rows[article_id]['article_date']} · "
+                        f"{article_rows[article_id]['title'] or article_id}"
+                    ),
+                )
+                selected = [row for row in upload_results if row["article_id"] == selected_article_id]
+                st.caption(f"선택 기사 Claim {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
+                for number, row in enumerate(selected, start=1):
+                    render_stored_claim(row, number)
         else:
             st.info("이번 업로드에서 검증 후보 Claim이 추출되지 않았습니다.")
     else:

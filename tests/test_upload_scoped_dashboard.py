@@ -30,3 +30,12 @@ def test_dashboard_keeps_reviewer_tab_as_an_executable_branch():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
 
     assert '# ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════\nif view == "검증자 리뷰":' in source
+
+def test_verification_tab_offers_all_claim_view_with_filters_and_pagination():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    verification_section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    assert '전체 Claim' in verification_section
+    assert 'Claim 검색' in verification_section
+    assert '50건씩' in verification_section
+    assert 'count_upload_results' in verification_section
