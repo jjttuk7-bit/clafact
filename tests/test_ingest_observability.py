@@ -73,3 +73,24 @@ def test_import_returns_kosis_claim_previews_with_extracted_quantities(tmp_path)
     assert previews[0]["source_type"] in {"KOSIS_DOMESTIC", "KOSIS_BUT_COMPLEX"}
     assert previews[0]["article_date"] == "2025-02-05"
     store.close()
+
+
+def test_kosis_claim_previews_sort_newest_article_first(tmp_path) -> None:
+    source = tmp_path / "ordered-preview.csv"
+    with source.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["제목", "작성일", "URL", "본문"])
+        writer.writeheader()
+        writer.writerow({
+            "제목": "오래된 기사", "작성일": "2024-01-01", "URL": "https://x/old",
+            "본문": "2024년 소비자물가는 2.0% 올랐다.",
+        })
+        writer.writerow({
+            "제목": "최신 기사", "작성일": "2025-01-01", "URL": "https://x/new",
+            "본문": "2025년 소비자물가는 3.0% 올랐다.",
+        })
+
+    store = Store(":memory:")
+    result = import_article_file(source, store)
+
+    assert [preview["title"] for preview in result["claim_previews"]] == ["최신 기사", "오래된 기사"]
+    store.close()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 from collections import Counter
 from pathlib import Path
 
@@ -20,6 +21,16 @@ def _source_row_count(path: str | Path) -> int:
         with path.open(encoding="utf-8") as file:
             return sum(1 for line in file if line.strip())
     raise ValueError(f"지원하지 않는 형식: {path.suffix}")
+
+
+def _preview_sort_key(preview: dict[str, object]) -> tuple[int, dt.date]:
+    """Newest article first; malformed or missing dates sort last."""
+    raw = str(preview.get("article_date") or preview.get("date") or "").strip()
+    try:
+        parsed = dt.date.fromisoformat(raw[:10].replace(".", "-").replace("/", "-"))
+    except ValueError:
+        return (0, dt.date.min)
+    return (1, parsed)
 
 
 def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict[str, object]:
@@ -86,5 +97,5 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
         "source_types": dict(source_types),
         "excluded_candidates": sum(exclusion_reasons.values()),
         "exclusion_reasons": exclusion_reasons,
-        "claim_previews": claim_previews,
+        "claim_previews": sorted(claim_previews, key=_preview_sort_key, reverse=True),
     }
