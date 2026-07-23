@@ -254,7 +254,7 @@ st.markdown("""
   .ops-value { color:var(--ops-text); font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
   .ops-note { color:var(--ops-muted); font-size:.78rem; margin-top:.4rem; }
   div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }
-  div.stButton > button[kind="primary"] { background:var(--primary-color); color:#FFFFFF; }
+  div.stButton > button[kind="primary"] { background:#087f73 !important; color:#FFFFFF !important; border-color:#087f73 !important; }`n  div.stButton > button[kind="primary"] p { color:#FFFFFF !important; }
   div.stButton > button p { color:inherit !important; }
   :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
