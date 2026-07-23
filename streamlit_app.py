@@ -217,14 +217,14 @@ st.markdown("""
     --ops-muted:color-mix(in srgb,var(--text-color,#102A3A) 66%,var(--background-color,#F3F6F8));
     --ops-border:color-mix(in srgb,var(--text-color,#102A3A) 24%,var(--background-color,#F3F6F8));
   }
-  [data-testid="stSidebar"] { background:var(--ops-surface); border-right:1px solid var(--ops-border); }
+  [data-testid="stSidebar"] { --ops-page:var(--background-color); --ops-surface:var(--secondary-background-color); --ops-text:var(--text-color); --ops-muted:color-mix(in srgb,var(--text-color) 66%,var(--background-color)); --ops-border:color-mix(in srgb,var(--text-color) 24%,var(--background-color)); background:var(--ops-surface); border-right:1px solid var(--ops-border); }
   [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top:1.2rem; }
   .sidebar-brand { color:var(--ops-text); font-size:1.25rem; font-weight:780; letter-spacing:-.04em; margin:.25rem 0 .2rem; }
   .sidebar-caption { color:var(--ops-muted); font-size:.78rem; line-height:1.5; margin-bottom:1.4rem; }
   [data-testid="stSidebar"] [data-testid="stRadio"] label { border-radius:.55rem; color:var(--ops-text); padding:.48rem .55rem; margin:.12rem 0; }
   [data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:var(--ops-page); }
-  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background:var(--ops-page); border-left:3px solid var(--primary-color); font-weight:720; }  .stApp { background:var(--ops-page); color:var(--ops-text); }
-  [data-testid="stHeader"] { background:var(--ops-page); }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background:var(--ops-page); border-left:3px solid var(--primary-color); font-weight:720; }`n  .stApp { --ops-page:var(--background-color); --ops-surface:var(--secondary-background-color); --ops-text:var(--text-color); --ops-muted:color-mix(in srgb,var(--text-color) 66%,var(--background-color)); --ops-border:color-mix(in srgb,var(--text-color) 24%,var(--background-color)); background:var(--ops-page); color:var(--ops-text); }
+  [data-testid="stHeader"] { --ops-page:var(--background-color); background:var(--ops-page); }
   .block-container { max-width:1440px; padding-top:2rem; padding-bottom:4rem; }
   h1,h2,h3 { color:var(--ops-text) !important; }
   [data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid var(--ops-border); }

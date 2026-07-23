@@ -47,3 +47,9 @@ def test_dashboard_custom_colors_follow_streamlit_theme_tokens():
     assert '--ops-surface:var(--secondary-background-color' in source
     assert '--ops-text:var(--text-color' in source
     assert 'background:var(--ops-surface)' in source
+
+def test_dashboard_resolves_custom_colors_inside_streamlit_theme_containers():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '.stApp { --ops-page:var(--background-color)' in source
+    assert '[data-testid="stSidebar"] { --ops-page:var(--background-color)' in source
