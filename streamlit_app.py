@@ -373,6 +373,18 @@ if view == "검증":
                         st.caption(f"공식 근거: {registered_notice}")
                     else:
                         st.warning("공식 근거 확인 필요")
+                        organization = st.text_input("공식 기관명", key=f"notice_org_{row['claim_id']}")
+                        notice_url = st.text_input("공식 공지 URL", key=f"notice_url_{row['claim_id']}")
+                        effective_date = st.date_input("시행일", key=f"notice_date_{row['claim_id']}")
+                        if st.button("공식 공지 검증", key=f"notice_verify_{row['claim_id']}"):
+                            import requests
+                            api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
+                            response = requests.post(f"{api_url}/internal/claims/{row['claim_id']}/official-notice", json={"organization": organization, "url": notice_url, "effective_date": str(effective_date)}, timeout=10)
+                            if response.ok:
+                                st.success("공식 공지 근거가 등록되었습니다.")
+                                st.rerun()
+                            else:
+                                st.error(response.json().get("detail", "공식 공지 등록에 실패했습니다."))
 
         if upload_results:
             pending = sum(row["status"] == "PENDING" for row in upload_results)

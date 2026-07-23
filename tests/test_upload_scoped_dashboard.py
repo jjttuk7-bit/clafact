@@ -59,3 +59,9 @@ def test_verification_tab_explains_official_announcements_outside_kosis() -> Non
     assert 'OFFICIAL_ANNOUNCEMENT' in verification_section
     assert 'KOSIS 표 해당 없음 · 공식 공지 검증' in verification_section
     assert '공식 근거 확인 필요' in verification_section
+def test_official_announcement_card_offers_evidence_registration() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert '공식 기관명' in source
+    assert '공식 공지 URL' in source
+    assert '시행일' in source
+    assert '공식 공지 검증' in source
