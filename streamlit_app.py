@@ -293,13 +293,21 @@ if view == "운영 홈":
             st.warning("등록할 CSV 기사 파일을 먼저 선택하세요.")
         else:
             temporary_path = None
+            progress_status = st.status("기사 등록 진행 중", expanded=True)
+            progress_status.write("파일 읽기: 진행 중")
             store = Store(ROOT / "data/service/clafact.db")
             try:
                 with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temporary_file:
                     temporary_file.write(uploaded_csv.getvalue())
                     temporary_path = Path(temporary_file.name)
                 articles = load_articles(temporary_path)
+                progress_status.write(f"파일 읽기: 완료 · 기사 {len(articles)}건")
+                progress_status.write("기사 등록: 진행 중")
                 out = import_article_file(temporary_path, store)
+                progress_status.write(f"기사 등록: 완료 · 유효 기사 {out['read']}건 · 문장 {out['sentences']}건")
+                progress_status.write(f"출처 분류: 완료 · 후보 {out['candidates']}건")
+                progress_status.write(f"검증 후보 준비: 완료 · KOSIS {out.get('routes', {}).get('KOSIS_RETRIEVAL', 0)}건")
+                progress_status.update(label="기사 등록 완료", state="complete", expanded=False)
                 st.session_state["uploaded_article_ids"] = [
                     stable_article_id(article.url, article.title, article.date)
                     for article in articles
@@ -309,6 +317,8 @@ if view == "운영 홈":
                 if out['excluded_candidates']:
                     st.caption('제외: ' + ', '.join(f'{reason} {count}건' for reason, count in out['exclusion_reasons'].items()))
             except (OSError, UnicodeDecodeError, ValueError) as error:
+                progress_status.update(label="기사 등록 실패", state="error", expanded=True)
+                progress_status.write(f"오류: {error}")
                 st.error(f"등록 실패: {error}")
             finally:
                 store.close()

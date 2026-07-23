@@ -117,3 +117,13 @@ def test_verification_tab_shows_unverifiable_reason_summary():
 
     assert "\ud310\ub2e8\ubd88\uac00 \uc0ac\uc720" in verification_section
     assert 'label="unverifiable"' in verification_section
+
+def test_operations_home_shows_registration_progress_stages():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "파일 읽기" in home
+    assert "기사 등록" in home
+    assert "출처 분류" in home
+    assert "검증 후보 준비" in home
+    assert "st.status" in home
