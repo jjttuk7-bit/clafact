@@ -170,3 +170,24 @@ def test_count_pending_scopes_to_uploaded_articles():
     assert s.count_pending(["art_uploaded"]) == 1
     assert s.count_pending([]) == 0
     s.close()
+
+def test_fetch_upload_results_returns_saved_claim_details_only_for_selected_articles():
+    s = _store()
+    s.upsert_article("art_current", "이번 업로드 기사", "2025-02-05", "경제", "u1", "본문")
+    s.upsert_article("art_old", "이전 기사", "2025-01-01", "경제", "u2", "본문")
+    s.enqueue_claim("clm_current", "art_current", "소비자물가는 2.2% 올랐다.")
+    s.enqueue_claim("clm_old", "art_old", "이전 수치는 9%다.")
+    s.save_result(
+        "clm_current", label="match", confidence="high", tier=st.AUTO_CONFIRMED,
+        quantity="2.2%", period="2025-01", calculation="2.2% ≈ 2.2%",
+        explanation="판정: 일치.", evidence={"tbl": "소비자물가", "value": "2.2%"},
+        audit={"tbl_id": "DT_1J22042"},
+    )
+
+    rows = s.fetch_upload_results(["art_current"])
+
+    assert len(rows) == 1
+    assert rows[0]["title"] == "이번 업로드 기사"
+    assert rows[0]["label"] == "match"
+    assert rows[0]["evidence_json"] == '{"tbl": "소비자물가", "value": "2.2%"}'
+    s.close()

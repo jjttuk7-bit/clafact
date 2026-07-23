@@ -164,6 +164,18 @@ class Store:
             sql += f" AND article_id IN ({placeholders})"
             params.extend(article_ids)
         return int(self.conn.execute(sql, params).fetchone()["n"])
+    def fetch_upload_results(self, article_ids: list[str]) -> list[sqlite3.Row]:
+        """선택한 업로드에 속한 기사와 Claim 판정 원본을 함께 반환한다."""
+        if not article_ids:
+            return []
+        placeholders = ", ".join("?" for _ in article_ids)
+        sql = (
+            "SELECT c.*, a.title, a.date AS article_date, a.section, a.url "
+            "FROM claims c JOIN articles a ON a.article_id = c.article_id "
+            f"WHERE c.article_id IN ({placeholders}) "
+            "ORDER BY a.date DESC, a.title, c.created_at, c.claim_id"
+        )
+        return self.conn.execute(sql, article_ids).fetchall()
     def save_result(self, claim_id: str, *, label: str, confidence: str | None,
                     tier: str, reason: str = "", quantity: str = "", period: str = "",
                     calculation: str = "", explanation: str = "",

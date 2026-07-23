@@ -7,6 +7,7 @@
   🔄 자산 현황  — 자산 축적 대시보드 (문서 11)
 """
 import os
+import json
 import tempfile
 import sys
 from pathlib import Path
@@ -68,6 +69,56 @@ STYLE = {
     "unverifiable": ("⚪ 판단불가", "#8A8F98"),
 }
 LABEL_ORDER = {"mismatch": 0, "unverifiable": 1, "match": 2}
+
+def _stored_json(value: str) -> dict:
+    try:
+        return json.loads(value or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def render_stored_claim(row, number: int) -> None:
+    """배치가 저장한 Claim 결과를 재실행 없이 검증 화면에 표시한다."""
+    status = row["status"]
+    if status == "PENDING":
+        label, color = "🟡 처리 대기", "#C58C00"
+    elif status == "FAILED":
+        label, color = "🔴 처리 실패", "#C0392B"
+    else:
+        label, color = STYLE.get(row["label"], ("⚪ 판단불가", "#8A8F98"))
+
+    with st.expander(f"[{number}] {label}  ·  {row['sentence'][:64]}", expanded=False):
+        st.markdown(f"**주장:** {row['sentence']}")
+        st.caption(
+            f"기사일: {row['article_date'] or '-'} | 시점: {row['period'] or '-'} | "
+            f"수치: {row['quantity'] or '-'} | 처리 상태: {status}"
+        )
+        if status == "PENDING":
+            st.info("아직 판정 전입니다. 운영 홈에서 **대기 Claim 처리**를 실행하세요.")
+            return
+        if status == "FAILED":
+            st.error(row["error"] or "처리 중 오류가 발생했습니다.")
+            return
+
+        evidence = _stored_json(row["evidence_json"])
+        if evidence:
+            st.markdown(
+                f"**KOSIS 근거:** {evidence.get('tbl', '통계표 정보 없음')} "
+                f"→ `{evidence.get('value', '값 없음')}`"
+            )
+        else:
+            st.caption("KOSIS 근거: 대응 통계표를 찾지 못했습니다.")
+        if row["calculation"]:
+            st.markdown(f"**계산:** `{row['calculation']}`")
+        if row["reason"]:
+            st.caption(f"판정 근거: {row['reason']}")
+        st.markdown("**HCX 설명**")
+        st.write(row["explanation"] or "저장된 설명이 없습니다.")
+
+        audit = _stored_json(row["audit_json"])
+        if audit:
+            with st.expander("감사 로그 · KOSIS 조회 조건"):
+                st.json(audit, expanded=False)
 CONF_ORDER = {"low": 0, "medium": 1, "high": 2, None: 3}
 
 
@@ -290,47 +341,89 @@ if view == "운영 홈":
         st.dataframe(build_ops_claim_rows(claims), use_container_width=True, hide_index=True)
 # ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":
-    st.session_state.setdefault("text", "")
-    st.session_state.setdefault("date", "2025-07-14")
-    clicked_sample = False
-    cols = st.columns(2)
-    for i, (name, s) in enumerate(SAMPLES.items()):
-        if cols[i % 2].button(name, use_container_width=True):
-            st.session_state["text"] = s["text"]
-            st.session_state["date"] = s["date"]
-            clicked_sample = True
+    st.markdown("#### 이번 업로드 검증 결과")
+    st.caption("운영 홈에서 등록·처리한 Claim의 저장된 KOSIS 판정과 HCX 설명을 다시 실행하지 않고 확인합니다.")
+    uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
+    if uploaded_article_ids:
+        result_store = Store(ROOT / "data/service/clafact.db")
+        try:
+            upload_results = result_store.fetch_upload_results(uploaded_article_ids)
+        finally:
+            result_store.close()
 
-    text = st.text_area("기사 본문", key="text", height=140,
-                        placeholder="기사 본문을 붙여넣으세요...")
-    date = st.text_input("기사 작성일 (YYYY-MM-DD)", key="date")
+        if upload_results:
+            pending = sum(row["status"] == "PENDING" for row in upload_results)
+            completed = sum(row["status"] == "DONE" for row in upload_results)
+            failed = sum(row["status"] == "FAILED" for row in upload_results)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("이번 업로드 Claim", len(upload_results))
+            m2.metric("판정 완료", completed)
+            m3.metric("처리 대기", pending)
+            m4.metric("처리 실패", failed)
 
-    def _reset():
-        st.session_state["text"] = ""
-        st.session_state["date"] = "2025-07-14"
-        st.session_state.pop("results", None)
-        st.session_state.pop("reviews", None)
+            article_rows = {}
+            for row in upload_results:
+                article_rows.setdefault(row["article_id"], row)
+            article_ids = list(article_rows)
+            selected_article_id = st.selectbox(
+                "검증할 기사",
+                article_ids,
+                format_func=lambda article_id: (
+                    f"{article_rows[article_id]['article_date']} · "
+                    f"{article_rows[article_id]['title'] or article_id}"
+                ),
+            )
+            selected = [row for row in upload_results if row["article_id"] == selected_article_id]
+            st.caption(f"선택 기사 Claim {len(selected)}건 · 아래 Claim을 하나씩 펼쳐 KOSIS 근거와 HCX 설명을 확인하세요.")
+            for number, row in enumerate(selected, start=1):
+                render_stored_claim(row, number)
+        else:
+            st.info("이번 업로드에서 검증 후보 Claim이 추출되지 않았습니다.")
+    else:
+        st.info("운영 홈에서 CSV를 등록하면, 이곳에 해당 업로드의 Claim 판정 결과가 표시됩니다.")
 
-    col_v, col_r = st.columns([3, 1])
-    verify_clicked = col_v.button("검증하기", type="primary", use_container_width=True)
-    col_r.button("🗑 초기화", use_container_width=True, on_click=_reset)
+    with st.expander("데모 샘플 직접 검증", expanded=False):
+        st.caption("업로드 결과와 별도로, 예전 픽스처 샘플을 직접 실행해 볼 수 있습니다.")
+        st.session_state.setdefault("text", "")
+        st.session_state.setdefault("date", "2025-07-14")
+        clicked_sample = False
+        cols = st.columns(2)
+        for i, (name, s) in enumerate(SAMPLES.items()):
+            if cols[i % 2].button(name, use_container_width=True):
+                st.session_state["text"] = s["text"]
+                st.session_state["date"] = s["date"]
+                clicked_sample = True
 
-    if (verify_clicked or clicked_sample) and text.strip():
-        idx, client = load_engine()
-        st.session_state["results"] = [
-            r for r in verify_article(text, date, idx, client) if r.label != "not_claim"]
-        st.session_state["reviews"] = {}
+        text = st.text_area("기사 본문", key="text", height=160)
+        date = st.date_input("기사 발행일", value=st.session_state["date"])
 
-    results = st.session_state.get("results", [])
-    if results:
-        n = {k: sum(1 for r in results if r.label == k) for k in STYLE}
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("검증 대상 주장", len(results))
-        m2.metric("일치", n["match"])
-        m3.metric("불일치", n["mismatch"])
-        m4.metric("판단불가", n["unverifiable"])
-        for r in results:
-            render_card(r)
-        st.info("👤 자동 판정은 최종이 아닙니다 — **검증자 리뷰 탭**에서 승인/보정해야 발행됩니다 (Human-in-the-Loop)")
+        def _reset():
+            st.session_state["text"] = ""
+            st.session_state["date"] = "2025-07-14"
+            st.session_state.pop("results", None)
+            st.session_state.pop("reviews", None)
+
+        col_v, col_r = st.columns([3, 1])
+        verify_clicked = col_v.button("검증하기", type="primary", use_container_width=True)
+        col_r.button("🗑 초기화", use_container_width=True, on_click=_reset)
+
+        if (verify_clicked or clicked_sample) and text.strip():
+            idx, client = load_engine()
+            st.session_state["results"] = [
+                r for r in verify_article(text, str(date), idx, client) if r.label != "not_claim"]
+            st.session_state["reviews"] = {}
+
+        results = st.session_state.get("results", [])
+        if results:
+            n = {k: sum(1 for r in results if r.label == k) for k in STYLE}
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("검증 대상 주장", len(results))
+            m2.metric("일치", n["match"])
+            m3.metric("불일치", n["mismatch"])
+            m4.metric("판단불가", n["unverifiable"])
+            for r in results:
+                render_card(r)
+            st.info("👤 자동 판정은 최종이 아닙니다 — **검증자 리뷰 탭**에서 승인/보정해야 발행됩니다 (Human-in-the-Loop)")
 
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":

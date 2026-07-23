@@ -17,3 +17,16 @@ def test_dashboard_shows_processing_controls_only_after_article_registration() -
     assert registration_index < process_mode_index
     assert source.index('limit = st.number_input') > registration_index
     assert 'if uploaded_article_ids:\n        process_mode = st.radio' in source
+
+def test_verification_tab_reads_saved_results_from_the_current_upload():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    verification_section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    assert '이번 업로드 검증 결과' in verification_section
+    assert 'fetch_upload_results(uploaded_article_ids)' in verification_section
+    assert '데모 샘플 직접 검증' in verification_section
+
+def test_dashboard_keeps_reviewer_tab_as_an_executable_branch():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '# ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════\nif view == "검증자 리뷰":' in source
