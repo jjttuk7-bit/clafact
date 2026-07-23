@@ -52,3 +52,23 @@ def test_import_routes_only_kosis_claims_to_pending_and_preserves_other_numeric_
         ("FORECAST_OR_OPINION", "CLASSIFIED", "OUT_OF_SCOPE"),
     }
     store.close()
+
+def test_import_returns_kosis_claim_previews_with_extracted_quantities(tmp_path) -> None:
+    source = tmp_path / "preview.csv"
+    with source.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["제목", "작성일", "URL", "본문"])
+        writer.writeheader()
+        writer.writerow({
+            "제목": "물가 기사", "작성일": "2025-02-05", "URL": "https://x/preview",
+            "본문": "지난달 소비자물가가 전년 동월 대비 2.2% 올랐다.",
+        })
+
+    store = Store(":memory:")
+    result = import_article_file(source, store)
+
+    previews = result["claim_previews"]
+    assert len(previews) == 1
+    assert previews[0]["route"] == "KOSIS_RETRIEVAL"
+    assert previews[0]["quantity_display"] == "2.2%"
+    assert previews[0]["source_type"] in {"KOSIS_DOMESTIC", "KOSIS_BUT_COMPLEX"}
+    store.close()

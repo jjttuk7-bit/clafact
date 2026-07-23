@@ -396,6 +396,27 @@ if view == "운영 홈":
         st.caption(f"KOSIS 분석 대상은 직접 조회형과 복합형을 모두 포함합니다 · 총 {kosis_count:,}건 = 직접 조회형 {direct_kosis_count:,}건 + 복합형 {complex_kosis_count:,}건")
         st.caption("복합 KOSIS는 KOSIS 분석 후 최종 판정만 사람이 검토합니다. KOSIS 조회·분석 결과는 함께 보존합니다.")
         st.caption(f"별도 근거 세부: 공식 공지 {source_types.get('OFFICIAL_ANNOUNCEMENT', 0):,} · 비KOSIS 공식자료 {source_types.get('OTHER_OFFICIAL', 0):,} · 민간·플랫폼 {source_types.get('PRIVATE_SOURCE', 0) + source_types.get('PLATFORM_SOURCE', 0):,} · 사람 검토 {source_types.get('UNKNOWN', 0):,}")
+        claim_previews = upload.get("claim_previews", [])
+        if claim_previews:
+            st.markdown("#### KOSIS 수치 주장 추출 결과")
+            st.caption("업로드한 기사 본문에서 KOSIS 분석 대상으로 분류된 문장을 모두 보여줍니다. 추출 수치가 없으면 수치 미검출로 표시합니다.")
+            source_type_labels = {
+                "KOSIS_DOMESTIC": "직접 조회형 KOSIS",
+                "KOSIS_BUT_COMPLEX": "복합 KOSIS",
+            }
+            extraction_rows = [
+                {
+                    "기사": preview.get("title") or "제목 없음",
+                    "수치 주장 문장": preview.get("sentence", ""),
+                    "추출 수치": preview.get("quantity_display", "수치 미검출"),
+                    "시점": preview.get("period") or "미검출",
+                    "출처 분류": source_type_labels.get(preview.get("source_type"), preview.get("source_type", "")),
+                }
+                for preview in claim_previews
+            ]
+            st.dataframe(extraction_rows, hide_index=True, use_container_width=True)
+        else:
+            st.info("이번 업로드에서 KOSIS 분석 대상으로 추출된 수치 주장이 없습니다.")
         st.markdown("""<div class="ops-next-action"><span class="ops-next-label">다음 행동</span><span>검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.</span></div>""", unsafe_allow_html=True)
     else:
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════

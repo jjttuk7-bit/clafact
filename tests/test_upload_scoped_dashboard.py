@@ -195,3 +195,13 @@ def test_selected_article_mode_offers_a_next_verification_action() -> None:
     assert "선택 기사 검증 실행" in section
     assert "pending_selected_ids" in section
     assert 'key="verify_selected_article"' in section
+
+
+def test_operations_home_shows_kosis_claim_extraction_preview() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "KOSIS 수치 주장 추출 결과" in home
+    assert "claim_previews" in home
+    assert "추출 수치" in home
+    assert "출처 분류" in home

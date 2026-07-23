@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from clafact.pipeline import detect, source_classify
+from clafact.pipeline.parse import parse_claim
 from clafact.pipeline.ingest import load_articles
 from clafact.service.store import Store, stable_article_id, stable_claim_id
 
@@ -29,6 +30,7 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
     routes: Counter[str] = Counter()
     source_types: Counter[str] = Counter()
     exclusion_reasons: dict[str, int] = {}
+    claim_previews: list[dict[str, object]] = []
     for article in articles:
         article_id = stable_article_id(article.url, article.title, article.date)
         if store.upsert_article(article_id, article.title, article.date, article.section, article.url, article.body):
@@ -39,6 +41,20 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
                 continue
             candidates += 1
             classification = source_classify.classify(sentence).as_dict()
+            if classification["route"] == "KOSIS_RETRIEVAL":
+                parsed = parse_claim(sentence, article.date)
+                quantities = [quantity.raw for quantity in parsed.quantities]
+                claim_previews.append({
+                    "article_id": article_id,
+                    "title": article.title,
+                    "date": article.date,
+                    "sentence": sentence,
+                    "source_type": classification["source_type"],
+                    "route": classification["route"],
+                    "classification_reason": classification.get("reason", ""),
+                    "quantity_display": " · ".join(quantities) if quantities else "수치 미검출",
+                    "period": parsed.period or "",
+                })
             audit = {"source_classification": classification}
             if hcx_signal:
                 try:
@@ -69,4 +85,5 @@ def import_article_file(path: str | Path, store: Store, hcx_signal=None) -> dict
         "source_types": dict(source_types),
         "excluded_candidates": sum(exclusion_reasons.values()),
         "exclusion_reasons": exclusion_reasons,
+        "claim_previews": claim_previews,
     }
