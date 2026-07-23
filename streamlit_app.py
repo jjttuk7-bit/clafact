@@ -215,17 +215,25 @@ if view == "운영 홈":
     st.markdown("#### 운영 실행")
     st.caption("기사 파일을 등록한 뒤, 큐에 쌓인 수치 주장을 지정한 한도만큼 처리합니다.")
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
-    path = st.text_input("기사 파일 경로 (JSONL/CSV)", placeholder="data/incoming/articles.jsonl")
+    uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
     limit = st.number_input("처리 한도", min_value=1, value=50)
     a, b = st.columns(2)
-    if a.button("기사 등록", use_container_width=True) and path.strip():
-        try:
-            req = urllib.request.Request(f"{api_url}/internal/articles/import", data=json.dumps({"path": path.strip()}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=30) as response:
-                out = json.loads(response.read())
-                st.success(f"등록 완료 · 신규 기사 {out['imported']}건")
-        except Exception as error:
-            st.error(f"등록 실패: {error}")
+    if a.button("기사 등록", use_container_width=True):
+        if uploaded_csv is None:
+            st.warning("등록할 CSV 기사 파일을 먼저 선택하세요.")
+        else:
+            try:
+                req = urllib.request.Request(
+                    f"{api_url}/internal/articles/upload",
+                    data=uploaded_csv.getvalue(),
+                    headers={"Content-Type": "text/csv", "X-Filename": uploaded_csv.name},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    out = json.loads(response.read())
+                    st.success(f"등록 완료 · 읽음 {out['read']}건 · 신규 기사 {out['imported']}건 · 중복 {out['duplicates']}건")
+            except Exception as error:
+                st.error(f"등록 실패: {error}")
     if b.button("대기 Claim 처리", type="primary", use_container_width=True):
         try:
             req = urllib.request.Request(f"{api_url}/internal/batches/process-pending", data=json.dumps({"limit": int(limit)}).encode(), headers={"Content-Type": "application/json"}, method="POST")

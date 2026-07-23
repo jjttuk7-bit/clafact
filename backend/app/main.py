@@ -1,6 +1,7 @@
 import os
+import tempfile
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from backend.app.ingest_service import import_article_file
 from clafact.kosis import CachedKosisClient, FixtureKosisClient, HttpKosisClient
@@ -35,3 +36,30 @@ def import_article(request:ArticleImportRequest)->dict[str,int]:
         signal=hcx_detection_signal if os.environ.get("CLAFACT_HCX_MODE","fixture").lower()=="live" else None
         return import_article_file(request.path,store,hcx_signal=signal)
     finally: store.close()
+
+@app.post("/internal/articles/upload")
+def upload_article_csv(
+    content: bytes = Body(...),
+    x_filename: str = Header(default="articles.csv"),
+) -> dict[str, int]:
+    """Register an uploaded CSV through the existing article ingest boundary."""
+    if not x_filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSV 파일만 업로드할 수 있습니다.")
+    if not content:
+        raise HTTPException(status_code=400, detail="빈 CSV 파일은 등록할 수 없습니다.")
+
+    root = Path(__file__).resolve().parents[2]
+    store = Store(Path(os.environ.get("CLAFACT_SERVICE_DB", root / "data/service/clafact.db")))
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temporary_file:
+            temporary_file.write(content)
+            temporary_path = Path(temporary_file.name)
+        signal = hcx_detection_signal if os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" else None
+        return import_article_file(temporary_path, store, hcx_signal=signal)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=f"CSV 파일을 읽을 수 없습니다: {error}") from error
+    finally:
+        store.close()
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
