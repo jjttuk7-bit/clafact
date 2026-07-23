@@ -65,3 +65,14 @@ def test_official_announcement_card_offers_evidence_registration() -> None:
     assert '공식 공지 URL' in source
     assert '시행일' in source
     assert '공식 공지 검증' in source
+def test_reviewer_tab_reads_persisted_review_queue() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증자 리뷰":'):source.index('# ═════════════ 탭 3: 플라이휠')]
+    assert 'review_queue()' in section
+    assert '자동 판정 승인' in section
+    assert '판단 보류' in section
+def test_verification_tab_offers_current_page_batch_verification() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    assert '현재 페이지 50건 검증' in section
+    assert 'claim_ids=' in section

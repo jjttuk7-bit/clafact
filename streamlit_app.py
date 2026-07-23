@@ -420,6 +420,16 @@ if view == "검증":
                 start = 0 if total == 0 else (int(page) - 1) * page_size + 1
                 end = min(int(page) * page_size, total)
                 st.caption(f"검색 결과 {total:,}건 · {start:,}–{end:,}번 표시 · 50건씩 페이지 이동")
+                pending_ids = [row["claim_id"] for row in page_rows if row["status"] == "PENDING"]
+                if pending_ids and st.button("현재 페이지 50건 검증", type="primary"):
+                    batch_store = Store(ROOT / "data/service/clafact.db")
+                    try:
+                        index, client = load_engine()
+                        stats = process_pending(batch_store, index, client, claim_ids=pending_ids[:50])
+                        st.success(f"일괄 검증 완료 · 처리 {stats['processed']}건 · 실패 {stats['failed']}건")
+                    finally:
+                        batch_store.close()
+                    st.rerun()
                 for number, row in enumerate(page_rows, start=start):
                     render_stored_claim(row, number)
             else:
@@ -489,6 +499,27 @@ if view == "검증":
 
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
+    persisted_store = Store(ROOT / "data/service/clafact.db")
+    try:
+        persisted_queue = persisted_store.review_queue()
+    finally:
+        persisted_store.close()
+    if persisted_queue:
+        st.markdown("#### 저장된 검증자 리뷰 큐")
+        for row in persisted_queue:
+            with st.expander(f"{row['label'] or '판정 확인'} · {row['sentence'][:64]}"):
+                st.write(row["sentence"])
+                st.caption(row["reason"] or "자동 판정 근거 확인 필요")
+                approve, hold = st.columns(2)
+                if approve.button("자동 판정 승인", key=f"approve_{row['claim_id']}"):
+                    review_store = Store(ROOT / "data/service/clafact.db")
+                    try:
+                        review_store.apply_review(row["claim_id"], "approve")
+                    finally:
+                        review_store.close()
+                    st.rerun()
+                if hold.button("판단 보류", key=f"hold_{row['claim_id']}"):
+                    st.warning("판단 보류: 추가 공식 근거 확인이 필요합니다.")
     results = st.session_state.get("results", [])
     reviews = st.session_state.setdefault("reviews", {})
     if not results:
