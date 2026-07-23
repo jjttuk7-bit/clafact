@@ -94,7 +94,17 @@ def render_stored_claim(row, number: int) -> None:
             f"수치: {row['quantity'] or '-'} | 처리 상태: {status}"
         )
         if status == "PENDING":
-            st.info("아직 판정 전입니다. 운영 홈에서 **대기 Claim 처리**를 실행하세요.")
+            st.info("아직 판정 전입니다. 아래 버튼으로 이 Claim만 KOSIS 검증합니다.")
+            if st.button("KOSIS 검증 실행", key=f"verify_{row['claim_id']}", type="primary"):
+                verify_store = Store(ROOT / "data/service/clafact.db")
+                try:
+                    index, client = load_engine()
+                    process_pending(verify_store, index, client, claim_ids=[row["claim_id"]])
+                except Exception as error:
+                    st.error(f"검증 실패: {error}")
+                finally:
+                    verify_store.close()
+                st.rerun()
             return
         if status == "FAILED":
             st.error(row["error"] or "처리 중 오류가 발생했습니다.")
