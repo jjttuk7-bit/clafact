@@ -93,11 +93,11 @@ def test_route_mapping():
     assert sc.classify("내년 3% 전망이다.").route == "OUT_OF_SCOPE"
     assert sc.classify("업계 최고 수준이다.").route == "HUMAN_REVIEW"
 
-def test_complex_kosis_claim_requires_human_review():
+def test_complex_kosis_claim_stays_in_kosis_analysis_route():
     label = sc.classify("소비자물가지수는 117.42(2020년=100)다.")
 
     assert label.source_type == sc.KOSIS_BUT_COMPLEX
-    assert label.route == "HUMAN_REVIEW"
+    assert label.route == "KOSIS_RETRIEVAL"
 
 
 # ---------- 하네스: 지표 계산 자체 검증 (분류 정확도 아님) ----------

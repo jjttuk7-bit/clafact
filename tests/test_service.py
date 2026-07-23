@@ -283,7 +283,7 @@ def test_review_hold_keeps_claim_in_review_with_note():
     assert row["tier"] == st.UNVERIFIABLE
     s.close()
 
-def test_reclassify_moves_complex_done_claim_to_human_review_and_keeps_audit():
+def test_reclassify_keeps_complex_claim_in_kosis_analysis_and_keeps_audit():
     s = _store()
     s.upsert_article("art_reclassify", "t", "2025-01-01", "", "u", "b")
     s.enqueue_claim(
@@ -296,11 +296,11 @@ def test_reclassify_moves_complex_done_claim_to_human_review_and_keeps_audit():
 
     row = s.conn.execute("SELECT * FROM claims WHERE claim_id='clm_reclassify'").fetchone()
     previous = json.loads(row["audit_json"])["reclassification"]["previous_result"]
-    assert row["route"] == "HUMAN_REVIEW"
-    assert row["status"] == st.CLASSIFIED
+    assert row["route"] == "KOSIS_RETRIEVAL"
+    assert row["status"] == st.PENDING
     assert row["label"] is None
     assert previous["label"] == "unverifiable"
-    assert stats["HUMAN_REVIEW"] == 1
+    assert stats["KOSIS_RETRIEVAL"] == 1
     s.close()
 
 
@@ -319,4 +319,22 @@ def test_reclassify_skips_reviewer_confirmed_claims():
     row = s.conn.execute("SELECT route, status, tier FROM claims WHERE claim_id='clm_confirmed'").fetchone()
     assert dict(row) == {"route": "KOSIS_RETRIEVAL", "status": st.DONE, "tier": st.CONFIRMED}
     assert stats["skipped_reviewed"] == 1
+    s.close()
+
+def test_complex_kosis_claim_is_analyzed_but_requires_human_review():
+    s = _store()
+    s.upsert_article("art_complex", "t", "2025-01-01", "", "u", "b")
+    s.enqueue_claim(
+        "clm_complex", "art_complex", "소비자물가지수는 117.42(2020년=100)다.",
+        classification={"source_type": "KOSIS_BUT_COMPLEX", "route": "KOSIS_RETRIEVAL"},
+    )
+
+    def verify(sentence, article_date):
+        return ClaimResult(sentence=sentence, label="match", confidence="high")
+
+    stats = batch.process_pending(s, verify=verify)
+    row = s.conn.execute("SELECT status, tier FROM claims WHERE claim_id='clm_complex'").fetchone()
+
+    assert stats["processed"] == 1
+    assert (row["status"], row["tier"]) == (st.DONE, st.NEEDS_REVIEW)
     s.close()

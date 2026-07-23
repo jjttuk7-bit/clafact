@@ -78,6 +78,8 @@ def process_pending(store: Store, index=None, client=None,
         try:
             r = verify(row["sentence"], row["article_date"])
             tier = triage(r)
+            if row["source_type"] == "KOSIS_BUT_COMPLEX" and tier == st.AUTO_CONFIRMED:
+                tier = st.NEEDS_REVIEW
             store.save_result(
                 row["claim_id"], label=r.label, confidence=r.confidence, tier=tier,
                 reason=r.reason, quantity=r.quantity, period=r.period,

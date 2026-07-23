@@ -90,7 +90,9 @@ def test_operations_home_explains_preprocessing_not_audit_log() -> None:
 def test_operations_home_shows_routing_funnel() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
-    assert 'KOSIS 자동 검증 대상' in home
+    assert 'KOSIS 분석 대상' in home
+    assert '자동 검증 가능' in home
+    assert '복합 KOSIS 사람 검토' in home
     assert '별도 근거 확인 대상' in home
     assert '누적 등록 기사' in home
 

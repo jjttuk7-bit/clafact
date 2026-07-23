@@ -171,7 +171,7 @@ class Store:
     def fetch_pending(self, limit: int | None = None,
                       article_ids: list[str] | None = None,
                       claim_ids: list[str] | None = None) -> list[sqlite3.Row]:
-        sql = ("SELECT c.claim_id, c.sentence, c.article_id, a.date AS article_date"
+        sql = ("SELECT c.claim_id, c.sentence, c.article_id, c.source_type, a.date AS article_date"
                " FROM claims c JOIN articles a ON a.article_id = c.article_id"
                " WHERE c.status = ? AND c.route = ?")
         params: list[str] = [PENDING, "KOSIS_RETRIEVAL"]
