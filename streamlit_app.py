@@ -157,25 +157,25 @@ def render_audit(r, scope="v"):
 st.set_page_config(page_title="ClaFact — 뉴스 수치 검증 MVP", page_icon="◈", layout="wide")
 st.markdown("""
 <style>
-  .stApp { background:#071d2b; color:#e7f0ef; }
-  [data-testid="stHeader"] { background:rgba(7,29,43,.9); }
+  .stApp { background:var(--background-color); color:var(--text-color); }
+  [data-testid="stHeader"] { background:var(--background-color); }
   .block-container { max-width:1440px; padding-top:2rem; padding-bottom:4rem; }
-  h1,h2,h3,p,label { color:#e7f0ef !important; }
+  h1,h2,h3 { color:var(--text-color) !important; }
   [data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid #234252; }
-  [data-testid="stTabs"] button { color:#a9bec3; font-weight:650; }
-  [data-testid="stTabs"] button[aria-selected="true"] { color:#eafffa; background:#123748; }
-  [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input { background:#0b2636; color:#e7f0ef; border-color:#31576a; }
-  [data-testid="stDataFrame"] { border:1px solid #234252; border-radius:.75rem; overflow:hidden; }
-  .ops-hero { background:radial-gradient(circle at 90% 0%,rgba(70,213,199,.18),transparent 31%),#0b2636; border:1px solid #31576a; border-radius:1rem; padding:clamp(1.25rem,3vw,2.25rem); margin-bottom:1.25rem; }
+  [data-testid="stTabs"] button { color:var(--text-color); font-weight:650; }
+  [data-testid="stTabs"] button[aria-selected="true"] { color:var(--text-color); background:var(--secondary-background-color); }
+  [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stTextArea"] textarea { background:var(--secondary-background-color); color:var(--text-color); border-color:var(--primary-color); }
+  [data-testid="stDataFrame"] { border:1px solid var(--secondary-background-color); border-radius:.75rem; overflow:hidden; }
+  .ops-hero { background:radial-gradient(circle at 90% 0%,rgba(70,213,199,.16),transparent 31%),var(--secondary-background-color); border:1px solid var(--primary-color); border-radius:1rem; padding:clamp(1.25rem,3vw,2.25rem); margin-bottom:1.25rem; }
   .ops-kicker { color:#71eee0; font-size:.75rem; font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
-  .ops-title { color:#f1fbfa; font-size:clamp(1.7rem,3.5vw,2.65rem); font-weight:760; line-height:1.1; margin:.5rem 0; }
-  .ops-copy,.ops-note { color:#b3c7ca; line-height:1.65; }
+  .ops-title { color:var(--text-color); font-size:clamp(1.7rem,3.5vw,2.65rem); font-weight:760; line-height:1.1; margin:.5rem 0; }
+  .ops-copy,.ops-note { color:var(--text-color); opacity:.78; line-height:1.65; }
   .ops-chip { display:inline-block; margin-top:.8rem; padding:.35rem .65rem; border:1px solid #3e887f; border-radius:99px; color:#91f0e4; font-size:.82rem; }
-  .ops-card { min-height:8rem; background:#0b2636; border:1px solid #234252; border-top:3px solid var(--accent); border-radius:.8rem; padding:1rem 1.1rem; }
-  .ops-label { color:#a9bec3; font-size:.83rem; font-weight:650; }
-  .ops-value { color:#f4fbfa; font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
+  .ops-card { min-height:8rem; background:var(--secondary-background-color); border:1px solid var(--primary-color); border-top:3px solid var(--accent); border-radius:.8rem; padding:1rem 1.1rem; }
+  .ops-label { color:var(--text-color); opacity:.72; font-size:.83rem; font-weight:650; }
+  .ops-value { color:var(--text-color); font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
   .ops-note { color:#89a6aa; font-size:.78rem; margin-top:.4rem; }
-  :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
+  div.stButton > button { background:var(--secondary-background-color); color:var(--text-color); border-color:var(--primary-color); }`r`n  div.stButton > button[kind="primary"] { background:var(--primary-color); color:var(--background-color); }`r`n  div.stButton > button p { color:inherit !important; }`r`n  :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
 </style>
 """, unsafe_allow_html=True)
