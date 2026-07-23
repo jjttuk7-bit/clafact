@@ -5,7 +5,7 @@ def test_dashboard_scopes_processing_and_audit_rows_to_uploaded_articles() -> No
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
 
     assert 'st.session_state["uploaded_article_ids"]' in source
-    assert 'WHERE c.article_id IN' in source
+    assert 'fetch_upload_results(uploaded_article_ids' in source
 
 
 def test_dashboard_shows_upload_summary_only_after_article_registration() -> None:
@@ -93,3 +93,12 @@ def test_operations_home_shows_routing_funnel() -> None:
     assert 'KOSIS 자동 검증 대상' in home
     assert '별도 근거 확인 대상' in home
     assert '누적 등록 기사' in home
+
+def test_operations_home_breaks_out_non_kosis_routes() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert '공식 공지' in home
+    assert '비KOSIS 공식자료' in home
+    assert '민간·플랫폼' in home
+    assert '사람 검토' in home

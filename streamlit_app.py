@@ -338,6 +338,8 @@ if view == "운영 홈":
         kosis_count = upload.get("routes", {}).get("KOSIS_RETRIEVAL", 0)
         other_count = upload.get("candidates", 0) - kosis_count
         st.markdown(f"**분류 퍼널:** 수치 주장 {upload.get('candidates', 0):,}건 → **KOSIS 자동 검증 대상** {kosis_count:,}건 / **별도 근거 확인 대상** {other_count:,}건")
+        source_types = upload.get("source_types", {})
+        st.caption(f"별도 근거 확인: 공식 공지 {source_types.get('OFFICIAL_ANNOUNCEMENT', 0):,} · 비KOSIS 공식자료 {source_types.get('OTHER_OFFICIAL', 0):,} · 민간·플랫폼 {source_types.get('PRIVATE_SOURCE', 0) + source_types.get('PLATFORM_SOURCE', 0):,} · 사람 검토 {source_types.get('UNKNOWN', 0):,}")
         st.info("다음 행동: 검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.")
     else:
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════
