@@ -207,6 +207,16 @@ def test_operations_home_shows_kosis_claim_extraction_preview() -> None:
     assert "출처 분류" in home
 
 
+def test_operations_home_offers_kosis_claim_extraction_csv_download() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "st.download_button" in home
+    assert 'data=csv_buffer.getvalue().encode("utf-8-sig")' in home
+    assert 'mime="text/csv"' in home
+    assert "for row in extraction_rows" in home
+
+
 def test_operations_home_shows_article_date_for_extraction_preview() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
