@@ -88,9 +88,10 @@ def process_pending(store: Store, index=None, client=None,
             stats["processed"] += 1
             stats["by_tier"][tier] = stats["by_tier"].get(tier, 0) + 1
             stats["by_label"][r.label] = stats["by_label"].get(r.label, 0) + 1
-        except Exception:
-            # 격리: 이 건만 실패로 남기고 배치는 계속. (실패는 A4 의 원료다)
-            store.mark_failed(row["claim_id"], traceback.format_exc(limit=3))
+        except Exception as error:
+            # 예외 요약을 앞에 둬 저장 길이가 제한돼도 원인을 확인할 수 있게 한다.
+            detail = f"{type(error).__name__}: {error}\n{traceback.format_exc(limit=3)}"
+            store.mark_failed(row["claim_id"], detail)
             stats["failed"] += 1
     store.record_run("process", started, audit.code_version(), stats)
     return stats

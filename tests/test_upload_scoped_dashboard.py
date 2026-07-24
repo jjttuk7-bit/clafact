@@ -1,6 +1,15 @@
 from pathlib import Path
 
 
+def test_failed_claim_offers_safe_error_summary_and_retry() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+
+    assert "KOSIS 재검증 실행" in section
+    assert "retry_failed" in section
+    assert "type(error).__name__" in Path("clafact/service/batch.py").read_text(encoding="utf-8")
+
+
 def test_stored_claim_displays_kosis_engine_and_processed_time() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     section = source[source.index("def render_stored_claim"):source.index("def load_engine")]
