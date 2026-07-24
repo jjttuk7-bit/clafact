@@ -225,6 +225,27 @@ def test_operations_home_can_reset_current_upload_state() -> None:
     assert 'pop("upload_summary"' in home
 
 
+
+def test_operations_home_hides_dashboard_cards_until_current_session_registers_csv() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert 'st.session_state.setdefault("dashboard_initialized", False)' in home
+    assert 'if dashboard_initialized:' in home
+    assert home.index('if dashboard_initialized:') < home.index('summary = store.summary()')
+    assert 'if dashboard_initialized:\n        store = Store' in home
+    assert '        try:\n            summary = store.summary()' in home
+
+
+def test_operations_home_enables_dashboard_after_successful_registration_and_hides_it_on_reset() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    reset_index = home.index('if st.button("새 업로드 시작"')
+    registration_success_index = home.index('st.session_state["upload_summary"] = out')
+    assert 'st.session_state["dashboard_initialized"] = False' in home[reset_index:registration_success_index]
+    assert 'st.session_state["dashboard_initialized"] = True' in home[registration_success_index:]
+
 def test_operations_home_resets_previous_preview_when_file_changes() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
