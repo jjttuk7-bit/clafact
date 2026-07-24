@@ -24,13 +24,13 @@ from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
 from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
-from clafact.kosis import FixtureKosisClient
+from clafact.kosis import HttpKosisClient
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
-from clafact.pipeline.retrieve import StatIndex
+from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
 
 ROOT = Path(__file__).resolve().parent
@@ -139,8 +139,8 @@ CONF_ORDER = {"low": 0, "medium": 1, "high": 2, None: 3}
 
 @st.cache_resource
 def load_engine():
-    return (StatIndex(ROOT / "data/samples/kosis/tables_meta.json"),
-            FixtureKosisClient(ROOT / "data/samples/kosis"))
+    client = HttpKosisClient(api_key=os.environ["KOSIS_API_KEY"])
+    return KosisSearchIndex(client), client
 
 
 def render_card(r, scope="v"):
