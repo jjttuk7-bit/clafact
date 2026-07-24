@@ -6,10 +6,13 @@
   🔥 플라이휠   — 실패 → 골든셋 → 재평가 → 규칙 → 재평가를 라이브로 (문서 20 4막)
   🔄 자산 현황  — 자산 축적 대시보드 (문서 11)
 """
+import csv
+import io
 import os
 import json
 import tempfile
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -442,6 +445,18 @@ if view == "운영 홈":
                 for preview in claim_previews
             ]
             st.dataframe(extraction_rows, hide_index=True, use_container_width=True)
+            csv_buffer = io.StringIO()
+            csv_writer = csv.DictWriter(csv_buffer, fieldnames=extraction_rows[0].keys())
+            csv_writer.writeheader()
+            for row in extraction_rows:
+                csv_writer.writerow(row)
+            st.download_button(
+                "추출 결과 CSV 다운로드",
+                data=csv_buffer.getvalue().encode("utf-8-sig"),
+                file_name=f"clafact_kosis_claims_{datetime.now():%Y%m%d}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
         else:
             st.info("이번 업로드에서 KOSIS 분석 대상으로 추출된 수치 주장이 없습니다.")
         st.markdown("""<div class="ops-next-action"><span class="ops-next-label">다음 행동</span><span>검증 탭에서 현재 페이지 50건을 일괄 검증하거나, 위험 Claim은 검증자 리뷰에서 확인하세요.</span></div>""", unsafe_allow_html=True)
