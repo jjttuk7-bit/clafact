@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS claims (
     evidence_json TEXT NOT NULL DEFAULT '{}',
     audit_json   TEXT NOT NULL DEFAULT '{}',
     error        TEXT NOT NULL DEFAULT '',
+    retry_count  INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT NOT NULL DEFAULT '',
+    failure_kind TEXT NOT NULL DEFAULT '',
     created_at   TEXT NOT NULL,
     processed_at TEXT
 );
@@ -126,6 +129,9 @@ class Store:
             "claim_type": "TEXT NOT NULL DEFAULT ''",
             "route": "TEXT NOT NULL DEFAULT 'LEGACY_UNCLASSIFIED'",
             "classification_reason": "TEXT NOT NULL DEFAULT ''",
+            "retry_count": "INTEGER NOT NULL DEFAULT 0",
+            "next_retry_at": "TEXT NOT NULL DEFAULT ''",
+            "failure_kind": "TEXT NOT NULL DEFAULT ''",
         }
         for name, definition in additions.items():
             if name not in existing:
@@ -193,11 +199,14 @@ class Store:
 
     def fetch_pending(self, limit: int | None = None,
                       article_ids: list[str] | None = None,
-                      claim_ids: list[str] | None = None) -> list[sqlite3.Row]:
+                      claim_ids: list[str] | None = None,
+                      now: str | None = None) -> list[sqlite3.Row]:
+        now = now or now_iso()
         sql = ("SELECT c.claim_id, c.sentence, c.article_id, c.source_type, a.date AS article_date"
                " FROM claims c JOIN articles a ON a.article_id = c.article_id"
-               " WHERE c.status = ? AND c.route = ?")
-        params: list[str] = [PENDING, "KOSIS_RETRIEVAL"]
+               " WHERE c.status = ? AND c.route = ?"
+               " AND (c.next_retry_at = '' OR c.next_retry_at <= ?)")
+        params: list[str] = [PENDING, "KOSIS_RETRIEVAL", now]
         if article_ids is not None:
             if not article_ids:
                 return []
@@ -279,7 +288,7 @@ class Store:
         self.conn.execute(
             "UPDATE claims SET status=?, label=?, confidence=?, tier=?, reason=?,"
             " quantity=?, period=?, calculation=?, explanation=?,"
-            " evidence_json=?, audit_json=?, error='', processed_at=?"
+            " evidence_json=?, audit_json=?, error='', retry_count=0, next_retry_at='', failure_kind='', processed_at=?"
             " WHERE claim_id=?",
             (DONE, label, confidence, tier, reason, quantity, period, calculation,
              explanation, json.dumps(evidence or {}, ensure_ascii=False),
@@ -376,14 +385,36 @@ class Store:
     def mark_failed(self, claim_id: str, error: str) -> None:
         """Claim 1건의 실패를 격리한다 — 배치는 계속 (문서 25 §4.2 원칙 2)."""
         self.conn.execute(
-            "UPDATE claims SET status=?, error=?, processed_at=? WHERE claim_id=?",
+            "UPDATE claims SET status=?, error=?, failure_kind='', next_retry_at='', processed_at=? WHERE claim_id=?",
             (FAILED, error[:500], now_iso(), claim_id))
         self.conn.commit()
+
+    def schedule_kosis_retry(self, claim_id: str, error: str, *, now: str | None = None) -> dict[str, object]:
+        """KOSIS 연결 실패를 최대 세 번, 2분 뒤의 검증 실행으로 예약한다."""
+        now = now or now_iso()
+        row = self.conn.execute("SELECT retry_count FROM claims WHERE claim_id=?", (claim_id,)).fetchone()
+        if row is None:
+            raise KeyError(claim_id)
+        retry_count = int(row["retry_count"] or 0) + 1
+        if retry_count >= 3:
+            self.conn.execute(
+                "UPDATE claims SET status=?, error=?, retry_count=?, next_retry_at='', failure_kind=?, processed_at=? WHERE claim_id=?",
+                (FAILED, error[:500], retry_count, "KOSIS_CONNECTION", now, claim_id),
+            )
+            self.conn.commit()
+            return {"scheduled": False, "retry_count": retry_count, "next_retry_at": ""}
+        next_retry_at = (datetime.datetime.fromisoformat(now) + datetime.timedelta(minutes=2)).isoformat(timespec="seconds")
+        self.conn.execute(
+            "UPDATE claims SET status=?, error=?, retry_count=?, next_retry_at=?, failure_kind=?, processed_at=? WHERE claim_id=?",
+            (PENDING, error[:500], retry_count, next_retry_at, "KOSIS_CONNECTION", now, claim_id),
+        )
+        self.conn.commit()
+        return {"scheduled": True, "retry_count": retry_count, "next_retry_at": next_retry_at}
 
     def retry_failed(self, claim_id: str) -> None:
         """실패 Claim을 다시 검증 큐로 되돌린다."""
         self.conn.execute(
-            "UPDATE claims SET status=?, error='', processed_at=NULL WHERE claim_id=? AND status=?",
+            "UPDATE claims SET status=?, error='', retry_count=0, next_retry_at='', failure_kind='', processed_at=NULL WHERE claim_id=? AND status=?",
             (PENDING, claim_id, FAILED))
         self.conn.commit()
 

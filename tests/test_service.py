@@ -373,3 +373,49 @@ def test_requeue_unverifiable_claims_preserves_human_confirmed_claims():
     assert (rows["clm_retry"]["status"], rows["clm_retry"]["label"]) == (st.PENDING, None)
     assert rows["clm_confirmed_retry"]["tier"] == st.CONFIRMED
     s.close()
+
+
+def test_schedule_kosis_retry_defers_claim_until_due():
+    s = _store()
+    s.upsert_article("art_kosis_retry", "t", "2025-11-04", "", "u", "b")
+    s.enqueue_claim("clm_kosis_retry", "art_kosis_retry", "소비자물가 상승률은 2.4%다.")
+
+    s.schedule_kosis_retry("clm_kosis_retry", "KOSIS timed out", now="2026-07-25T10:00:00")
+
+    row = s.conn.execute("SELECT status, retry_count, next_retry_at, failure_kind FROM claims WHERE claim_id=?", ("clm_kosis_retry",)).fetchone()
+    assert (row["status"], row["retry_count"], row["failure_kind"]) == (st.PENDING, 1, "KOSIS_CONNECTION")
+    assert row["next_retry_at"] == "2026-07-25T10:02:00"
+    assert s.fetch_pending(now="2026-07-25T10:01:59") == []
+    assert s.fetch_pending(now="2026-07-25T10:02:00")[0]["claim_id"] == "clm_kosis_retry"
+    s.close()
+
+
+def test_schedule_kosis_retry_stops_after_three_attempts():
+    s = _store()
+    s.upsert_article("art_kosis_limit", "t", "2025-11-04", "", "u", "b")
+    s.enqueue_claim("clm_kosis_limit", "art_kosis_limit", "소비자물가 상승률은 2.4%다.")
+
+    for minute in (0, 2, 4):
+        s.schedule_kosis_retry("clm_kosis_limit", "KOSIS timed out", now=f"2026-07-25T10:{minute:02d}:00")
+
+    row = s.conn.execute("SELECT status, retry_count, failure_kind FROM claims WHERE claim_id=?", ("clm_kosis_limit",)).fetchone()
+    assert (row["status"], row["retry_count"], row["failure_kind"]) == (st.FAILED, 3, "KOSIS_CONNECTION")
+    s.close()
+
+
+def test_process_pending_schedules_kosis_connection_error():
+    from clafact.kosis import KosisConnectionError
+
+    s = _store()
+    s.upsert_article("art_connection_batch", "t", "2025-11-04", "", "u", "b")
+    s.enqueue_claim("clm_connection_batch", "art_connection_batch", "소비자물가 상승률은 2.4%다.")
+
+    def verify(sentence, article_date):
+        raise KosisConnectionError("timed out")
+
+    stats = batch.process_pending(s, verify=verify)
+    row = s.conn.execute("SELECT status, failure_kind, retry_count FROM claims WHERE claim_id=?", ("clm_connection_batch",)).fetchone()
+    assert stats["deferred"] == 1
+    assert stats["failed"] == 0
+    assert (row["status"], row["failure_kind"], row["retry_count"]) == (st.PENDING, "KOSIS_CONNECTION", 1)
+    s.close()

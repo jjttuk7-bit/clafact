@@ -15,6 +15,7 @@ import traceback
 from pathlib import Path
 
 from clafact import audit
+from clafact.kosis import KosisConnectionError
 from clafact.pipeline import detect
 from clafact.pipeline.ingest import load_articles
 from clafact.pipeline.run import ClaimResult, verify_sentence
@@ -71,7 +72,7 @@ def process_pending(store: Store, index=None, client=None,
         def verify(sentence, article_date):   # noqa: E306
             return verify_sentence(sentence, article_date, index, client)
 
-    stats = {"processed": 0, "failed": 0,
+    stats = {"processed": 0, "failed": 0, "deferred": 0,
              "by_tier": {}, "by_label": {}}
     started = st.now_iso()
     for row in store.fetch_pending(limit, article_ids=article_ids, claim_ids=claim_ids):
@@ -88,6 +89,12 @@ def process_pending(store: Store, index=None, client=None,
             stats["processed"] += 1
             stats["by_tier"][tier] = stats["by_tier"].get(tier, 0) + 1
             stats["by_label"][r.label] = stats["by_label"].get(r.label, 0) + 1
+        except KosisConnectionError as error:
+            outcome = store.schedule_kosis_retry(row["claim_id"], str(error))
+            if outcome["scheduled"]:
+                stats["deferred"] += 1
+            else:
+                stats["failed"] += 1
         except Exception as error:
             # 예외 요약을 앞에 둬 저장 길이가 제한돼도 원인을 확인할 수 있게 한다.
             detail = f"{type(error).__name__}: {error}\n{traceback.format_exc(limit=3)}"
