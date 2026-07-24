@@ -325,3 +325,13 @@ def test_dashboard_uses_verification_evidence_language_instead_of_audit_log():
     assert "감사 로그 · KOSIS 조회 조건" not in app
     assert "판정 근거 확인까지" in app
     assert "검증 근거 보존" in app
+
+
+def test_dashboard_shows_connection_retry_message_without_error_traceback():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    card = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+
+    assert "KOSIS 연결이 지연되고 있습니다" in card
+    assert 'st.error(row["error"]' not in card
+    assert 'row["next_retry_at"]' in card
+    assert 'stats.get("deferred", 0)' in card

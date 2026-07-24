@@ -172,6 +172,10 @@ class KosisApiError(RuntimeError):
         super().__init__(f"KOSIS API 오류: {payload}")
 
 
+class KosisConnectionError(RuntimeError):
+    """KOSIS 서버에 연결하지 못해 나중에 재시도할 수 있는 오류."""
+
+
 class HttpKosisClient:
     """실 KOSIS Open API. KOSIS_API_KEY 환경변수 필요.
 
@@ -216,7 +220,7 @@ class HttpKosisClient:
                 raise RuntimeError(f"KOSIS HTTP 오류 {e.code}: {e.reason}") from e
             except (urllib.error.URLError, TimeoutError) as e:   # 연결 실패만 재시도·미차감
                 if i == len(backoff_delays()) - 1:
-                    raise RuntimeError(
+                    raise KosisConnectionError(
                         f"KOSIS 호출 실패({type(e).__name__}): {e}\n"
                         f"  → 연결 실패이므로 호출 예산은 차감하지 않았습니다 "
                         f"(남음 {self.budget.remaining()}회). 개발망에서 정부망 443 이 "

@@ -318,3 +318,10 @@ if __name__ == "__main__":
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
+
+
+def test_kosis_connection_error_is_retryable():
+    from clafact.kosis import KosisConnectionError
+
+    error = KosisConnectionError("timed out")
+    assert isinstance(error, RuntimeError)
