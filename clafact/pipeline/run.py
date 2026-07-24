@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from clafact import audit
@@ -272,6 +274,39 @@ def _mk_audit(client: KosisClient, hit: TableHit, evs: list[Evidence],
     ).as_dict()
 
 
+
+_OFFICIAL_SHARE_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data/assets/official_share_metrics.json"
+_OFFICIAL_SHARE_REGISTRY = json.loads(_OFFICIAL_SHARE_REGISTRY_PATH.read_text(encoding="utf-8"))
+_OFFICIAL_SHARE_METRICS = _OFFICIAL_SHARE_REGISTRY["metrics"]
+_OFFICIAL_SHARE_SOURCE_URL = _OFFICIAL_SHARE_REGISTRY["source_url"]
+
+def _official_share_metric(sentence: str, period: str):
+    """등록된 공식 지표의 분자÷분모 비중을 재현한다."""
+    if not any(word in sentence for word in ("비중", "구성비")):
+        return None
+    metric = next((name for name, spec in _OFFICIAL_SHARE_METRICS.items() if any(alias in sentence for alias in spec["aliases"])), None)
+    if not metric:
+        return None
+    try:
+        year = int(period)
+    except (TypeError, ValueError):
+        return None
+    counts = {int(key): value for key, value in _OFFICIAL_SHARE_METRICS[metric]["counts"].items()}
+    if year not in counts or year - 1 not in counts:
+        return None
+    current, total = counts[year]
+    previous, previous_total = counts[year - 1]
+    share = derived_ratio([current], total) * 100
+    previous_share = derived_ratio([previous], previous_total) * 100
+    rows = [
+        {"metric": metric, "period": str(year), "value": current, "unit": "건"},
+        {"metric": f"전체 {metric.replace('다문화 ', '')}", "period": str(year), "value": total, "unit": "건"},
+        {"metric": metric, "period": str(year - 1), "value": previous, "unit": "건"},
+        {"metric": f"전체 {metric.replace('다문화 ', '')}", "period": str(year - 1), "value": previous_total, "unit": "건"},
+    ]
+    calculation = f"{current:,} ÷ {total:,} × 100 = {share:.1f}% ; {year - 1}년 {previous:,} ÷ {previous_total:,} × 100 = {previous_share:.1f}% ; 전년 대비 {share - previous_share:.1f}%p"
+    return metric, share, calculation, rows
+
 def verify_sentence(sentence: str, article_date: str,
                     index: StatIndex, client: KosisClient) -> ClaimResult:
     r = ClaimResult(sentence=sentence, label="not_claim")
@@ -306,10 +341,27 @@ def verify_sentence(sentence: str, article_date: str,
         r.explanation = "판정: 판단불가. 미래 예측은 공식 통계로 검증할 수 없습니다."
         return r
 
+
+    official_share = _official_share_metric(sentence, r.period)
+    if official_share:
+        metric, official, calculation, rows = official_share
+        result = compare(q.value, q.composed_unit, official, "%", op=pc.op).verdict
+        r.label, r.confidence = result.label.value, "medium"
+        r.reason, r.calculation = result.reason, calculation
+        r.evidence = {"tbl": f"국가데이터처 「2024년 다문화 인구동태 통계」 · {metric}", "value": f"{official:.1f}%", "period": r.period}
+        r.audit = {"engine": "derived_official_release", "tbl_name": "2024년 다문화 인구동태 통계", "params": {"period": r.period, "formula": "다문화 혼인 ÷ 전체 혼인 × 100"}, "rows": rows, "rules": ["D1-MULTICULTURAL-MARRIAGE-SHARE"], "url": _OFFICIAL_SHARE_SOURCE_URL}
+        label_ko = {"match": "일치", "mismatch": "불일치"}[r.label]
+        r.explanation = f"판정: {label_ko}. 기사 주장 [{q.raw}] ↔ 공식 계산 [{official:.1f}%]. 계산: {calculation}. 출처: 국가데이터처 「2024년 다문화 인구동태 통계」."
+        return r
     # 3) 통계표 검색 (경로 A)
     hits = index.search(sentence, top_k=3)
     if not hits:
         r.label, r.reason = "unverifiable", "대응 통계표 검색 실패 (억지 매핑 금지)"
+        r.audit = {
+            "engine": type(client).__name__, "reason": "대응 통계표 검색 실패",
+            "params": {"period": r.period, "query": sentence}, "candidates": [], "rows": [],
+            "rules": rules,
+        }
         r.explanation = "판정: 판단불가. 주장에 대응하는 KOSIS 통계표를 찾지 못했습니다. (이 실패는 별칭 사전 확충의 원료가 됩니다)"
         return r
     hit = hits[0]

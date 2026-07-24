@@ -356,3 +356,20 @@ def test_store_migrates_legacy_complex_kosis_claims_into_analysis_queue(tmp_path
     assert (row["route"], row["status"], row["label"]) == ("KOSIS_RETRIEVAL", st.PENDING, None)
     assert json.loads(row["audit_json"])["reclassification"]["previous_result"]["label"] == "unverifiable"
     migrated.close()
+
+
+def test_requeue_unverifiable_claims_preserves_human_confirmed_claims():
+    s = _store()
+    s.upsert_article("art_retry", "t", "2025-11-06", "", "u", "b")
+    s.enqueue_claim("clm_retry", "art_retry", "2024년 다문화 출생 비중은 5.6%다.")
+    s.save_result("clm_retry", label="unverifiable", confidence=None, tier=st.UNVERIFIABLE)
+    s.enqueue_claim("clm_confirmed_retry", "art_retry", "확정된 주장 1%다.")
+    s.save_result("clm_confirmed_retry", label="unverifiable", confidence=None, tier=st.UNVERIFIABLE)
+    s.apply_review("clm_confirmed_retry", "approve")
+
+    stats = s.requeue_unverifiable_claims()
+    rows = {row["claim_id"]: row for row in s.conn.execute("SELECT claim_id, status, label, tier FROM claims")}
+    assert stats == {"requeued": 1, "skipped_reviewed": 1}
+    assert (rows["clm_retry"]["status"], rows["clm_retry"]["label"]) == (st.PENDING, None)
+    assert rows["clm_confirmed_retry"]["tier"] == st.CONFIRMED
+    s.close()

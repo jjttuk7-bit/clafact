@@ -356,6 +356,23 @@ class Store:
         self.conn.commit()
         route_counts["skipped_reviewed"] = skipped_reviewed
         return route_counts
+
+    def requeue_unverifiable_claims(self) -> dict[str, int]:
+        """새 근거·규칙 적용을 위해 판단불가만 재처리 큐로 되돌린다."""
+        rows = self.conn.execute("SELECT claim_id, tier FROM claims WHERE label = ?", ("unverifiable",)).fetchall()
+        requeued = skipped_reviewed = 0
+        for row in rows:
+            if row["tier"] in (CONFIRMED, CORRECTED):
+                skipped_reviewed += 1
+                continue
+            self.conn.execute(
+                "UPDATE claims SET status=?, label=NULL, confidence=NULL, tier=NULL, reason='', quantity='', period='',"
+                " calculation='', explanation='', evidence_json='{}', error='', processed_at=NULL WHERE claim_id=?",
+                (PENDING, row["claim_id"]),
+            )
+            requeued += 1
+        self.conn.commit()
+        return {"requeued": requeued, "skipped_reviewed": skipped_reviewed}
     def mark_failed(self, claim_id: str, error: str) -> None:
         """Claim 1건의 실패를 격리한다 — 배치는 계속 (문서 25 §4.2 원칙 2)."""
         self.conn.execute(

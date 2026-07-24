@@ -66,10 +66,37 @@ def test_yoy_metric_guard():
 
 
 def test_no_table_unverifiable():
-    """대응 통계 없는 주장 → 억지 매핑 없이 판단불가"""
-    out = _labels("비트코인 가격이 1억 원을 넘어섰다.", "2025-06-20")
-    assert out and out[0][0] == "unverifiable"
+    """대응 통계가 없으면 판단불가와 검색 실패 감사 로그를 함께 남긴다."""
+    results = [r for r in verify_article("비트코인 가격이 1억 원을 넘어섰다.", "2025-06-20", IDX, CL) if r.label != "not_claim"]
+    assert results and results[0].label == "unverifiable"
+    assert results[0].audit["reason"] == "대응 통계표 검색 실패"
 
+def test_multicultural_marriage_share_e2e():
+    """2024 다문화 혼인 비중 9.6%, 전년 대비 1.0%p 감소는 공식 수치와 일치한다."""
+    sentence = "2024년 다문화 인구동태 통계결과에 따르면, 전체 혼인 중 다문화 혼인 비중은 9.6%로 전년 대비 1.0%포인트 감소했다."
+    results = [r for r in verify_article(sentence, "2025-11-06", IDX, CL) if r.label != "not_claim"]
+
+    assert results and results[0].label == "match"
+    assert "21,450" in results[0].calculation
+    assert results[0].audit["rows"]
+
+
+
+
+def test_multicultural_marriage_composition_share_e2e():
+    """비중의 동의어인 구성비도 같은 공식 비율 검증 경로를 사용한다."""
+    sentence = "2024년 다문화 인구동태 통계결과에 따르면, 전체 혼인 중 다문화 혼인 구성비는 9.6%다."
+    results = [r for r in verify_article(sentence, "2025-11-06", IDX, CL) if r.label != "not_claim"]
+    assert results and results[0].label == "match"
+
+
+
+def test_multicultural_birth_share_e2e():
+    """다문화 출생 비중도 같은 분자·분모 레지스트리로 검증한다."""
+    sentence = "2024년 전체 출생 중 다문화 출생 비중은 5.6%로 전년 대비 0.3%포인트 증가했다."
+    results = [r for r in verify_article(sentence, "2025-11-06", IDX, CL) if r.label != "not_claim"]
+    assert results and results[0].label == "match"
+    assert "13,416" in results[0].calculation
 
 if __name__ == "__main__":
     import sys, traceback
