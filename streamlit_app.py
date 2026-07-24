@@ -113,8 +113,16 @@ def render_stored_claim(row, number: int) -> None:
             return
         if status == "FAILED":
             st.error(row["error"] or "처리 중 오류가 발생했습니다.")
+            if st.button("KOSIS 재검증 실행", key=f"retry_{row['claim_id']}", type="primary"):
+                retry_store = Store(ROOT / "data/service/clafact.db")
+                try:
+                    retry_store.retry_failed(row["claim_id"])
+                    index, client = load_engine()
+                    process_pending(retry_store, index, client, claim_ids=[row["claim_id"]])
+                finally:
+                    retry_store.close()
+                st.rerun()
             return
-
         audit = _stored_json(row["audit_json"])
         engine_labels = {
             "HttpKosisClient": "실 KOSIS Open API 검증",

@@ -363,6 +363,13 @@ class Store:
             (FAILED, error[:500], now_iso(), claim_id))
         self.conn.commit()
 
+    def retry_failed(self, claim_id: str) -> None:
+        """실패 Claim을 다시 검증 큐로 되돌린다."""
+        self.conn.execute(
+            "UPDATE claims SET status=?, error='', processed_at=NULL WHERE claim_id=? AND status=?",
+            (PENDING, claim_id, FAILED))
+        self.conn.commit()
+
     # ── 리뷰 (HITL, 문서 25 §5) ──────────────────────────────────
 
     def review_queue(self) -> list[sqlite3.Row]:
