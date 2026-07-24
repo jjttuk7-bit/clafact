@@ -90,6 +90,94 @@ def test_http_search_spends_budget():
         __import__("shutil").rmtree(d)
 
 
+def test_http_fetch_retries_with_next_objl_after_missing_objl_error():
+    """err 20(objL 누락)만 다음 분류 수준 ALL로 보완해 재조회한다."""
+    import urllib.parse
+    import urllib.request
+    d = Path(__import__("tempfile").mkdtemp())
+    orig = urllib.request.urlopen
+    urls = []
+    try:
+        budget = CallBudget(d / "b.json", limit=10)
+        client = HttpKosisClient(api_key="DUMMY", budget=budget, rate_limiter=RateLimiter(600))
+
+        class Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        responses = [b'{"err":"20","errMsg":"objL required"}', b'[{"PRD_DE":"2024","DT":"9.6"}]']
+        def urlopen(url, **kwargs):
+            urls.append(url)
+            return Resp(responses.pop(0))
+        urllib.request.urlopen = urlopen
+
+        assert client.fetch_data("101", "DT_X", prd_de="2024") == [{"PRD_DE":"2024", "DT":"9.6"}]
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(urls[1]).query)["objL2"] == ["ALL"]
+        assert budget.used() == 2
+    finally:
+        urllib.request.urlopen = orig
+        __import__("shutil").rmtree(d)
+
+
+def test_http_fetch_preserves_explicit_objl_before_retrying_next_level():
+    """호출자가 지정한 objL2는 보존하고, 오류 20이면 objL3를 보완한다."""
+    import urllib.parse
+    import urllib.request
+    d = Path(__import__("tempfile").mkdtemp())
+    orig = urllib.request.urlopen
+    urls = []
+    try:
+        client = HttpKosisClient(api_key="DUMMY", budget=CallBudget(d / "b.json", limit=10), rate_limiter=RateLimiter(600))
+
+        class Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        responses = [b'{"err":"20","errMsg":"objL required"}', b'[{"PRD_DE":"2024","DT":"9.6"}]']
+        def urlopen(url, **kwargs):
+            urls.append(url)
+            return Resp(responses.pop(0))
+        urllib.request.urlopen = urlopen
+
+        assert client.fetch_data("101", "DT_X", prd_de="2024", obj_l2="WOMEN")
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(urls[1]).query)
+        assert query["objL2"] == ["WOMEN"] and query["objL3"] == ["ALL"]
+    finally:
+        urllib.request.urlopen = orig
+        __import__("shutil").rmtree(d)
+
+
+def test_http_fetch_does_not_retry_non_objl_kosis_error():
+    """오류 20 이외의 KOSIS 오류는 한 번만 호출하고 그대로 전파한다."""
+    import urllib.request
+    d = Path(__import__("tempfile").mkdtemp())
+    orig = urllib.request.urlopen
+    calls = 0
+    try:
+        client = HttpKosisClient(api_key="DUMMY", budget=CallBudget(d / "b.json", limit=10), rate_limiter=RateLimiter(600))
+
+        class Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(url, **kwargs):
+            nonlocal calls
+            calls += 1
+            return Resp(b'{"err":"21","errMsg":"other error"}')
+        urllib.request.urlopen = urlopen
+
+        try:
+            client.fetch_data("101", "DT_X", prd_de="2024")
+        except RuntimeError as error:
+            assert "'err': '21'" in str(error)
+        else:
+            raise AssertionError("err 21 must be raised")
+        assert calls == 1
+    finally:
+        urllib.request.urlopen = orig
+        __import__("shutil").rmtree(d)
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

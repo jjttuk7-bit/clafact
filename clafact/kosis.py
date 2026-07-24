@@ -53,9 +53,8 @@ def build_query(org_id: str, tbl_id: str, api_key: str = KEY_PLACEHOLDER, **para
     return {
         "method": "getList", "apiKey": api_key,
         "itmId": params.get("itm_id", "ALL"),
-        "objL1": params.get("obj_l1", "ALL"),
-        "objL2": params.get("obj_l2", ""), "objL3": "", "objL4": "",
-        "objL5": "", "objL6": "", "objL7": "", "objL8": "",
+        **{f"objL{level}": params.get(f"obj_l{level}", "ALL" if level == 1 else "")
+           for level in range(1, 9)},
         "format": "json", "jsonVD": "Y",
         "prdSe": params.get("prd_se", "Y"),
         "newEstPrdCnt": str(params.get("recent_n", 5)),
@@ -165,6 +164,14 @@ class FixtureKosisClient:
         return out
 
 
+class KosisApiError(RuntimeError):
+    """KOSIS가 JSON 오류 응답을 반환했을 때의 구조화된 오류."""
+
+    def __init__(self, payload: dict):
+        self.code = str(payload.get("err", ""))
+        super().__init__(f"KOSIS API 오류: {payload}")
+
+
 class HttpKosisClient:
     """실 KOSIS Open API. KOSIS_API_KEY 환경변수 필요.
 
@@ -202,7 +209,7 @@ class HttpKosisClient:
                 self.budget.spend(1, note)          # urlopen 성공 = 서버 응답 = 차감
                 data = parse_json_tolerant(text)     # 파싱 실패는 응답 받은 뒤 문제 → 이미 차감됨
                 if isinstance(data, dict) and data.get("err"):
-                    raise RuntimeError(f"KOSIS API 오류: {data}")
+                    raise KosisApiError(data)
                 return data
             except urllib.error.HTTPError as e:
                 self.budget.spend(1, f"{note} HTTP{e.code}")
@@ -218,9 +225,22 @@ class HttpKosisClient:
                 time.sleep(delay)
 
     def fetch_data(self, org_id: str, tbl_id: str, **params) -> list[dict]:
-        """통계자료 조회. objL1~8 전부 + newEstPrdCnt (누락 시 err 21). prd_de 필터는 클라이언트."""
-        url = build_url(org_id, tbl_id, self.api_key, **params)
-        data = self._call(url, f"data {tbl_id} {params.get('prd_de', '')}")
+        """통계자료 조회. objL 누락 오류 20만 다음 분류 수준 ALL로 보완한다."""
+        query_params = dict(params)
+        remaining_levels = iter(level for level in range(2, 9)
+                                if f"obj_l{level}" not in query_params)
+        while True:
+            url = build_url(org_id, tbl_id, self.api_key, **query_params)
+            try:
+                data = self._call(url, f"data {tbl_id} {params.get('prd_de', '')}")
+                break
+            except KosisApiError as error:
+                if error.code != "20":
+                    raise
+                level = next(remaining_levels, None)
+                if level is None:  # 모든 추가 objL을 보완해도 오류 20인 비정상 표
+                    raise
+                query_params[f"obj_l{level}"] = "ALL"
         rows = data if isinstance(data, list) else []
         # 시점 필터는 전체 길이로 — [:4] 절삭 시 월 조회가 연 단위로 뭉개진다
         prd = str(params.get("prd_de", "")).replace("-", "")
