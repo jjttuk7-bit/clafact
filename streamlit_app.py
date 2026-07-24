@@ -100,20 +100,38 @@ def render_stored_claim(row, number: int) -> None:
             f"수치: {row['quantity'] or '-'} | 처리 상태: {STATUS_KO.get(status, status)}"
         )
         if status == "PENDING":
+            if row["failure_kind"] == "KOSIS_CONNECTION" and row["next_retry_at"]:
+                st.warning(
+                    "KOSIS 연결이 지연되고 있습니다. "
+                    f"다음 재시도 가능 시각: {row['next_retry_at']}"
+                )
+                return
             st.info("아직 판정 전입니다. 아래 버튼으로 이 수치 주장만 KOSIS 검증합니다.")
             if st.button("KOSIS 검증 실행", key=f"verify_{row['claim_id']}", type="primary"):
                 verify_store = Store(ROOT / "data/service/clafact.db")
                 try:
                     index, client = load_engine()
-                    process_pending(verify_store, index, client, claim_ids=[row["claim_id"]])
+                    stats = process_pending(verify_store, index, client, claim_ids=[row["claim_id"]])
+                    st.session_state["retry_feedback"] = {
+                        "processed": stats["processed"],
+                        "failed": stats["failed"],
+                        "deferred": stats.get("deferred", 0),
+                        "code_version": audit.code_version(),
+                    }
                 except Exception as error:
-                    st.error(f"검증 실패: {error}")
+                    st.session_state["retry_feedback"] = {
+                        "error": str(error), "code_version": audit.code_version(),
+                    }
                 finally:
                     verify_store.close()
                 st.rerun()
             return
         if status == "FAILED":
-            st.error(row["error"] or "처리 중 오류가 발생했습니다.")
+            if row["failure_kind"] == "KOSIS_CONNECTION":
+                st.error("KOSIS 연결 재시도가 3회 실패했습니다. 잠시 후 다시 검증해 주세요.")
+            else:
+                message = row["error"] or "처리 중 오류가 발생했습니다."
+                st.error(message)
             if st.button("KOSIS 재검증 실행", key=f"retry_{row['claim_id']}", type="primary"):
                 with st.spinner("KOSIS 재검증 중…"):
                     retry_store = Store(ROOT / "data/service/clafact.db")
@@ -124,6 +142,7 @@ def render_stored_claim(row, number: int) -> None:
                         st.session_state["retry_feedback"] = {
                             "processed": stats["processed"],
                             "failed": stats["failed"],
+                            "deferred": stats.get("deferred", 0),
                             "code_version": audit.code_version(),
                         }
                     except Exception as error:
@@ -499,6 +518,8 @@ if view == "검증":
     if retry_feedback:
         if retry_feedback.get("error"):
             st.error(f"재검증 실행 오류: {retry_feedback['error']}")
+        elif retry_feedback.get("deferred", 0):
+            st.warning(f"KOSIS 연결이 지연되어 {retry_feedback['deferred']}건을 재시도 대기 상태로 예약했습니다.")
         elif retry_feedback["failed"]:
             st.warning(f"재검증 완료 · 처리 {retry_feedback['processed']}건 · 실패 {retry_feedback['failed']}건")
         else:
