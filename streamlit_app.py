@@ -19,6 +19,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backend.app.ingest_service import import_article_file
+from clafact import audit
 from clafact.assets.alias_dict import AliasDict
 from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
 from clafact.assets.rules import RuleRegistry
@@ -114,13 +115,23 @@ def render_stored_claim(row, number: int) -> None:
         if status == "FAILED":
             st.error(row["error"] or "처리 중 오류가 발생했습니다.")
             if st.button("KOSIS 재검증 실행", key=f"retry_{row['claim_id']}", type="primary"):
-                retry_store = Store(ROOT / "data/service/clafact.db")
-                try:
-                    retry_store.retry_failed(row["claim_id"])
-                    index, client = load_engine()
-                    process_pending(retry_store, index, client, claim_ids=[row["claim_id"]])
-                finally:
-                    retry_store.close()
+                with st.spinner("KOSIS 재검증 중…"):
+                    retry_store = Store(ROOT / "data/service/clafact.db")
+                    try:
+                        retry_store.retry_failed(row["claim_id"])
+                        index, client = load_engine()
+                        stats = process_pending(retry_store, index, client, claim_ids=[row["claim_id"]])
+                        st.session_state["retry_feedback"] = {
+                            "processed": stats["processed"],
+                            "failed": stats["failed"],
+                            "code_version": audit.code_version(),
+                        }
+                    except Exception as error:
+                        st.session_state["retry_feedback"] = {
+                            "error": str(error), "code_version": audit.code_version(),
+                        }
+                    finally:
+                        retry_store.close()
                 st.rerun()
             return
         audit = _stored_json(row["audit_json"])
@@ -479,6 +490,15 @@ if view == "운영 홈":
         st.info("CSV를 등록하면 전처리·분류 요약이 표시됩니다.")# ═════════════ 탭 1: 검증 (WF-1) ═════════════
 if view == "검증":
     st.markdown("""<div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 03</div><h2 class="ops-section-title">이번 업로드 검증 결과</h2><p class="ops-section-copy">저장된 KOSIS 판정과 HCX 설명을 확인하고, 필요한 Claim만 다시 검증합니다.</p></div>""", unsafe_allow_html=True)
+    st.caption(f"현재 실행 코드: {audit.code_version()}")
+    retry_feedback = st.session_state.pop("retry_feedback", None)
+    if retry_feedback:
+        if retry_feedback.get("error"):
+            st.error(f"재검증 실행 오류: {retry_feedback['error']}")
+        elif retry_feedback["failed"]:
+            st.warning(f"재검증 완료 · 처리 {retry_feedback['processed']}건 · 실패 {retry_feedback['failed']}건")
+        else:
+            st.success(f"재검증 완료 · 처리 {retry_feedback['processed']}건 · 실패 0건")
     uploaded_article_ids = st.session_state.get("uploaded_article_ids", [])
     if uploaded_article_ids:
         result_store = Store(ROOT / "data/service/clafact.db")

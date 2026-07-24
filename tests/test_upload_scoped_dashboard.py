@@ -290,3 +290,15 @@ def test_operations_home_resets_previous_preview_when_file_changes() -> None:
 
     assert "_upload_file_signature" in home
     assert "uploaded_csv.name" in home
+
+
+def test_failed_claim_retry_shows_progress_and_persists_feedback():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    card = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+    verification = source[source.index('if view == "검증":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert 'st.spinner("KOSIS 재검증 중' in card
+    assert 'st.session_state["retry_feedback"]' in card
+    assert 'stats["processed"]' in card and 'stats["failed"]' in card
+    assert 'st.session_state.pop("retry_feedback", None)' in verification
+    assert "현재 실행 코드" in verification
