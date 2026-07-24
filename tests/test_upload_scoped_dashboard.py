@@ -213,3 +213,21 @@ def test_operations_home_shows_article_date_for_extraction_preview() -> None:
 
     assert "기사 등록일" in home
     assert "article_date" in home
+
+
+def test_operations_home_can_reset_current_upload_state() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "새 업로드 시작" in home
+    assert "uploader_key" in home
+    assert 'pop("uploaded_article_ids"' in home
+    assert 'pop("upload_summary"' in home
+
+
+def test_operations_home_resets_previous_preview_when_file_changes() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    home = source[source.index('if view == "운영 홈":'):source.index('# ═════════════ 탭 1: 검증')]
+
+    assert "_upload_file_signature" in home
+    assert "uploaded_csv.name" in home

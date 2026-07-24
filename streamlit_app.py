@@ -323,7 +323,29 @@ if view == "운영 홈":
     st.markdown("""<div class="ops-workspace">
       <div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 01</div><h2 class="ops-section-title">운영 실행</h2><p class="ops-section-copy">CSV 기사를 등록하면 수치 주장을 분류하고, KOSIS 분석 대상만 검증 탭으로 전달합니다.</p></div>""", unsafe_allow_html=True)
     api_url = os.environ.get("CLAFACT_API_URL", "http://127.0.0.1:8000").rstrip("/")
-    uploaded_csv = st.file_uploader("CSV 기사 파일", type=["csv"], help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.")
+    uploader_key = st.session_state.setdefault("uploader_key", 0)
+    upload_file_col, reset_upload_col = st.columns([5, 1])
+    with upload_file_col:
+        uploaded_csv = st.file_uploader(
+            "CSV 기사 파일", type=["csv"],
+            help="UTF-8 또는 UTF-8 BOM CSV 파일을 선택하세요.",
+            key=f"article_csv_{uploader_key}",
+        )
+    with reset_upload_col:
+        st.markdown("<div style='height:1.65rem'></div>", unsafe_allow_html=True)
+        if st.button("새 업로드 시작", use_container_width=True, key="reset_current_upload"):
+            for state_key in ("uploaded_article_ids", "upload_summary", "_upload_file_signature"):
+                st.session_state.pop(state_key, None)
+            st.session_state["uploader_key"] = uploader_key + 1
+            st.rerun()
+
+    if uploaded_csv is not None:
+        upload_file_signature = (uploaded_csv.name, uploaded_csv.size)
+        previous_file_signature = st.session_state.get("_upload_file_signature")
+        if previous_file_signature is not None and previous_file_signature != upload_file_signature:
+            st.session_state.pop("uploaded_article_ids", None)
+            st.session_state.pop("upload_summary", None)
+        st.session_state["_upload_file_signature"] = upload_file_signature
 
     if st.button("기사 등록", use_container_width=True, type="primary"):
         if uploaded_csv is None:
