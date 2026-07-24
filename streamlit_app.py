@@ -115,6 +115,14 @@ def render_stored_claim(row, number: int) -> None:
             st.error(row["error"] or "처리 중 오류가 발생했습니다.")
             return
 
+        audit = _stored_json(row["audit_json"])
+        engine_labels = {
+            "HttpKosisClient": "실 KOSIS Open API 검증",
+            "FixtureKosisClient": "데모 Fixture 검증 · 실제 API 미호출",
+        }
+        engine_label = engine_labels.get(audit.get("engine"), "검증 엔진 미기록 · 이전 저장 결과")
+        processed_at = row["processed_at"] or "처리 시각 미기록"
+        st.caption(f"검증 엔진: {engine_label} · 처리 시각: {processed_at}")
         evidence = _stored_json(row["evidence_json"])
         if evidence:
             st.markdown(
@@ -130,7 +138,6 @@ def render_stored_claim(row, number: int) -> None:
         st.markdown("**HCX 설명**")
         st.write(row["explanation"] or "저장된 설명이 없습니다.")
 
-        audit = _stored_json(row["audit_json"])
         if audit:
             with st.expander("감사 로그 · KOSIS 조회 조건"):
                 st.json(audit, expanded=False)

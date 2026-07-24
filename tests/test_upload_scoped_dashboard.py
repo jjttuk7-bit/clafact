@@ -1,6 +1,16 @@
 from pathlib import Path
 
 
+def test_stored_claim_displays_kosis_engine_and_processed_time() -> None:
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+
+    assert "실 KOSIS Open API 검증" in section
+    assert "데모 Fixture 검증" in section
+    assert "검증 엔진 미기록" in section
+    assert 'row["processed_at"]' in section
+
+
 def test_dashboard_wires_real_kosis_api_engine() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     engine = source[source.index("def load_engine():"):source.index("def render_card")]
