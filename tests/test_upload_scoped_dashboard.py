@@ -310,3 +310,10 @@ def test_stored_claim_does_not_shadow_audit_module_used_by_retry_feedback():
 
     assert "audit = _stored_json" not in card
     assert "audit_data = _stored_json" in card
+
+
+def test_stored_claim_shows_selected_audit_table_when_no_evidence_row_exists():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    card = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+    assert 'audit_data.get("tbl_name")' in card
+    assert "선택 통계표" in card

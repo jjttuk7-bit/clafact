@@ -165,6 +165,25 @@ def _complex_claim_labels(cfg: dict) -> set[str]:
     return {_CT_LABEL[k] for k in cfg["complex_claim_types"] if k in _CT_LABEL}
 
 
+_QUERY_HINTS = {
+    "employment_labor": "경제활동인구",
+    "population_household": "인구동향",
+}
+
+
+def kosis_queries(sentence: str, cfg: dict | None = None) -> list[str]:
+    """KOSIS 통합검색용 짧은 질의와 도메인 보조 질의(최대 2개)."""
+    label = classify(sentence, cfg)
+    if not label.matched_keyword:
+        return []
+    hint = _QUERY_HINTS.get(label.domain, "")
+    queries = []
+    for term in (label.matched_keyword, hint):
+        if term and term not in queries:
+            queries.append(term)
+    return queries
+
+
 def kosis_query(sentence: str, cfg: dict | None = None) -> str:
     """KOSIS 통합검색용 **짧은** 질의 — 매칭된 지표어를 그대로 쓴다.
 
@@ -174,8 +193,8 @@ def kosis_query(sentence: str, cfg: dict | None = None) -> str:
     같은 짧은 질의만 10건씩 반환했다. 그래서 지표어 하나로 검색한다.
     (로컬 픽스처 인덱스는 토큰 OR 매칭이라 긴 질의도 통했다 — 실 API와 다름.)
     """
-    label = classify(sentence, cfg)
-    return label.matched_keyword
+    queries = kosis_queries(sentence, cfg)
+    return queries[0] if queries else ""
 
 
 def _is_kosis(label: str) -> bool:

@@ -79,12 +79,25 @@ class KosisSearchIndex:
         self.last_query = ""       # 감사·디버깅용: 실제로 던진 검색어
 
     def search(self, query: str, top_k: int = 3) -> list[TableHit]:
-        from clafact.pipeline.source_classify import kosis_query
-        q = kosis_query(query)
-        self.last_query = q
-        if not q:
+        from clafact.pipeline.source_classify import kosis_queries
+        queries = kosis_queries(query)
+        self.last_query = " | ".join(queries)
+        if not queries:
             return []              # 지표어 없음 → 억지 매핑 대신 빈 결과(판단불가로 흐른다)
-        # 검색은 짧은 지표어로, 재순위는 주장 문장 전체로 — 검색과 선택의 역할 분리.
-        # 검색어에서 버린 정보(주기·지역·모집단)가 여기서 표 선택에 쓰인다.
-        return search_kosis(q, self.client, period=self.period,
-                            top_k=max(top_k, 10), sentence=query)[:top_k]
+        rows, seen = [], set()
+        for q in queries:
+            for row in self.client.integrated_search(searchNm=q, sort="RANK", resultCount=max(top_k, 10)):
+                key = (row.get("ORG_ID", ""), row.get("TBL_ID", ""))
+                if key[1] and key not in seen:
+                    seen.add(key)
+                    rows.append(row)
+        from clafact.pipeline.rerank import rerank_rows
+        rows = rerank_rows(rows, query, self.period)
+        hits = []
+        for i, row in enumerate(rows):
+            if self.period and not _covers_period(row, self.period):
+                continue
+            hits.append(TableHit(tbl_id=row.get("TBL_ID", ""), org_id=row.get("ORG_ID", ""),
+                                 tbl_name=row.get("TBL_NM", ""), survey=row.get("STAT_NM", ""),
+                                 score=round(1.0 / (i + 1), 4)))
+        return hits[:top_k]

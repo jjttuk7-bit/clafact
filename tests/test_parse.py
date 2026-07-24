@@ -95,3 +95,7 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_period_month_range_uses_article_year_and_last_month():
+    assert normalize_period("1~8월 출생아 수는 16만8671명이다.", "2025-10-29") == "2025-08"

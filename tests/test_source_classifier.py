@@ -133,3 +133,11 @@ def test_kosis_precision_gate():
     m = sc.routing_metrics(pairs)
     print(f"\nG-SOURCE-1 지표: {m}")
     assert m["kosis_precision"] >= 0.80, f"KOSIS_precision {m['kosis_precision']} < 0.80"
+
+
+def test_kosis_queries_adds_a_compact_population_hint():
+    assert sc.kosis_queries("지난 8월 출생아 수는 2만867명이다.") == ["출생아", "인구동향"]
+
+
+def test_kosis_queries_adds_a_compact_labor_hint():
+    assert sc.kosis_queries("3분기 청년 실업률은 5.1%다.") == ["실업률", "경제활동인구"]

@@ -148,6 +148,10 @@ def render_stored_claim(row, number: int) -> None:
                 f"**KOSIS 근거:** {evidence.get('tbl', '통계표 정보 없음')} "
                 f"→ `{evidence.get('value', '값 없음')}`"
             )
+        elif audit_data.get("tbl_name"):
+            st.caption(f"선택 통계표: {audit_data['tbl_name']} · 근거 행 미선택")
+            if audit_data.get("params"):
+                st.caption(f"KOSIS 검색·조회 조건: {audit_data['params']}")
         else:
             st.caption("KOSIS 근거: 대응 통계표를 찾지 못했습니다.")
         if row["calculation"]:
