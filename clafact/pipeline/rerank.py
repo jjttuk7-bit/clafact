@@ -54,7 +54,15 @@ def score_row(row: dict, sentence: str, period: str = "") -> tuple[float, list[s
     vw = str(row.get("VW_CD", ""))
     stat = str(row.get("STAT_NM", ""))
     path = str(row.get("MT_ATITLE", ""))
+    doc = f"{tbl} {stat} {path}"
     score, why = 0.0, []
+
+    # 주장에 명시된 핵심 모집단·지표가 표 메타에도 있어야 한다.
+    # '청년 실업률'을 일반 실업률 표와 대조하지 않기 위한 최소 의미 신호다.
+    for term in ("청년", "출생아", "실업률"):
+        if term in sentence and term in doc:
+            score += 2.5
+            why.append(f"핵심어 정합({term})")
 
     # ① 국제기구 통계는 국내 주장에 부적합 (IMF·OECD 세계경제전망 등)
     if vw in INTL_VW or "국제기구별" in path:

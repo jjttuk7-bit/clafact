@@ -73,3 +73,11 @@ def test_stable_when_no_signal():
     plain = [{"TBL_ID": f"T{i}", "TBL_NM": f"표{i}"} for i in range(5)]
     ranked = rerank_rows(plain, "숫자 없는 문장", "")
     assert [r["TBL_ID"] for r in ranked] == [f"T{i}" for i in range(5)]
+
+
+def test_rerank_prefers_youth_table_for_youth_unemployment_claim():
+    rows = [
+        {"TBL_ID": "ALL", "TBL_NM": "실업률", "STAT_NM": "경제활동인구조사"},
+        {"TBL_ID": "YOUTH", "TBL_NM": "청년층 실업률", "STAT_NM": "경제활동인구조사"},
+    ]
+    assert rerank_rows(rows, "3분기 청년 실업률은 5.1%다.")[0]["TBL_ID"] == "YOUTH"

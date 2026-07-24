@@ -73,6 +73,7 @@ REL_YEAR = {"올해": 0, "금년": 0, "이번 해": 0, "지난해": -1, "작년"
             "전년": -1, "재작년": -2, "내년": 1, "이듬해": 1}
 
 RE_ABS_YM = re.compile(r"(\d{4})년\s*(\d{1,2})월")
+RE_MONTH_RANGE = re.compile(r"\d{1,2}\s*[~∼-]\s*(\d{1,2})월")
 RE_ABS_YQ = re.compile(r"(\d{4})년\s*([1-4])분기")
 RE_ABS_Y = re.compile(r"(\d{4})년")
 RE_REL_Q = re.compile(r"(올해|금년|지난해|작년|전년|재작년|내년)\s*([1-4])분기")
@@ -111,6 +112,8 @@ def normalize_period(sentence: str, article_date) -> str:
 
     if m := RE_ABS_YM.search(sentence):
         return f"{m.group(1)}-{int(m.group(2)):02d}"
+    if m := RE_MONTH_RANGE.search(sentence):
+        return f"{base.year}-{int(m.group(1)):02d}"
     if m := RE_ABS_YQ.search(sentence):
         return f"{m.group(1)}-Q{m.group(2)}"
     if m := RE_REL_Q.search(sentence):
