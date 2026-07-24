@@ -302,3 +302,11 @@ def test_failed_claim_retry_shows_progress_and_persists_feedback():
     assert 'stats["processed"]' in card and 'stats["failed"]' in card
     assert 'st.session_state.pop("retry_feedback", None)' in verification
     assert "현재 실행 코드" in verification
+
+
+def test_stored_claim_does_not_shadow_audit_module_used_by_retry_feedback():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    card = source[source.index("def render_stored_claim"):source.index("def load_engine")]
+
+    assert "audit = _stored_json" not in card
+    assert "audit_data = _stored_json" in card

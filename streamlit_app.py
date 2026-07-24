@@ -134,12 +134,12 @@ def render_stored_claim(row, number: int) -> None:
                         retry_store.close()
                 st.rerun()
             return
-        audit = _stored_json(row["audit_json"])
+        audit_data = _stored_json(row["audit_json"])
         engine_labels = {
             "HttpKosisClient": "실 KOSIS Open API 검증",
             "FixtureKosisClient": "데모 Fixture 검증 · 실제 API 미호출",
         }
-        engine_label = engine_labels.get(audit.get("engine"), "검증 엔진 미기록 · 이전 저장 결과")
+        engine_label = engine_labels.get(audit_data.get("engine"), "검증 엔진 미기록 · 이전 저장 결과")
         processed_at = row["processed_at"] or "처리 시각 미기록"
         st.caption(f"검증 엔진: {engine_label} · 처리 시각: {processed_at}")
         evidence = _stored_json(row["evidence_json"])
@@ -159,7 +159,7 @@ def render_stored_claim(row, number: int) -> None:
 
         if audit:
             with st.expander("감사 로그 · KOSIS 조회 조건"):
-                st.json(audit, expanded=False)
+                st.json(audit_data, expanded=False)
 CONF_ORDER = {"low": 0, "medium": 1, "high": 2, None: 3}
 
 
