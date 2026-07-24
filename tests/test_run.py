@@ -3,7 +3,7 @@ from pathlib import Path
 
 from clafact.kosis import FixtureKosisClient
 from clafact.pipeline.retrieve import StatIndex
-from clafact.pipeline.run import verify_article
+from clafact.pipeline.run import verify_article, verify_sentence
 
 ROOT = Path(__file__).resolve().parents[1]
 IDX = StatIndex(ROOT / "data/samples/kosis/tables_meta.json")
@@ -85,3 +85,14 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_mixed_headline_fragments_are_not_sent_to_kosis():
+    sentence = "소비자물가 상승률은... 김장 물가 안정에 500억원 투입... 배추·무 40% 할인"
+    class NoSearch:
+        def search(self, *_args, **_kwargs):
+            raise AssertionError("복합 Claim은 KOSIS 검색을 호출하면 안 된다")
+    result = verify_sentence(sentence, "2025-11-04", NoSearch(), CL)
+    assert result.label == "unverifiable"
+    assert "복합 기사 조각" in result.reason
+

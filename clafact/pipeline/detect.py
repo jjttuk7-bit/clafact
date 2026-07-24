@@ -90,6 +90,13 @@ def reload_rules() -> int:
     return len(rule_patterns())
 
 
+def mixed_claim_reason(sentence: str) -> str | None:
+    """여러 제목 조각·수치가 합쳐진 크롤링 산출물은 자동 매핑하지 않는다."""
+    if len(re.findall(r"(?:\.{3}|…)", sentence)) >= 2 and len(RE_NUM_UNIT.findall(sentence)) >= 2:
+        return "복합 기사 조각 — 서로 다른 수치·주제가 섞여 자동 KOSIS 검증 제외"
+    return None
+
+
 def exclusion_reason(sentence: str) -> str | None:
     """Return a user-facing reason when a sentence is crawler chrome, not article text."""
     if RE_SITE_CHROME.search(sentence):

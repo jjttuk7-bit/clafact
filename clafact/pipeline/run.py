@@ -280,6 +280,10 @@ def verify_sentence(sentence: str, article_date: str,
     # 1) 탐지
     if not detect.is_candidate(sentence):
         return r
+    if mixed_reason := detect.mixed_claim_reason(sentence):
+        r.label, r.reason = "unverifiable", mixed_reason
+        r.explanation = "판정: 판단불가. 여러 기사 제목·수치가 섞인 문장은 자동 통계 검증하지 않습니다."
+        return r
     if (rid := detect.which_rule(sentence)):
         rules.append(rid)  # 규칙 카드에서 온 탐지 패턴이 잡은 경우
 
