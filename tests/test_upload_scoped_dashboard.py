@@ -335,3 +335,12 @@ def test_dashboard_shows_connection_retry_message_without_error_traceback():
     assert 'st.error(row["error"]' not in card
     assert 'row["next_retry_at"]' in card
     assert 'stats.get("deferred", 0)' in card
+
+
+def test_reviewer_tab_separates_official_evidence_from_regular_approval():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증자 리뷰":'):source.index('# ═════════════ 탭 3: 플라이휠')]
+
+    assert 'if row["source_type"] == "OFFICIAL_ANNOUNCEMENT":' in section
+    assert 'st.session_state["review_feedback"]' in section
+    assert "현재 검증자 리뷰 대기 항목이 없습니다." in section
