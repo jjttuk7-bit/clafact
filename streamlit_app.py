@@ -308,17 +308,19 @@ st.sidebar.markdown('<div class="sidebar-caption">근거 기반 뉴스 수치 �
 view = st.sidebar.radio("주요 화면", NAV_ITEMS, label_visibility="collapsed")
 
 if view == "운영 홈":
-    store = Store(ROOT / "data/service/clafact.db")
-    try:
-        summary = store.summary()
-    finally:
-        store.close()
-    st.markdown(f"""<div class="ops-summary-grid">
-      <div class="ops-summary-card"><div class="ops-summary-label">누적 등록 기사</div><div class="ops-summary-value">{summary["articles"]:,}</div><div class="ops-summary-note">누적 수집</div></div>
-      <div class="ops-summary-card"><div class="ops-summary-label">처리 대기</div><div class="ops-summary-value">{summary["claims_by_status"].get("PENDING", 0):,}</div><div class="ops-summary-note">다음 배치 대상</div></div>
-      <div class="ops-summary-card"><div class="ops-summary-label">처리 실패</div><div class="ops-summary-value">{summary["claims_by_status"].get("FAILED", 0):,}</div><div class="ops-summary-note">조치 필요</div></div>
-      <div class="ops-summary-card"><div class="ops-summary-label">리뷰 대기</div><div class="ops-summary-value">{summary["review_queue"]:,}</div><div class="ops-summary-note">검토자 확인</div></div>
-    </div>""", unsafe_allow_html=True)
+    dashboard_initialized = st.session_state.setdefault("dashboard_initialized", False)
+    if dashboard_initialized:
+        store = Store(ROOT / "data/service/clafact.db")
+        try:
+            summary = store.summary()
+        finally:
+            store.close()
+        st.markdown(f"""<div class="ops-summary-grid">
+          <div class="ops-summary-card"><div class="ops-summary-label">누적 등록 기사</div><div class="ops-summary-value">{summary["articles"]:,}</div><div class="ops-summary-note">누적 수집</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">처리 대기</div><div class="ops-summary-value">{summary["claims_by_status"].get("PENDING", 0):,}</div><div class="ops-summary-note">다음 배치 대상</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">처리 실패</div><div class="ops-summary-value">{summary["claims_by_status"].get("FAILED", 0):,}</div><div class="ops-summary-note">조치 필요</div></div>
+          <div class="ops-summary-card"><div class="ops-summary-label">리뷰 대기</div><div class="ops-summary-value">{summary["review_queue"]:,}</div><div class="ops-summary-note">검토자 확인</div></div>
+        </div>""", unsafe_allow_html=True)
 
     st.markdown("""<div class="ops-workspace">
       <div class="ops-section-head"><div class="ops-section-kicker">WORKFLOW 01</div><h2 class="ops-section-title">운영 실행</h2><p class="ops-section-copy">CSV 기사를 등록하면 수치 주장을 분류하고, KOSIS 분석 대상만 검증 탭으로 전달합니다.</p></div>""", unsafe_allow_html=True)
@@ -334,6 +336,7 @@ if view == "운영 홈":
     with reset_upload_col:
         st.markdown("<div style='height:1.65rem'></div>", unsafe_allow_html=True)
         if st.button("새 업로드 시작", use_container_width=True, key="reset_current_upload"):
+            st.session_state["dashboard_initialized"] = False
             for state_key in ("uploaded_article_ids", "upload_summary", "_upload_file_signature"):
                 st.session_state.pop(state_key, None)
             st.session_state["uploader_key"] = uploader_key + 1
@@ -372,6 +375,7 @@ if view == "운영 홈":
                     for article in articles
                 ]
                 st.session_state["upload_summary"] = out
+                st.session_state["dashboard_initialized"] = True
                 st.success(f"등록 완료 · 원본 {out['source_rows']}행 → 유효 기사 {out['read']}건 → 문장 {out['sentences']}건 → 수치 주장 후보 {out['candidates']}건 → 큐 등록 {out['queued']}건")
                 if out['excluded_candidates']:
                     st.caption('제외: ' + ', '.join(f'{reason} {count}건' for reason, count in out['exclusion_reasons'].items()))
