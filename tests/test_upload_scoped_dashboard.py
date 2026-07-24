@@ -317,3 +317,11 @@ def test_stored_claim_shows_selected_audit_table_when_no_evidence_row_exists():
     card = source[source.index("def render_stored_claim"):source.index("def load_engine")]
     assert 'audit_data.get("tbl_name")' in card
     assert "선택 통계표" in card
+
+
+def test_dashboard_uses_verification_evidence_language_instead_of_audit_log():
+    app = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "검증 근거 보기 · KOSIS 조회 조건" in app
+    assert "감사 로그 · KOSIS 조회 조건" not in app
+    assert "판정 근거 확인까지" in app
+    assert "검증 근거 보존" in app

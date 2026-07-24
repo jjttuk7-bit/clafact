@@ -162,7 +162,7 @@ def render_stored_claim(row, number: int) -> None:
         st.write(row["explanation"] or "저장된 설명이 없습니다.")
 
         if audit:
-            with st.expander("감사 로그 · KOSIS 조회 조건"):
+            with st.expander("검증 근거 보기 · KOSIS 조회 조건"):
                 st.json(audit_data, expanded=False)
 CONF_ORDER = {"low": 0, "medium": 1, "high": 2, None: 3}
 
@@ -332,7 +332,7 @@ st.markdown("""
   @media (max-width:640px) { .block-container { padding-inline:1rem; } .ops-card { min-height:6.5rem; } }
 </style>
 """, unsafe_allow_html=True)
-st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 감사까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 감사 로그 보존</span></section>""", unsafe_allow_html=True)
+st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 근거 확인까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 검증 근거 보존</span></section>""", unsafe_allow_html=True)
 
 NAV_ITEMS = ("운영 홈", "검증", "검증자 리뷰", "플라이휠", "자산 현황")
 st.sidebar.markdown('<div class="ops-kicker">ClaFact</div>', unsafe_allow_html=True)
