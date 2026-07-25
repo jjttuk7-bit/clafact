@@ -31,6 +31,9 @@ from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
+from clafact.experiment_lab import run_comparison
+from clafact.llm import HcxClient
+from clafact.pipeline.detect_llm import judge as llm_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
 
@@ -353,7 +356,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 근거 확인까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 검증 근거 보존</span></section>""", unsafe_allow_html=True)
 
-NAV_ITEMS = ("운영 홈", "검증", "검증자 리뷰", "플라이휠", "자산 현황")
+NAV_ITEMS = ("운영 홈", "검증", "검증 실험실", "검증자 리뷰", "플라이휠", "자산 현황")
 st.sidebar.markdown('<div class="ops-kicker">ClaFact</div>', unsafe_allow_html=True)
 st.sidebar.markdown('<div class="sidebar-brand">검증 운영 콘솔</div>', unsafe_allow_html=True)
 st.sidebar.markdown('<div class="sidebar-caption">근거 기반 뉴스 수치 검증과 리뷰 흐름을 관리합니다.</div>', unsafe_allow_html=True)
@@ -707,6 +710,68 @@ if view == "검증":
                 render_card(r)
             st.info("👤 자동 판정은 최종이 아닙니다 — **검증자 리뷰 탭**에서 승인/보정해야 발행됩니다 (Human-in-the-Loop)")
 
+# ═════════════ 검증 실험실: 운영과 분리된 엔진 비교 ═════════════
+if view == "검증 실험실":
+    st.markdown("#### 검증 실험실")
+    st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, LLM만, 하이브리드 방식으로 비교합니다.")
+    st.caption("최종 KOSIS 판정 화면이 아니라 수치 주장 탐지·문맥 판별의 연구용 비교 화면입니다.")
+
+    lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
+                            placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")
+    lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
+    hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
+    if hcx_available:
+        st.caption("LLM 모드: HCX 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
+    else:
+        st.warning("LLM 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 LLM 열은 ‘미사용’으로 표시됩니다.")
+
+    if st.button("세 방식 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run"):
+        if not lab_text.strip():
+            st.error("비교할 기사 본문을 입력해 주세요.")
+        else:
+            if hcx_available:
+                client = HcxClient()
+                judge_fn = lambda sentence: llm_judge(sentence, client)
+            else:
+                def judge_fn(_sentence):
+                    raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
+            with st.spinner("세 탐지 방식을 독립 실행 중…"):
+                st.session_state["experiment_lab_result"] = run_comparison(lab_text, str(lab_date), judge_fn=judge_fn)
+
+    result = st.session_state.get("experiment_lab_result")
+    if result:
+        python_count = sum(row.python_candidate for row in result.rows)
+        llm_count = sum(row.llm_verifiable is True for row in result.rows)
+        hybrid_count = sum(row.hybrid_candidate for row in result.rows)
+        differing = [row for row in result.rows if len({row.python_candidate, row.llm_verifiable, row.hybrid_candidate}) > 1]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Python 규칙만", python_count)
+        c2.metric("LLM만", llm_count if hcx_available else "미사용")
+        c3.metric("하이브리드", hybrid_count)
+        c4.metric("처리 시간", f"{result.elapsed_ms}ms")
+        st.caption(f"문장 {len(result.rows)}개 · LLM 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
+
+        display_rows = []
+        for number, row in enumerate(result.rows, start=1):
+            display_rows.append({
+                "#": number, "문장": row.sentence,
+                "Python 규칙만": "탐지" if row.python_candidate else "미탐지",
+                "LLM만": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "미사용"),
+                "하이브리드": "탐지" if row.hybrid_candidate else "미탐지",
+                "차이": "확인 필요" if row in differing else "동일",
+            })
+        st.dataframe(display_rows, use_container_width=True, hide_index=True)
+
+        if differing:
+            st.markdown("##### 방식별 결과가 다른 문장")
+            for row in differing:
+                with st.expander(row.sentence, expanded=False):
+                    st.write(f"**Python 규칙만:** {'탐지' if row.python_candidate else '미탐지'}")
+                    st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
+                    st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
+                    st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
+        else:
+            st.success("현재 입력에서는 세 방식의 탐지 결과가 같습니다. 문맥 의존·전망·복합 수치 문장을 넣어 차이를 비교해 보세요.")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")
