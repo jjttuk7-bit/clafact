@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import os
 
 import pytest
 
@@ -113,3 +114,102 @@ def test_golden_promotion_rejects_duplicate_hash_without_overwriting(tmp_path):
         with pytest.raises(ValueError, match="이미 골든셋"):
             promote_to_golden(store, "run-001", 1, golden_path)
     assert golden_path.read_text(encoding="utf-8") == original
+
+def _stored_class(store: ExperimentStore, disagreement_class: str) -> None:
+    configs = {
+        "P+/H+": (True, "success", True),
+        "P+/H-": (True, "success", False),
+        "P-/H-": (False, "success", False),
+        "HCX_ERROR": (True, "parse_error", None),
+    }
+    python_candidate, hcx_status, hcx_candidate = configs[disagreement_class]
+    store.append_run(
+        {
+            "run_id": "run-denied", "created_at": "2026-07-26T11:30:00+09:00",
+            "article_hash": "article-denied", "article_title": "denied",
+            "article_date": "2026-07-26", "provider": "HCX", "model": "HCX-005",
+            "prompt_version": "candidate-v2", "python_ms": 1, "hcx_ms": 2,
+            "total_ms": 3, "hcx_calls": 1, "source_row_count": 1, "sentence_count": 1,
+        },
+        [{
+            "sentence_index": 1, "sentence_hash": f"hash-{disagreement_class}",
+            "sentence_text": f"{disagreement_class} 문장", "python_candidate": python_candidate,
+            "python_reason": "python", "hcx_status": hcx_status,
+            "hcx_candidate": hcx_candidate, "hcx_reason": "hcx",
+            "evidence_status": None, "disagreement_class": disagreement_class,
+        }],
+    )
+    store.update_review(
+        "run-denied", 1, human_label="true_candidate", review_note="검토 완료",
+        reviewed_at="2026-07-26T11:40:00+09:00",
+    )
+
+
+@pytest.mark.parametrize("disagreement_class", ["P+/H+", "P-/H-", "HCX_ERROR"])
+def test_golden_promotion_rejects_non_disagreement_classes(tmp_path, disagreement_class):
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    with ExperimentStore(":memory:") as store:
+        _stored_class(store, disagreement_class)
+        with pytest.raises(ValueError, match="P\\+/H- 또는 P-/H\\+"):
+            promote_to_golden(store, "run-denied", 1, golden_path)
+    assert not golden_path.exists()
+
+
+def test_atomic_promotion_preserves_original_and_releases_lock_when_replace_fails(tmp_path, monkeypatch):
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    original = '{"sentence_hash":"existing","order":1}\n'
+    golden_path.write_text(original, encoding="utf-8")
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        store.update_review("run-001", 1, human_label="true_candidate", review_note=None,
+                            reviewed_at="2026-07-26T11:40:00+09:00")
+        monkeypatch.setattr(os, "replace",
+                            lambda source, target: (_ for _ in ()).throw(OSError("replace failed")))
+        with pytest.raises(OSError, match="replace failed"):
+            promote_to_golden(store, "run-001", 1, golden_path)
+
+    assert golden_path.read_text(encoding="utf-8") == original
+    assert not golden_path.with_name(golden_path.name + ".lock").exists()
+    assert list(tmp_path.glob(f".{golden_path.name}.*.tmp")) == []
+
+
+def test_concurrent_promotions_write_one_line_and_reject_the_duplicate(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    database_path = tmp_path / "research.db"
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    # A non-trivial existing file widens the old check-then-append race without changing semantics.
+    original_rows = [json.dumps({"sentence_hash": f"existing-{index}"}) for index in range(20000)]
+    golden_path.write_text("\n".join(original_rows) + "\n", encoding="utf-8")
+    with ExperimentStore(database_path) as store:
+        _stored_run(store)
+        store.update_review("run-001", 1, human_label="true_candidate", review_note=None,
+                            reviewed_at="2026-07-26T11:40:00+09:00")
+
+    start = threading.Barrier(2)
+
+    def promote_once():
+        with ExperimentStore(database_path) as thread_store:
+            start.wait()
+            try:
+                promote_to_golden(thread_store, "run-001", 1, golden_path)
+                return "created"
+            except ValueError as error:
+                assert "이미 골든셋" in str(error)
+                return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: promote_once(), range(2)))
+
+    rows = [json.loads(line) for line in golden_path.read_text(encoding="utf-8").splitlines()]
+    assert sorted(outcomes) == ["created", "duplicate"]
+    assert sum(row.get("sentence_hash") == "sentence-hash-1" for row in rows) == 1
+    assert [row["sentence_hash"] for row in rows[:3]] == ["existing-0", "existing-1", "existing-2"]
+
+def test_p_plus_h_minus_reviewed_sentence_can_be_promoted(tmp_path):
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    with ExperimentStore(":memory:") as store:
+        _stored_class(store, "P+/H-")
+        promoted = promote_to_golden(store, "run-denied", 1, golden_path)
+    assert promoted["disagreement_class"] == "P+/H-"

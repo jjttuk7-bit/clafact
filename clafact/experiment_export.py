@@ -4,15 +4,22 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from clafact.experiment_store import ExperimentStore, RUN_COLUMNS, SENTENCE_COLUMNS
 
 
 CSV_COLUMNS = (*RUN_COLUMNS, *(column for column in SENTENCE_COLUMNS if column != "run_id"))
 PROMOTABLE_LABELS = frozenset({"true_candidate", "false_positive"})
+PROMOTABLE_DISAGREEMENTS = frozenset({"P+/H-", "P-/H+"})
 _SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+_LOCK_RETRIES = 200
+_LOCK_RETRY_SECONDS = 0.01
 
 
 def _spreadsheet_safe(value: Any) -> Any:
@@ -52,7 +59,68 @@ def _sentence_for_promotion(
         raise KeyError((run_id, sentence_index))
     if sentence["human_label"] not in PROMOTABLE_LABELS:
         raise ValueError("true_candidate 또는 false_positive 검토 완료 문장만 승격할 수 있습니다")
+    if sentence["disagreement_class"] not in PROMOTABLE_DISAGREEMENTS:
+        raise ValueError("P+/H- 또는 P-/H+ 불일치 문장만 골든셋에 승격할 수 있습니다")
     return run, sentence
+
+
+@contextmanager
+def _exclusive_file_lock(target: Path) -> Iterator[None]:
+    """Acquire an adjacent cross-process lock with a bounded wait."""
+    lock_path = target.with_name(target.name + ".lock")
+    descriptor: int | None = None
+    for attempt in range(_LOCK_RETRIES):
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if attempt == _LOCK_RETRIES - 1:
+                raise TimeoutError(f"골든셋 잠금을 획득하지 못했습니다: {lock_path}")
+            time.sleep(_LOCK_RETRY_SECONDS)
+
+    assert descriptor is not None
+    try:
+        try:
+            os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _read_existing_jsonl(path: Path, sentence_hash: str) -> str:
+    if not path.exists():
+        return ""
+    existing_text = path.read_text(encoding="utf-8")
+    for line in existing_text.splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("sentence_hash") == sentence_hash:
+            raise ValueError("이미 골든셋에 등록된 문장입니다")
+    return existing_text
+
+
+def _atomic_append_jsonl(path: Path, existing_text: str, row: dict[str, Any]) -> None:
+    prefix = existing_text
+    if prefix and not prefix.endswith(("\n", "\r")):
+        prefix += "\n"
+    complete_text = prefix + json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+            output.write(complete_text)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def promote_to_golden(
@@ -61,18 +129,8 @@ def promote_to_golden(
     sentence_index: int,
     golden_path: str | Path,
 ) -> dict[str, Any]:
-    """Append one explicitly selected, human-reviewed sentence without overwriting."""
+    """Atomically append one explicitly selected, human-reviewed disagreement."""
     run, sentence = _sentence_for_promotion(store, run_id, sentence_index)
-    path = Path(golden_path)
-    if path.exists():
-        with path.open("r", encoding="utf-8") as existing:
-            for line in existing:
-                if not line.strip():
-                    continue
-                row = json.loads(line)
-                if row.get("sentence_hash") == sentence["sentence_hash"]:
-                    raise ValueError("이미 골든셋에 등록된 문장입니다")
-
     golden_row = {
         "sentence_hash": sentence["sentence_hash"],
         "sentence_text": sentence["sentence_text"],
@@ -88,14 +146,9 @@ def promote_to_golden(
         "source_run_id": run_id,
         "source_sentence_index": sentence_index,
     }
+    path = Path(golden_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    needs_separator = path.exists() and path.stat().st_size > 0
-    if needs_separator:
-        with path.open("rb") as existing_bytes:
-            existing_bytes.seek(-1, 2)
-            needs_separator = existing_bytes.read(1) != b"\n"
-    with path.open("a", encoding="utf-8", newline="\n") as output:
-        if needs_separator:
-            output.write("\n")
-        output.write(json.dumps(golden_row, ensure_ascii=False, sort_keys=True) + "\n")
+    with _exclusive_file_lock(path):
+        existing_text = _read_existing_jsonl(path, sentence["sentence_hash"])
+        _atomic_append_jsonl(path, existing_text, golden_row)
     return golden_row

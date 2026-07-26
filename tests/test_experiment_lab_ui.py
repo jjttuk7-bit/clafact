@@ -122,6 +122,9 @@ def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
     assert "true_candidate" in section
     assert "false_positive" in section
     assert "hold" in section
+    assert 'row["disagreement_class"] in {"P+/H-", "P-/H+"}' in section
+    assert 'st.session_state.pop("experiment_lab_research_feedback"' in section
+    assert 'st.session_state["experiment_lab_research_feedback"]' in section
     assert "update_review(" in section
     assert '"사람 검토 저장"' in section
     assert "promote_to_golden(" in section
