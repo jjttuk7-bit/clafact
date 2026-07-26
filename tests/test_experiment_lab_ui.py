@@ -34,7 +34,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert "Python 1차" in section
     assert '방식별 판단 근거' in section
     assert '전체 비교 경과시간' in section
-    assert "Store(" not in section
+    assert 'Store(ROOT / "data/service/clafact.db")' not in section
     assert "process_pending(" not in section
 
 
@@ -54,7 +54,8 @@ def test_full_comparison_exposes_disagreement_research_controls():
     assert "save_comparison_run(" in section
     assert section.index('"연구 이력 저장"') < section.index("save_comparison_run(")
     assert 'ROOT / "data/research/verification_lab.db"' in source
-    assert "ExperimentStore(" not in section
+    assert "ExperimentStore(" in section
+    assert "from clafact.experiment_store import ExperimentStore" in source
 
 
 def _load_hcx_candidate_display():
@@ -109,3 +110,23 @@ def test_full_comparison_reuses_execution_identity_and_guards_changed_input():
     assert "save_comparison_run(" in section
     assert 'st.session_state.get("experiment_lab_saved_run_id") == run_context.run_id' in section
     assert "disabled=save_disabled" in section
+
+
+def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert "export_run_csv(" in section
+    assert 'st.download_button(' in section
+    assert '"현재 실행 CSV 다운로드"' in section
+    assert "true_candidate" in section
+    assert "false_positive" in section
+    assert "hold" in section
+    assert "update_review(" in section
+    assert '"사람 검토 저장"' in section
+    assert "promote_to_golden(" in section
+    assert '"승인 사례를 골든셋으로 승격"' in section
+    assert 'ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl"' in section
+    assert section.index('"승인 사례를 골든셋으로 승격"') < section.index("promote_to_golden(")
+    assert "정확도" not in section
+    assert "재현율" not in section

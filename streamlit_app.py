@@ -34,12 +34,14 @@ from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
+from clafact.experiment_export import export_run_csv, promote_to_golden
 from clafact.experiment_research import (
     build_run_context,
     input_matches_context,
     save_comparison_run,
     semantic_disagreement_count,
 )
+from clafact.experiment_store import ExperimentStore
 from clafact.llm import HcxClient
 from clafact.pipeline.detect_llm import SYSTEM as HCX_CANDIDATE_SYSTEM
 from clafact.pipeline.detect_llm import judge_decision as hcx_judge
@@ -963,6 +965,100 @@ if view == "검증 실험실":
                     st.success(f"연구 전용 이력에 저장했습니다. 실행 ID: {save_outcome.run_id}")
                 else:
                     st.info(f"이미 저장된 실행입니다. 실행 ID: {save_outcome.run_id}")
+        saved_run_id = st.session_state.get("experiment_lab_saved_run_id")
+        saved_current_run = bool(run_context) and saved_run_id == run_context.run_id
+        if saved_current_run:
+            research_database = ROOT / "data/research/verification_lab.db"
+            try:
+                with ExperimentStore(research_database) as research_store:
+                    saved_sentences = research_store.get_sentences(saved_run_id)
+                    csv_payload = export_run_csv(research_store, saved_run_id)
+            except Exception as error:
+                st.error(f"저장된 연구 이력을 불러오지 못했습니다: {error}")
+            else:
+                st.markdown("##### 저장된 실행 검토·내보내기")
+                st.download_button(
+                    "현재 실행 CSV 다운로드",
+                    data=csv_payload,
+                    file_name=f"verification_lab_{saved_run_id}.csv",
+                    mime="text/csv; charset=utf-8",
+                    key="experiment_lab_download_saved_csv",
+                )
+                review_choices = {
+                    f"{row['sentence_index']}. {row['sentence_text'][:90]}": row["sentence_index"]
+                    for row in saved_sentences
+                }
+                selected_review_text = st.selectbox(
+                    "사람 검토 문장",
+                    list(review_choices),
+                    key="experiment_lab_review_sentence",
+                )
+                selected_review_index = review_choices[selected_review_text]
+                selected_saved_sentence = next(
+                    row for row in saved_sentences
+                    if row["sentence_index"] == selected_review_index
+                )
+                review_labels = ["true_candidate", "false_positive", "hold"]
+                current_label = selected_saved_sentence.get("human_label")
+                review_label = st.selectbox(
+                    "사람 검토 라벨",
+                    review_labels,
+                    index=review_labels.index(current_label) if current_label in review_labels else 2,
+                    format_func=lambda value: {
+                        "true_candidate": "실제 검증 후보",
+                        "false_positive": "오탐",
+                        "hold": "보류",
+                    }[value],
+                    key=f"experiment_lab_review_label_{selected_review_index}",
+                )
+                review_note = st.text_area(
+                    "검토 메모",
+                    value=selected_saved_sentence.get("review_note") or "",
+                    key=f"experiment_lab_review_note_{selected_review_index}",
+                )
+                save_human_review = st.button(
+                    "사람 검토 저장",
+                    key=f"experiment_lab_save_review_{selected_review_index}",
+                )
+                if save_human_review:
+                    try:
+                        with ExperimentStore(research_database) as research_store:
+                            research_store.update_review(
+                                saved_run_id,
+                                selected_review_index,
+                                human_label=review_label,
+                                review_note=review_note.strip() or None,
+                                reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                            )
+                    except Exception as error:
+                        st.error(f"사람 검토 저장 실패: {error}")
+                    else:
+                        st.success("사람 검토를 연구 전용 이력에 저장했습니다.")
+                        st.rerun()
+
+                promotable = selected_saved_sentence.get("human_label") in {
+                    "true_candidate", "false_positive"
+                }
+                promote_golden = st.button(
+                    "승인 사례를 골든셋으로 승격",
+                    key=f"experiment_lab_promote_golden_{selected_review_index}",
+                    disabled=not promotable,
+                )
+                if not promotable:
+                    st.caption("실제 검증 후보 또는 오탐으로 저장된 문장만 골든셋에 승격할 수 있습니다.")
+                if promote_golden:
+                    try:
+                        with ExperimentStore(research_database) as research_store:
+                            promote_to_golden(
+                                research_store,
+                                saved_run_id,
+                                selected_review_index,
+                                ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
+                            )
+                    except Exception as error:
+                        st.error(f"골든셋 승격 실패: {error}")
+                    else:
+                        st.success("사람이 승인한 사례를 하이브리드 불일치 골든셋에 추가했습니다.")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")
