@@ -12,5 +12,10 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert "Python 규칙만" in section
     assert "LLM만" in section
     assert "하이브리드" in section
+    assert 'st.file_uploader("검증 실험실 CSV 파일"' in section
+    assert 'key="experiment_lab_csv"' in section
+    assert 'csv.DictReader' in section
+    assert '기사 선택' in section
+    assert '자동 일괄 실행하지 않습니다' in section
     assert "Store(" not in section
     assert "process_pending(" not in section

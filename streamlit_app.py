@@ -716,17 +716,52 @@ if view == "검증 실험실":
     st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, LLM만, 하이브리드 방식으로 비교합니다.")
     st.caption("최종 KOSIS 판정 화면이 아니라 수치 주장 탐지·문맥 판별의 연구용 비교 화면입니다.")
 
+    lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
+    selected_lab_article = None
+    if lab_csv is not None:
+        try:
+            csv_rows = list(csv.DictReader(io.StringIO(lab_csv.getvalue().decode("utf-8-sig"))))
+        except UnicodeDecodeError:
+            st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
+            csv_rows = []
+
+        csv_articles = []
+        for row_number, row in enumerate(csv_rows, start=1):
+            body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "content", "text") if row.get(column)), "")
+            if not body:
+                continue
+            title = next((str(row.get(column) or "").strip() for column in ("title", "제목", "기사 제목", "기사제목") if row.get(column)), "")
+            article_date = next((str(row.get(column) or "").strip() for column in ("date", "작성일", "게시일", "published_at") if row.get(column)), "")
+            csv_articles.append({"row_number": row_number, "title": title, "date": article_date, "body": body})
+
+        if csv_articles:
+            st.caption(f"CSV 유효 기사 {len(csv_articles):,}건 · 자동 일괄 실행하지 않습니다. 비교할 기사 한 건을 선택하세요.")
+            selected_article_index = st.selectbox(
+                "기사 선택", options=range(len(csv_articles)), key="experiment_lab_article",
+                format_func=lambda index: f"{csv_articles[index]['title'] or '제목 없음'} · {csv_articles[index]['date'] or '날짜 없음'} (행 {csv_articles[index]['row_number']})",
+            )
+            selected_lab_article = csv_articles[selected_article_index]
+        else:
+            st.warning("본문 열(body, 본문, content, text)이 있는 기사를 찾지 못했습니다.")
+
+    lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
     lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
                             placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")
-    lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
     hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
+    comparison_text = lab_text
+    comparison_date = str(lab_date)
+    if selected_lab_article:
+        comparison_text = selected_lab_article["body"]
+        comparison_date = selected_lab_article["date"] or comparison_date
+        st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
+
     if hcx_available:
         st.caption("LLM 모드: HCX 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
     else:
         st.warning("LLM 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 LLM 열은 ‘미사용’으로 표시됩니다.")
 
     if st.button("세 방식 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run"):
-        if not lab_text.strip():
+        if not comparison_text.strip():
             st.error("비교할 기사 본문을 입력해 주세요.")
         else:
             if hcx_available:
@@ -736,7 +771,7 @@ if view == "검증 실험실":
                 def judge_fn(_sentence):
                     raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
             with st.spinner("세 탐지 방식을 독립 실행 중…"):
-                st.session_state["experiment_lab_result"] = run_comparison(lab_text, str(lab_date), judge_fn=judge_fn)
+                st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
 
     result = st.session_state.get("experiment_lab_result")
     if result:
