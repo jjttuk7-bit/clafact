@@ -102,3 +102,10 @@ def test_month_duration_is_not_partially_consumed_as_piece_count_unit():
 
     assert "개월간" in query
     assert "월간" not in query.split()
+
+def test_multi_year_duration_leaves_no_partial_piece_count_query_artifact():
+    query = make_query("조사는 3개년간 증가했다.", _empty())
+
+    assert query == "조사"
+    assert "개간" not in query
+    assert "년간" not in query

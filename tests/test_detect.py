@@ -55,3 +55,8 @@ def test_piece_count_is_a_numeric_unit_candidate():
 def test_month_duration_is_not_a_piece_count_candidate():
     assert not is_candidate("조사는 3개월간 진행됐다.")
     assert is_candidate("판매량은 3개였다.")
+
+def test_multi_year_duration_with_trend_is_not_a_numeric_candidate():
+    assert not is_candidate("조사는 3개년간 증가했다.")
+    assert not is_candidate("조사는 3개월간 증가했다.")
+    assert is_candidate("판매량은 3개였다.")

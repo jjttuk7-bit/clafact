@@ -611,3 +611,17 @@ def test_month_duration_is_not_numeric_or_count_rank_in_eda():
     assert report.numeric_sentence_count == 0
     assert report.python_candidate_count == 0
     assert dict(report.quantity_type_counts) == {}
+
+def test_multi_year_duration_with_trend_is_not_numeric_in_eda():
+    report = analyze_rows(
+        [{"title": "조사 기간", "date": "2025-11-04", "body": "조사는 3개년간 증가했다."}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.quantities == ()
+    assert sentence.numeric is False
+    assert sentence.python_candidate is False
+    assert sentence.python_rule == "CONTEXTUAL_NUMBER_ONLY"
+    assert report.numeric_sentence_count == 0
+    assert report.python_candidate_count == 0
+    assert dict(report.quantity_type_counts) == {}

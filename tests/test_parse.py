@@ -134,3 +134,10 @@ def test_month_duration_does_not_use_piece_count_unit_prefix():
     assert extract_quantities(sentence) == []
     assert not has_extractable_unit_quantity(sentence)
     assert not has_numeric_expression(sentence)
+
+def test_multi_year_duration_is_contextual_not_a_bare_numeric_value():
+    sentence = "조사는 3개년간 증가했다."
+
+    assert extract_quantities(sentence) == []
+    assert not has_extractable_unit_quantity(sentence)
+    assert not has_numeric_expression(sentence)
