@@ -6,7 +6,7 @@
 | Reviewed by | Human Team |
 | Managed by | ClaFact Hermes Agent |
 | Status | Draft |
-| Version | v0.4 |
+| Version | v0.5 |
 | Last Updated | 2026-07-26 |
 
 ## 목적
@@ -46,6 +46,14 @@
 2. Python 방식은 기존 `detect.is_candidate`, `parse_claim`, `source_classify.classify`를 사용한다.
 3. LLM 방식은 문장마다 `detect_llm.judge`를 호출한다. 이 버전은 LLM이 ‘검증 가능한 수치 주장인가’를 판별한 결과와 사유를 비교 대상으로 제공한다.
 4. 하이브리드는 Python 후보만 LLM 2차 판별에 통과시킨다. LLM 호출 실패 시 Python 후보를 보수적으로 유지한다.
+### 업로드 원문 경계 보장
+
+검증 실험실은 업로드 CSV 밖의 뉴스 기사나 문장을 생성·추가하지 않는다. 선택 가능한 기사는 업로드 행의 본문 셀에서 정제한 문자열만 원천으로 사용하며, 결과 문장은 그 문자열에서 분리된 경우에만 표시한다.
+
+크롤링된 본문에 `관련 기사`, 기자 프로필, 구독·푸터 같은 종료 표식이 있으면 가장 이른 표식에서 본문을 자른다. 정제 후 본문이 비거나 경계를 안전하게 적용할 수 없는 행은 비교 실행 대상에서 제외하고 사유를 표시한다.
+
+LLM은 업로드된 문장의 탐지 가능성만 판정한다. 새 뉴스 문장·수치·출처를 생성하거나 결과 행으로 추가하지 않는다.
+
 5. 실험 결과는 `st.session_state`에만 보관한다. `Store.enqueue_claim`, `process_pending`, KOSIS 검증, 리뷰 승인 기능을 호출하지 않는다.
 
 ## 화면 구성
