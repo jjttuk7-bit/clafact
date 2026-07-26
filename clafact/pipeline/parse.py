@@ -59,6 +59,15 @@ def has_numeric_expression(sentence: str) -> bool:
     )
 
 
+def has_extractable_unit_quantity(sentence: str) -> bool:
+    """복합명사 가드를 통과한 단위 또는 스케일 수치가 있는지 반환한다."""
+    return any(
+        not _contextual_identifier(sentence, match)
+        and bool(match.group("unit") or match.group("scale"))
+        for match in RE_QTY.finditer(sentence)
+    )
+
+
 def extract_quantities(sentence: str) -> list[Quantity]:
     """문장에서 수치 후보를 추출한다. 날짜 성분은 제외."""
     out: list[Quantity] = []

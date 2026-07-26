@@ -407,6 +407,52 @@ def test_mixed_date_and_bare_value_remains_numeric_and_candidate():
 
 
 @pytest.mark.parametrize(
+    ("text", "numeric", "candidate", "rule", "quantities"),
+    [
+        ("3인 가구는 증가했다.", False, False, "CONTEXTUAL_NUMBER_ONLY", ()),
+        ("3인 가구는 20% 증가했다.", True, True, "NUMERIC_UNIT", ("20%",)),
+        ("3인 가구는 생산량 500 증가했다.", True, True, "NUMERIC_TREND", ()),
+    ],
+)
+def test_compound_guard_keeps_eda_evidence_on_the_actual_branch(
+    text,
+    numeric,
+    candidate,
+    rule,
+    quantities,
+):
+    report = analyze_rows(
+        [{"title": "복합명사", "date": "2025-11-04", "body": text}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.numeric is numeric
+    assert sentence.python_candidate is candidate
+    assert sentence.python_rule == rule
+    assert sentence.quantities == quantities
+
+
+def test_candidate_counts_separate_numeric_and_non_numeric_rules():
+    body = (
+        "생산량은 500 증가했다. "
+        "매출은 20% 증가했다. "
+        "우리 동네 매출은 사상 최고 수준이다."
+    )
+    report = analyze_rows(
+        [{"title": "후보 분해", "date": "2025-11-04", "body": body}]
+    )
+
+    assert report.numeric_sentence_count == 2
+    assert report.python_candidate_count == 3
+    assert report.numeric_candidate_count == 2
+    assert report.non_numeric_candidate_count == 1
+    assert (
+        report.numeric_candidate_count + report.non_numeric_candidate_count
+        == report.python_candidate_count
+    )
+
+
+@pytest.mark.parametrize(
     ("text", "expected_rule", "reason_fragment", "expected_numeric"),
     [
         ("2025년 11월 4일", "EXCLUDED_DATE_ONLY", "날짜", False),

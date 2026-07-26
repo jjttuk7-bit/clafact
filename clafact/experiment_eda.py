@@ -18,6 +18,7 @@ from clafact.pipeline.ingest import FIELD_ALIASES, split_sentences
 from clafact.pipeline.parse import (
     Quantity,
     extract_quantities,
+    has_extractable_unit_quantity,
     has_numeric_expression,
     normalize_period,
 )
@@ -101,6 +102,8 @@ class EdaReport:
     total_sentence_count: int
     numeric_sentence_count: int
     python_candidate_count: int
+    numeric_candidate_count: int
+    non_numeric_candidate_count: int
     kosis_routing_count: int
     quantity_type_counts: Mapping[str, int]
     period_class_counts: Mapping[str, int]
@@ -218,9 +221,9 @@ def _python_evidence(
                 "수치 표현은 있으나 단위 또는 변화·비교 조건을 충족하지 않습니다.",
             )
         return "NO_MATCH", "Python 후보 규칙에 맞는 수치·비교 표현이 없습니다."
-    if detect.RE_NUM_UNIT.search(sentence):
+    if has_extractable_unit_quantity(sentence):
         return "NUMERIC_UNIT", "수치+단위 표현을 탐지했습니다."
-    if detect.RE_NUM.search(sentence) and detect.RE_TREND.search(sentence):
+    if has_numeric_expression(sentence) and detect.RE_TREND.search(sentence):
         return "NUMERIC_TREND", "수치와 변화·비교 표현을 함께 탐지했습니다."
     if detect.RE_SUPERLATIVE.search(sentence):
         return "SUPERLATIVE", "수치 없는 사상·역대 최상급 표현을 탐지했습니다."
@@ -446,6 +449,12 @@ def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
         total_sentence_count=len(sentence_rows),
         numeric_sentence_count=sum(sentence.numeric for sentence in sentence_rows),
         python_candidate_count=sum(sentence.python_candidate for sentence in sentence_rows),
+        numeric_candidate_count=sum(
+            sentence.python_candidate and sentence.numeric for sentence in sentence_rows
+        ),
+        non_numeric_candidate_count=sum(
+            sentence.python_candidate and not sentence.numeric for sentence in sentence_rows
+        ),
         kosis_routing_count=sum(
             sentence.python_candidate and sentence.route == "KOSIS_RETRIEVAL"
             for sentence in sentence_rows

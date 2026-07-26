@@ -33,6 +33,12 @@ def test_date_number_with_trend_is_not_a_candidate_but_mixed_value_is():
     assert is_candidate("2025년 생산량은 500 증가했다.")
 
 
+def test_compound_number_does_not_mask_the_actual_candidate_branch():
+    assert not is_candidate("3인 가구는 증가했다.")
+    assert is_candidate("3인 가구는 20% 증가했다.")
+    assert is_candidate("3인 가구는 생산량 500 증가했다.")
+
+
 def test_rejects_live_news_chrome_before_claim_detection() -> None:
     sentence = "실시간 뉴스 10분 전 [사이언스샷] 인간은 또 다른 원숭이"
 

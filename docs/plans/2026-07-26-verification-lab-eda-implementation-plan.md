@@ -247,7 +247,9 @@ Also test:
 
 - quality KPI values
 - issue-reason chart rows
-- funnel stages in exact order
+- independent KPI cards for all sentences, numeric sentences, Python candidates, and KOSIS routing
+- Python candidates split into numeric and non-numeric rule candidates
+- explicit text that KPI populations can overlap and are not funnel stages; label KOSIS routing as currently scoped to Python candidates
 - zero-filled known quantity/period/route categories
 - article filtering by issue presence, candidate-count range, and body-length band
 - problem-row output contains row number, title, and issue only
@@ -361,7 +363,7 @@ Render:
 
 1. quality KPI cards and reason chart
 2. structure statistics and either single-article cards or distribution charts
-3. numeric funnel and category charts
+3. independent numeric-claim KPI cards, numeric/non-numeric Python candidate split, and category charts
 4. filter controls, problem rows, and selected-article evidence table
 
 Use native Streamlit containers, metrics, charts, dataframe, forms, stable keys, and `width="stretch"` or defaults. Do not add deprecated `use_container_width`.

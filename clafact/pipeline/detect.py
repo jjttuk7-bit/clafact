@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from clafact.pipeline.parse import has_numeric_expression
+from clafact.pipeline.parse import (
+    has_extractable_unit_quantity,
+    has_numeric_expression,
+)
 
 # 숫자(콤마·소수점 포함) — "1,234", "7.2", "64.2" 등
 NUM = r"\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?"
@@ -112,7 +115,7 @@ def is_candidate(sentence: str) -> bool:
     if not s or RE_NOISE_ONLY.match(s) or exclusion_reason(s):
         return False
     # 숫자+단위 조합이 있으면 후보
-    if RE_NUM_UNIT.search(s):
+    if has_extractable_unit_quantity(s):
         return True
     # 숫자와 증감·비교 표현이 함께 있으면 후보
     if has_numeric_expression(s) and RE_TREND.search(s):
