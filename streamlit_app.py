@@ -727,7 +727,7 @@ if view == "검증 실험실":
 
         csv_articles = []
         for row_number, row in enumerate(csv_rows, start=1):
-            body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "content", "text") if row.get(column)), "")
+            body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "기사 본문 전체", "content", "text") if row.get(column)), "")
             if not body:
                 continue
             title = next((str(row.get(column) or "").strip() for column in ("title", "제목", "기사 제목", "기사제목") if row.get(column)), "")
