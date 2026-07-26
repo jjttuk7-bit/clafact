@@ -15,7 +15,12 @@ from typing import Iterable, Literal, Mapping
 from clafact.experiment_input import clean_uploaded_article_body
 from clafact.pipeline import detect, source_classify
 from clafact.pipeline.ingest import FIELD_ALIASES, split_sentences
-from clafact.pipeline.parse import Quantity, extract_quantities, normalize_period
+from clafact.pipeline.parse import (
+    Quantity,
+    extract_quantities,
+    has_numeric_expression,
+    normalize_period,
+)
 
 
 IssueSeverity = Literal["warning", "excluded"]
@@ -190,7 +195,11 @@ def _quantity_type(quantity: Quantity) -> str:
     return "other"
 
 
-def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
+def _python_evidence(
+    sentence: str,
+    candidate: bool,
+    numeric: bool,
+) -> tuple[str, str]:
     """detect.is_candidate의 실제 우선순위와 같은 규칙 이름·사유를 반환한다."""
 
     if not candidate:
@@ -198,7 +207,12 @@ def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
             return "EXCLUDED_DATE_ONLY", "날짜만 있는 식별 표현은 후보에서 제외합니다."
         if reason := detect.exclusion_reason(sentence):
             return "EXCLUDED_SITE_CHROME", reason
-        if detect.RE_NUM.search(sentence):
+        if detect.RE_NUM.search(sentence) and not numeric:
+            return (
+                "CONTEXTUAL_NUMBER_ONLY",
+                "날짜·시간 또는 복합명사 식별 숫자만 있어 수치 주장으로 보지 않습니다.",
+            )
+        if numeric:
             return (
                 "NUMERIC_NO_CLAIM",
                 "수치 표현은 있으나 단위 또는 변화·비교 조건을 충족하지 않습니다.",
@@ -214,15 +228,6 @@ def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
     if rule_id:
         return rule_id, f"규칙 카드 {rule_id} 패턴을 탐지했습니다."
     return "CANDIDATE", "Python 후보 규칙을 통과했습니다."
-
-
-def _has_numeric_expression(sentence: str, quantities: list[Quantity]) -> bool:
-    stripped = sentence.strip()
-    if detect.RE_NOISE_ONLY.match(stripped) or detect.exclusion_reason(stripped):
-        return False
-    return bool(quantities) or bool(
-        detect.RE_NUM.search(stripped) and detect.RE_TREND.search(stripped)
-    )
 
 
 def _period_key(period: str) -> tuple[int, int] | None:
@@ -276,14 +281,19 @@ def _profile_sentences(cleaned_body: str, article_date: str) -> tuple[EdaSentenc
     for sentence in split_sentences(cleaned_body):
         quantities = extract_quantities(sentence)
         candidate = detect.is_candidate(sentence)
-        python_rule, python_reason = _python_evidence(sentence, candidate)
+        numeric = (
+            has_numeric_expression(sentence)
+            and not detect.RE_NOISE_ONLY.match(sentence.strip())
+            and not detect.exclusion_reason(sentence)
+        )
+        python_rule, python_reason = _python_evidence(sentence, candidate, numeric)
         source = source_classify.classify(sentence)
         period = normalize_period(sentence, valid_date) if valid_date is not None else ""
         rows.append(
             EdaSentence(
                 text=sentence,
                 quantities=tuple(quantity.raw for quantity in quantities),
-                numeric=_has_numeric_expression(sentence, quantities),
+                numeric=numeric,
                 period=period,
                 period_class=_period_class(period, source.claim_type, valid_date),
                 claim_type=source.claim_type,

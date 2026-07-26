@@ -1,6 +1,7 @@
 """규칙 기반 Claim Parser 테스트 (수치·시점·임계·추세)."""
 from clafact.pipeline.parse import (
-    extract_quantities, normalize_period, detect_op, detect_trend, parse_claim,
+    extract_quantities, has_numeric_expression, normalize_period, detect_op,
+    detect_trend, parse_claim,
 )
 
 
@@ -39,6 +40,16 @@ def test_compound_noun_guard():
     q = extract_quantities("서울의 1인 가구는 150만 가구를 넘어섰다.")
     assert [(x.value, x.composed_unit) for x in q] == [(150.0, "만가구")]
     assert extract_quantities("3인 가족 기준으로 조사했다.") == []
+
+
+def test_numeric_expression_distinguishes_values_from_contextual_identifiers():
+    assert has_numeric_expression("생산량은 500 증가했다.")
+    assert has_numeric_expression("2025년 생산량은 500 증가했다.")
+    assert not has_numeric_expression("2025년 생산은 증가했다.")
+    assert not has_numeric_expression("3월 생산은 증가했다.")
+    assert not has_numeric_expression("1분기 생산은 증가했다.")
+    assert not has_numeric_expression("오후 3시 생산은 증가했다.")
+    assert not has_numeric_expression("3인 가구는 증가했다.")
 
 
 def test_period_absolute():

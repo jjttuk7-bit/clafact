@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from clafact.pipeline.parse import has_numeric_expression
+
 # 숫자(콤마·소수점 포함) — "1,234", "7.2", "64.2" 등
 NUM = r"\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?"
 
@@ -113,7 +115,7 @@ def is_candidate(sentence: str) -> bool:
     if RE_NUM_UNIT.search(s):
         return True
     # 숫자와 증감·비교 표현이 함께 있으면 후보
-    if RE_NUM.search(s) and RE_TREND.search(s):
+    if has_numeric_expression(s) and RE_TREND.search(s):
         return True
     # 숫자 없는 최상급 주장 (규칙 A2-0003)
     if RE_SUPERLATIVE.search(s):

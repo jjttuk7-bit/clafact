@@ -374,34 +374,68 @@ def test_bare_integer_with_trend_is_a_numeric_python_candidate():
     assert report.numeric_sentence_count == 1
 
 
+def test_contextual_date_number_with_trend_is_not_numeric_or_candidate():
+    report = analyze_rows(
+        [{"title": "날짜", "date": "2025-11-04", "body": "2025년 생산은 증가했다."}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.numeric is False
+    assert sentence.python_candidate is False
+    assert sentence.python_rule == "CONTEXTUAL_NUMBER_ONLY"
+    assert "날짜·시간" in sentence.python_reason
+    assert report.numeric_sentence_count == 0
+    assert report.python_candidate_count == 0
+
+
+def test_mixed_date_and_bare_value_remains_numeric_and_candidate():
+    report = analyze_rows(
+        [
+            {
+                "title": "혼합",
+                "date": "2025-11-04",
+                "body": "2025년 생산량은 500 증가했다.",
+            }
+        ]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.numeric is True
+    assert sentence.python_candidate is True
+    assert report.numeric_sentence_count == 1
+    assert report.python_candidate_count == 1
+
+
 @pytest.mark.parametrize(
-    ("text", "expected_rule", "reason_fragment"),
+    ("text", "expected_rule", "reason_fragment", "expected_numeric"),
     [
-        ("2025년 11월 4일", "EXCLUDED_DATE_ONLY", "날짜"),
+        ("2025년 11월 4일", "EXCLUDED_DATE_ONLY", "날짜", False),
         (
             "실시간 뉴스 2분 전 소비자물가는 2.4% 상승했다.",
             "EXCLUDED_SITE_CHROME",
             "실시간 뉴스·사이트 크롬",
+            False,
         ),
-        ("식별번호는 500이다.", "NUMERIC_NO_CLAIM", "수치 표현"),
-        ("시장은 안정적이다.", "NO_MATCH", "수치·비교 표현"),
+        ("식별번호는 500이다.", "NUMERIC_NO_CLAIM", "수치 표현", True),
+        ("시장은 안정적이다.", "NO_MATCH", "수치·비교 표현", False),
     ],
 )
 def test_non_candidates_report_the_actual_exclusion_path(
     text,
     expected_rule,
     reason_fragment,
+    expected_numeric,
 ):
     report = analyze_rows(
         [{"title": "제외", "date": "2025-11-04", "body": text}]
     )
 
     sentence = report.articles[0].sentences[0]
-    assert sentence.numeric is False
+    assert sentence.numeric is expected_numeric
     assert sentence.python_candidate is False
     assert sentence.python_rule == expected_rule
     assert reason_fragment in sentence.python_reason
-    assert report.numeric_sentence_count == 0
+    assert report.numeric_sentence_count == int(expected_numeric)
 
 
 def test_structure_statistics_use_nearest_rank_and_iqr_original_rows():

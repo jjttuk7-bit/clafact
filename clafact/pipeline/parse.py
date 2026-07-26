@@ -42,17 +42,29 @@ class Quantity:
     raw: str = ""
 
 
+def _contextual_identifier(sentence: str, match: re.Match[str]) -> bool:
+    unit = match.group("unit") or ""
+    tail = sentence[match.end():]
+    return bool(
+        (not unit and RE_DATE_TAIL.match(tail))
+        or (unit in ("인", "명") and RE_COMPOUND_TAIL.match(tail))
+    )
+
+
+def has_numeric_expression(sentence: str) -> bool:
+    """날짜·시간·복합명사 식별자를 제외한 실제 수치 표현이 있는지 반환한다."""
+    return any(
+        not _contextual_identifier(sentence, match)
+        for match in RE_QTY.finditer(sentence)
+    )
+
+
 def extract_quantities(sentence: str) -> list[Quantity]:
     """문장에서 수치 후보를 추출한다. 날짜 성분은 제외."""
     out: list[Quantity] = []
     for m in RE_QTY.finditer(sentence):
         num, scale, unit = m.group("num"), m.group("scale") or "", m.group("unit") or ""
-        tail = sentence[m.end():]
-        # 단위·스케일이 없고 뒤가 날짜 성분이면 스킵 ("2024년", "3월", "1분기")
-        if not unit and RE_DATE_TAIL.match(tail):
-            continue
-        # 복합명사 가드 (규칙 A2-0006): "1인 가구"의 '1인'은 수량이 아니다
-        if unit in ("인", "명") and RE_COMPOUND_TAIL.match(tail):
+        if _contextual_identifier(sentence, m):
             continue
         # 단위도 스케일도 없는 맨숫자는 소수점 있는 경우만 채택 (지표성 높음)
         if not unit and not scale and "." not in num:
