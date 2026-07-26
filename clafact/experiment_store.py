@@ -6,6 +6,15 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from clafact.experiment_analysis import (
+    HCX_ERROR,
+    P_MINUS_H_MINUS,
+    P_MINUS_H_PLUS,
+    P_PLUS_H_MINUS,
+    P_PLUS_H_PLUS,
+    classify_disagreement,
+)
+
 
 RUN_COLUMNS = (
     "run_id",
@@ -42,6 +51,15 @@ SENTENCE_COLUMNS = (
 )
 
 REVIEW_LABELS = frozenset({"true_candidate", "false_positive", "hold"})
+DISAGREEMENT_CLASSES = frozenset(
+    {
+        P_PLUS_H_PLUS,
+        P_PLUS_H_MINUS,
+        P_MINUS_H_PLUS,
+        P_MINUS_H_MINUS,
+        HCX_ERROR,
+    }
+)
 
 
 class ExperimentStore:
@@ -87,7 +105,9 @@ class ExperimentStore:
                 hcx_candidate INTEGER CHECK (hcx_candidate IN (0, 1) OR hcx_candidate IS NULL),
                 hcx_reason TEXT NOT NULL,
                 evidence_status TEXT,
-                disagreement_class TEXT NOT NULL,
+                disagreement_class TEXT NOT NULL CHECK (
+                    disagreement_class IN ('P+/H+', 'P+/H-', 'P-/H+', 'P-/H-', 'HCX_ERROR')
+                ),
                 human_label TEXT CHECK (
                     human_label IN ('true_candidate', 'false_positive', 'hold')
                     OR human_label IS NULL
@@ -105,6 +125,11 @@ class ExperimentStore:
         run: Mapping[str, Any],
         sentences: Sequence[Mapping[str, Any]],
     ) -> None:
+        if run["sentence_count"] != len(sentences):
+            raise ValueError("sentence_count must equal the number of sentence rows")
+        for sentence in sentences:
+            self._validate_sentence(sentence)
+
         run_values = tuple(run[column] for column in RUN_COLUMNS)
         run_placeholders = ", ".join("?" for _ in RUN_COLUMNS)
         run_columns = ", ".join(RUN_COLUMNS)
@@ -128,6 +153,33 @@ class ExperimentStore:
                 f"VALUES ({sentence_placeholders})",
                 sentence_rows,
             )
+
+    @staticmethod
+    def _validate_sentence(sentence: Mapping[str, Any]) -> None:
+        disagreement_class = sentence["disagreement_class"]
+        if disagreement_class not in DISAGREEMENT_CLASSES:
+            raise ValueError(f"unknown disagreement_class: {disagreement_class}")
+
+        hcx_status = sentence["hcx_status"]
+        hcx_candidate = sentence["hcx_candidate"]
+        if hcx_status == "success":
+            if not isinstance(hcx_candidate, bool):
+                raise ValueError("successful HCX result requires a boolean candidate")
+            expected = classify_disagreement(
+                bool(sentence["python_candidate"]),
+                hcx_candidate,
+                hcx_status,
+            )
+            if disagreement_class != expected:
+                raise ValueError(
+                    f"disagreement_class must be {expected} for the stored results"
+                )
+            return
+
+        if hcx_candidate is not None:
+            raise ValueError("failed HCX result must not contain a candidate")
+        if disagreement_class != HCX_ERROR:
+            raise ValueError("non-success HCX result must use disagreement_class HCX_ERROR")
 
     @staticmethod
     def _sentence_value(

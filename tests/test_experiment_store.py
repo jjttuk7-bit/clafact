@@ -32,7 +32,7 @@ def _sentences() -> list[dict]:
             "sentence_text": "소비자물가는 전년보다 2.4% 올랐다.",
             "python_candidate": True,
             "python_reason": "수치와 비교 표현",
-            "hcx_status": "ok",
+            "hcx_status": "success",
             "hcx_candidate": True,
             "hcx_reason": "수치 주장",
             "evidence_status": "search_required",
@@ -74,10 +74,71 @@ def test_duplicate_run_id_is_rejected_without_overwriting_existing_rows():
         store.append_run(_run(), _sentences())
 
         with pytest.raises(sqlite3.IntegrityError):
-            store.append_run({**_run(), "article_title": "덮어쓰면 안 됨"}, [])
+            store.append_run(
+                {**_run(), "article_title": "덮어쓰면 안 됨"},
+                _sentences(),
+            )
 
         assert store.get_run("run-001")["article_title"] == "소비자물가 기사"
         assert len(store.get_sentences("run-001")) == 2
+
+
+def test_rejects_a_run_when_declared_sentence_count_does_not_match_rows():
+    with ExperimentStore(":memory:") as store:
+        with pytest.raises(ValueError, match="sentence_count"):
+            store.append_run({**_run(), "sentence_count": 1}, _sentences())
+
+        assert store.get_run("run-001") is None
+
+
+def test_rejects_an_unknown_disagreement_class():
+    sentences = _sentences()
+    sentences[0]["disagreement_class"] = "OTHER"
+
+    with ExperimentStore(":memory:") as store:
+        with pytest.raises(ValueError, match="disagreement_class"):
+            store.append_run(_run(), sentences)
+
+        assert store.get_run("run-001") is None
+
+
+@pytest.mark.parametrize(
+    ("hcx_status", "hcx_candidate", "disagreement_class"),
+    [
+        ("success", True, "P+/H-"),
+        ("success", None, "HCX_ERROR"),
+        ("json_error", False, "HCX_ERROR"),
+        ("json_error", None, "P-/H-"),
+    ],
+)
+def test_rejects_contradictory_hcx_status_candidate_and_class(
+    hcx_status,
+    hcx_candidate,
+    disagreement_class,
+):
+    sentences = _sentences()
+    sentences[0].update(
+        hcx_status=hcx_status,
+        hcx_candidate=hcx_candidate,
+        disagreement_class=disagreement_class,
+    )
+
+    with ExperimentStore(":memory:") as store:
+        with pytest.raises(ValueError, match="HCX|disagreement_class"):
+            store.append_run(_run(), sentences)
+
+        assert store.get_run("run-001") is None
+
+
+def test_rolls_back_a_new_run_when_sentence_insertion_fails():
+    sentences = _sentences()
+    sentences[1]["sentence_index"] = sentences[0]["sentence_index"]
+
+    with ExperimentStore(":memory:") as store:
+        with pytest.raises(sqlite3.IntegrityError):
+            store.append_run(_run("run-rollback"), sentences)
+
+        assert store.get_run("run-rollback") is None
 
 
 @pytest.mark.parametrize("label", ["true_candidate", "false_positive", "hold"])
