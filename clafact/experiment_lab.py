@@ -1,7 +1,7 @@
 """운영 저장소와 분리된 수치 주장 탐지 방식 비교 엔진."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Callable
 
@@ -28,6 +28,8 @@ class ComparisonRow:
     hcx_evidence_status: str = "unknown"
     hcx_evidence_reason: str = ""
     hcx_quoted_spans: list[str] | None = None
+    hcx_status: str = "not_run"
+    disagreement_class: str = "HCX_ERROR"
 
 
 @dataclass
@@ -35,6 +37,7 @@ class ComparisonResult:
     rows: list[ComparisonRow]
     llm_calls: int
     elapsed_ms: int
+    disagreement_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _safe_judge(sentence: str, judge_fn: Judge) -> tuple[bool | None, str]:

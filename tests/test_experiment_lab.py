@@ -1,3 +1,6 @@
+import pytest
+
+from clafact.experiment_analysis import HCX_ERROR
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.pipeline.detect_llm import HcxDecision
 
@@ -37,6 +40,8 @@ def test_hybrid_preserves_python_candidate_when_llm_call_fails():
     assert row.python_candidate is True
     assert row.llm_verifiable is None
     assert row.hybrid_candidate is True
+    assert row.hcx_status == "call_error"
+    assert row.disagreement_class == HCX_ERROR
     assert "보수적 유지" in row.hybrid_reason
 
 def test_each_mode_runs_independently_and_keeps_evidence():
@@ -86,3 +91,64 @@ def test_hcx_mode_preserves_candidate_and_evidence_status_separately():
     assert row.evidence_status == "needs_retrieval"
     assert row.evidence_reason == "기사 내부의 직접 통계 근거는 부족함"
     assert row.quoted_spans == ["지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치"]
+
+@pytest.mark.parametrize(
+    ("sentence", "hcx_candidate", "expected"),
+    [
+        ("물가는 지난해보다 2.4% 올랐다.", True, "P+/H+"),
+        ("물가는 지난해보다 2.4% 올랐다.", False, "P+/H-"),
+        ("먹거리 물가는 여전히 오름세를 보였다.", True, "P-/H+"),
+        ("먹거리 물가는 여전히 오름세를 보였다.", False, "P-/H-"),
+    ],
+)
+def test_full_comparison_classifies_all_success_combinations(
+    sentence: str,
+    hcx_candidate: bool,
+    expected: str,
+) -> None:
+    def judge(_sentence: str) -> tuple[bool, str]:
+        return hcx_candidate, "구조화된 HCX 후보 판정"
+
+    row = run_comparison(sentence, "2025-11-04", judge_fn=judge).rows[0]
+
+    assert row.hcx_status == "success"
+    assert row.disagreement_class == expected
+
+
+@pytest.mark.parametrize(
+    "judge",
+    [
+        lambda _sentence: HcxDecision(
+            None,
+            "판별 응답 파싱 실패",
+            "unknown",
+            "HCX JSON 응답이 없습니다",
+            [],
+        ),
+        lambda _sentence: None,
+    ],
+)
+def test_full_comparison_separates_hcx_failure_from_success_buckets(judge) -> None:
+    row = run_comparison(
+        "물가는 지난해보다 2.4% 올랐다.",
+        "2025-11-04",
+        judge_fn=judge,
+    ).rows[0]
+
+    assert row.hcx_status != "success"
+    assert row.llm_verifiable is None
+    assert row.disagreement_class == HCX_ERROR
+
+
+def test_disagreement_class_counts_cover_every_comparison_row() -> None:
+    def judge(sentence: str) -> tuple[bool, str]:
+        return ("오름세" in sentence), "독립 HCX 판정"
+
+    result = run_comparison(
+        "물가는 지난해보다 2.4% 올랐다. 먹거리 물가는 여전히 오름세를 보였다.",
+        "2025-11-04",
+        judge_fn=judge,
+    )
+
+    assert sum(result.disagreement_counts.values()) == len(result.rows)
+    assert result.disagreement_counts == {"P+/H-": 1, "P-/H+": 1}
