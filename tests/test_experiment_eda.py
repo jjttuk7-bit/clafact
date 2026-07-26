@@ -597,3 +597,17 @@ def test_piece_count_is_numeric_candidate_and_count_rank_in_eda():
     assert sentence.python_candidate is True
     assert sentence.python_rule == "NUMERIC_UNIT"
     assert dict(report.quantity_type_counts) == {"count_rank": 1}
+
+
+def test_month_duration_is_not_numeric_or_count_rank_in_eda():
+    report = analyze_rows(
+        [{"title": "조사 기간", "date": "2025-11-04", "body": "조사는 3개월간 진행됐다."}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.quantities == ()
+    assert sentence.numeric is False
+    assert sentence.python_candidate is False
+    assert report.numeric_sentence_count == 0
+    assert report.python_candidate_count == 0
+    assert dict(report.quantity_type_counts) == {}

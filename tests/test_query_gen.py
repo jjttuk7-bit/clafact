@@ -95,3 +95,10 @@ if __name__ == "__main__":
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
+
+
+def test_month_duration_is_not_partially_consumed_as_piece_count_unit():
+    query = make_query("조사는 3개월간 진행됐다.", _empty())
+
+    assert "개월간" in query
+    assert "월간" not in query.split()

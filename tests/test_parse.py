@@ -126,3 +126,11 @@ def test_extract_piece_count_unit_preserves_raw_and_composed_unit():
     assert quantities[0].unit == "개"
     assert quantities[0].composed_unit == "개"
     assert quantities[0].normalized_value == 3
+
+
+def test_month_duration_does_not_use_piece_count_unit_prefix():
+    sentence = "조사는 3개월간 진행됐다."
+
+    assert extract_quantities(sentence) == []
+    assert not has_extractable_unit_quantity(sentence)
+    assert not has_numeric_expression(sentence)

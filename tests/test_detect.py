@@ -50,3 +50,8 @@ def test_piece_count_is_a_numeric_unit_candidate():
 
     assert detect.has_extractable_unit_quantity(sentence)
     assert is_candidate(sentence)
+
+
+def test_month_duration_is_not_a_piece_count_candidate():
+    assert not is_candidate("조사는 3개월간 진행됐다.")
+    assert is_candidate("판매량은 3개였다.")
