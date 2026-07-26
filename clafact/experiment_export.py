@@ -9,6 +9,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Sequence
 from uuid import uuid4
@@ -75,9 +76,17 @@ def export_runs_csv(store: ExperimentStore, run_ids: Sequence[str]) -> bytes:
     return output.getvalue().encode("utf-8-sig")
 
 MAX_FILTERED_EXPORT_ROWS = 50_000
+MAX_FILTERED_EXPORT_BYTES = 50 * 1024 * 1024
 _HISTORY_FILTER_KEYS = frozenset({
     "date_from", "date_to", "provider", "model", "prompt_version"
 })
+
+
+@dataclass(frozen=True, slots=True)
+class FilteredCsvExport:
+    payload: bytes
+    row_count: int
+    byte_count: int
 
 
 def export_filtered_csv(
@@ -85,25 +94,54 @@ def export_filtered_csv(
     filters: dict[str, str | None],
     *,
     max_rows: int = MAX_FILTERED_EXPORT_ROWS,
-) -> bytes:
-    """Export an exact filtered period after enforcing a documented row cap."""
+    max_bytes: int = MAX_FILTERED_EXPORT_BYTES,
+) -> FilteredCsvExport:
+    """Build an exact snapshot CSV with hard actual row and byte limits."""
+    if max_rows < 0 or max_bytes <= 0:
+        raise ValueError("CSV 행·용량 상한은 양수여야 합니다")
     safe_filters = {
         key: value for key, value in filters.items() if key in _HISTORY_FILTER_KEYS
     }
-    summary = store.get_history_summary(**safe_filters)
-    if summary["sentence_count"] > max_rows:
-        raise ValueError(
-            f"CSV는 최대 {max_rows:,}문장까지 준비할 수 있습니다. 필터를 좁혀 주세요."
+    started_snapshot = not store.conn.in_transaction
+    if started_snapshot:
+        store.conn.execute("BEGIN")
+    try:
+        row_buffer = io.StringIO(newline="")
+        writer = csv.DictWriter(
+            row_buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore"
         )
-    output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-    writer.writeheader()
-    for combined in store.iter_filtered_export_rows(**safe_filters):
-        writer.writerow({
-            column: _spreadsheet_safe(combined.get(column))
-            for column in CSV_COLUMNS
-        })
-    return output.getvalue().encode("utf-8-sig")
+        writer.writeheader()
+        payload = io.BytesIO()
+        header = row_buffer.getvalue().encode("utf-8-sig")
+        if len(header) > max_bytes:
+            raise ValueError("CSV 용량 상한을 초과했습니다. 필터를 좁혀 주세요.")
+        payload.write(header)
+        row_count = 0
+        for combined in store.iter_filtered_export_rows(**safe_filters):
+            row_count += 1
+            if row_count > max_rows:
+                raise ValueError(
+                    f"CSV는 최대 {max_rows:,}문장까지 준비할 수 있습니다. "
+                    "필터를 좁혀 주세요."
+                )
+            row_buffer.seek(0)
+            row_buffer.truncate(0)
+            writer.writerow({
+                column: _spreadsheet_safe(combined.get(column))
+                for column in CSV_COLUMNS
+            })
+            encoded_row = row_buffer.getvalue().encode("utf-8")
+            if payload.tell() + len(encoded_row) > max_bytes:
+                raise ValueError(
+                    f"CSV 용량은 최대 {max_bytes:,}바이트입니다. "
+                    "필터를 좁혀 주세요."
+                )
+            payload.write(encoded_row)
+        result = payload.getvalue()
+    finally:
+        if started_snapshot:
+            store.conn.rollback()
+    return FilteredCsvExport(result, row_count, len(result))
 
 def _sentence_for_promotion(
     store: ExperimentStore,

@@ -24,6 +24,7 @@ class HistoryFilters:
     provider: str | None = None
     model: str | None = None
     prompt_version: str | None = None
+    revision: int = 0
 
     def as_kwargs(self) -> dict[str, str | None]:
         return {
@@ -49,8 +50,9 @@ class HistoryActionTarget:
 
 
 def filter_signature(filters: HistoryFilters) -> str:
+    signature_values = {**filters.as_kwargs(), "revision": filters.revision}
     payload = json.dumps(
-        filters.as_kwargs(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        signature_values, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -78,7 +80,6 @@ def build_history_page(
         "page": page,
         "page_count": page_count,
         "offset": (page - 1) * page_size,
-        "options": tuple(range(1, page_count + 1)),
     }
 
 

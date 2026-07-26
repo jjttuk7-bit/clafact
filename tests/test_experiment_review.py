@@ -191,3 +191,44 @@ def test_current_and_history_review_feedback_are_isolated():
 
     assert pop_review_feedback(session_state, scope="history") == "과거"
     assert pop_review_feedback(session_state, scope="current") == "현재"
+
+
+def test_prepared_export_invalidates_after_review_or_new_run(tmp_path):
+    from clafact.experiment_history import (
+        HistoryFilters,
+        PreparedHistoryExport,
+        filter_signature,
+        prepared_export_for_filters,
+    )
+
+    database = tmp_path / "revision.db"
+    with ExperimentStore(database) as store:
+        _seed_run(database)
+        revision = store.get_revision()
+    filters = HistoryFilters(provider="HCX", revision=revision)
+    prepared = PreparedHistoryExport(filter_signature(filters), b"csv", 2)
+
+    with ExperimentStore(database) as store:
+        store.update_review(
+            "review-run", 1, human_label="hold", review_note=None,
+            reviewed_at="2026-07-26T12:30:00+09:00",
+        )
+        reviewed_filters = HistoryFilters(provider="HCX", revision=store.get_revision())
+    assert prepared_export_for_filters(prepared, reviewed_filters) is None
+
+    with ExperimentStore(database) as store:
+        store.append_run(
+            {
+                "run_id": "new-run", "created_at": "2026-07-26T13:00:00+09:00",
+                "article_hash": "new", "article_title": "new", "article_date": "2026-07-26",
+                "provider": "HCX", "model": "HCX-005", "prompt_version": "v2",
+                "python_ms": 1, "hcx_ms": 1, "total_ms": 2, "hcx_calls": 1,
+                "source_row_count": 1, "sentence_count": 0,
+            },
+            [],
+        )
+        new_filters = HistoryFilters(provider="HCX", revision=store.get_revision())
+    prepared_after_review = PreparedHistoryExport(
+        filter_signature(reviewed_filters), b"csv2", 2
+    )
+    assert prepared_export_for_filters(prepared_after_review, new_filters) is None

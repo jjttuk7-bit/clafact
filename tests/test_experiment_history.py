@@ -59,10 +59,10 @@ def test_history_filter_signature_invalidates_prepared_export_and_pages_are_boun
         HistoryFilters("2026-07-01", "2026-07-26", "GPT", "gpt-5", "v2"),
     ) is None
     assert build_history_page(total_runs=501, requested_page=99, page_size=50) == {
-        "page": 11, "page_count": 11, "offset": 500, "options": tuple(range(1, 12))
+        "page": 11, "page_count": 11, "offset": 500
     }
     assert build_history_page(total_runs=0, requested_page=3, page_size=50) == {
-        "page": 1, "page_count": 1, "offset": 0, "options": (1,)
+        "page": 1, "page_count": 1, "offset": 0
     }
 
 
@@ -72,3 +72,11 @@ def test_history_action_target_preserves_selected_past_run_and_sentence():
     target = build_history_action_target("past-run-42", 7)
     assert target.run_id == "past-run-42"
     assert target.sentence_index == 7
+
+
+def test_huge_history_page_has_constant_size_metadata():
+    from clafact.experiment_history import build_history_page
+
+    page = build_history_page(total_runs=10_000_000, requested_page=3, page_size=50)
+    assert page == {"page": 3, "page_count": 200_000, "offset": 100}
+    assert "options" not in page

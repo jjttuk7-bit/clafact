@@ -309,3 +309,62 @@ def test_get_filtered_sentences_is_exact_beyond_500_runs():
         rows = store.get_filtered_sentences(provider="NAVER")
 
     assert len(rows) == 501
+
+
+def test_revision_increments_only_for_material_run_and_review_changes(tmp_path):
+    database = tmp_path / "revision.db"
+    with ExperimentStore(database) as store:
+        assert store.get_revision() == 0
+        created = store.append_run_idempotent(_run(), _sentences())
+        assert created is True
+        assert store.get_revision() == 1
+        created = store.append_run_idempotent(_run(), _sentences())
+        assert created is False
+        assert store.get_revision() == 1
+        changed = store.update_review(
+            "run-001", 0, human_label="hold", review_note=None,
+            reviewed_at="2026-07-26T12:30:00+09:00",
+        )
+        assert changed is True
+        assert store.get_revision() == 2
+        changed = store.update_review(
+            "run-001", 0, human_label="hold", review_note=None,
+            reviewed_at="2026-07-26T12:30:00+09:00",
+        )
+        assert changed is False
+        assert store.get_revision() == 2
+
+    with ExperimentStore(database) as reopened:
+        assert reopened.get_revision() == 2
+
+
+def test_regular_append_increments_revision_once():
+    with ExperimentStore(":memory:") as store:
+        store.append_run(_run(), _sentences())
+        assert store.get_revision() == 1
+
+
+def test_concurrent_identical_review_changes_revision_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    database = tmp_path / "review-revision.db"
+    with ExperimentStore(database) as store:
+        store.append_run(_run(), _sentences())
+    start = threading.Barrier(2)
+
+    def review_once():
+        with ExperimentStore(database) as store:
+            start.wait()
+            return store.update_review(
+                "run-001", 0, human_label="hold", review_note="same",
+                reviewed_at="2026-07-26T12:30:00+09:00",
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        changed = list(pool.map(lambda _: review_once(), range(2)))
+    with ExperimentStore(database) as store:
+        revision = store.get_revision()
+
+    assert sorted(changed) == [False, True]
+    assert revision == 2  # initial run + one material review

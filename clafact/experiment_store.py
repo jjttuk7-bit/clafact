@@ -77,6 +77,13 @@ class ExperimentStore:
     def _initialize(self) -> None:
         self.conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS experiment_meta (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO experiment_meta (key, value)
+            VALUES ('research_revision', 0);
+
             CREATE TABLE IF NOT EXISTS experiment_runs (
                 run_id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
@@ -153,6 +160,8 @@ class ExperimentStore:
                 f"VALUES ({sentence_placeholders})",
                 sentence_rows,
             )
+            self._increment_revision()
+
 
     def append_run_idempotent(
         self,
@@ -218,6 +227,7 @@ class ExperimentStore:
                     for sentence in sentences
                 ],
             )
+            self._increment_revision()
             self.conn.commit()
             return True
         except BaseException:
@@ -262,6 +272,18 @@ class ExperimentStore:
             return sentence.get(column)
         return sentence[column]
 
+    def _increment_revision(self) -> None:
+        self.conn.execute(
+            "UPDATE experiment_meta SET value = value + 1 WHERE key = ?",
+            ("research_revision",),
+        )
+
+    def get_revision(self) -> int:
+        row = self.conn.execute(
+            "SELECT value FROM experiment_meta WHERE key = ?",
+            ("research_revision",),
+        ).fetchone()
+        return int(row[0])
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT * FROM experiment_runs WHERE run_id = ?",
@@ -551,29 +573,41 @@ class ExperimentStore:
         human_label: str,
         review_note: str | None,
         reviewed_at: str,
-    ) -> None:
+    ) -> bool:
         if human_label not in REVIEW_LABELS:
             raise ValueError(
                 "human_label must be true_candidate, false_positive, or hold"
             )
-        with self.conn:
-            cursor = self.conn.execute(
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            existing = self.conn.execute(
+                """
+                SELECT human_label, review_note, reviewed_at
+                FROM experiment_sentences
+                WHERE run_id = ? AND sentence_index = ?
+                """,
+                (run_id, sentence_index),
+            ).fetchone()
+            if existing is None:
+                raise KeyError((run_id, sentence_index))
+            requested = (human_label, review_note, reviewed_at)
+            if tuple(existing) == requested:
+                self.conn.commit()
+                return False
+            self.conn.execute(
                 """
                 UPDATE experiment_sentences
                 SET human_label = ?, review_note = ?, reviewed_at = ?
                 WHERE run_id = ? AND sentence_index = ?
                 """,
-                (
-                    human_label,
-                    review_note,
-                    reviewed_at,
-                    run_id,
-                    sentence_index,
-                ),
+                (*requested, run_id, sentence_index),
             )
-        if cursor.rowcount == 0:
-            raise KeyError((run_id, sentence_index))
-
+            self._increment_revision()
+            self.conn.commit()
+            return True
+        except BaseException:
+            self.conn.rollback()
+            raise
     def close(self) -> None:
         self.conn.close()
 

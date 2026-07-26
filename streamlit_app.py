@@ -1126,16 +1126,17 @@ if view == "검증 실험실":
     if history_feedback:
         st.success(history_feedback)
     st.caption(
-        "앱을 다시 시작해도 연구 전용 SQLite의 문장 판정 이력을 조회합니다. "
-        "운영 DB와 업로드 기사 본문은 사용하지 않습니다."
+        "현재 업로드 입력은 재사용하지 않으며 연구 DB에 저장된 문장만 조회합니다."
     )
     history_database = ROOT / "data/research/verification_lab.db"
     try:
         with ExperimentStore(history_database) as history_store:
             history_facets = history_store.get_history_filter_facets()
+            history_revision = history_store.get_revision()
     except Exception as error:
         st.error(f"누적 연구 이력 필터를 불러오지 못했습니다: {error}")
         history_facets = {"date_min": None, "date_max": None}
+        history_revision = 0
 
     if history_facets.get("date_min") is None:
         st.info("저장된 연구 실행이 없습니다. 전체 비교 후 ‘연구 이력 저장’을 눌러 주세요.")
@@ -1177,6 +1178,7 @@ if view == "검증 실험실":
             provider=None if history_provider == "전체" else history_provider,
             model=None if history_model == "전체" else history_model,
             prompt_version=None if history_prompt == "전체" else history_prompt,
+            revision=history_revision,
         )
         history_filters = history_filter_values.as_kwargs()
         history_filter_signature = filter_signature(history_filter_values)
@@ -1223,7 +1225,7 @@ if view == "검증 실험실":
             else:
                 try:
                     with ExperimentStore(history_database) as history_store:
-                        prepared_payload = export_filtered_csv(
+                        filtered_export = export_filtered_csv(
                             history_store, history_filters
                         )
                 except Exception as error:
@@ -1231,8 +1233,8 @@ if view == "검증 실험실":
                 else:
                     prepared_export = PreparedHistoryExport(
                         signature=history_filter_signature,
-                        payload=prepared_payload,
-                        row_count=exact_history_summary["sentence_count"],
+                        payload=filtered_export.payload,
+                        row_count=filtered_export.row_count,
                     )
                     st.session_state[prepared_export_key] = prepared_export
                     st.success(
@@ -1256,9 +1258,12 @@ if view == "검증 실험실":
             requested_page=1,
             page_size=50,
         )
-        selected_history_page = st.selectbox(
+        selected_history_page = st.number_input(
             "이력 페이지 (페이지당 50개 실행)",
-            base_page["options"],
+            min_value=1,
+            max_value=base_page["page_count"],
+            value=1,
+            step=1,
             key=f"experiment_lab_history_page_{history_filter_signature[:12]}",
         )
         history_page = build_history_page(

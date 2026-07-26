@@ -321,11 +321,13 @@ def test_filtered_export_covers_501_runs_and_enforces_exact_safety_cap():
                 }],
             )
 
-        payload = export_filtered_csv(store, {"provider": "HCX"}, max_rows=501)
+        exported = export_filtered_csv(store, {"provider": "HCX"}, max_rows=501)
         with pytest.raises(ValueError, match="필터를 좁혀 주세요"):
             export_filtered_csv(store, {"provider": "HCX"}, max_rows=500)
 
-    rows = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
+    rows = list(csv.DictReader(io.StringIO(exported.payload.decode("utf-8-sig"))))
+    assert exported.row_count == 501
+    assert exported.byte_count == len(exported.payload)
     assert len(rows) == 501
     assert rows[0]["run_id"] == "bulk-500"
     assert rows[-1]["run_id"] == "bulk-000"
@@ -357,3 +359,40 @@ def test_multi_run_csv_formula_safety_handles_leading_lf_formula():
 
     row = next(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
     assert row["article_title"].startswith("'\n=HYPERLINK")
+
+
+def test_filtered_export_enforces_actual_byte_cap_without_truncation():
+    from clafact.experiment_export import export_filtered_csv
+
+    with ExperimentStore(":memory:") as store:
+        store.append_run(
+            {
+                "run_id": "oversized", "created_at": "2026-07-26T10:00:00+09:00",
+                "article_hash": "hash", "article_title": "큰 셀",
+                "article_date": "2026-07-26", "provider": "HCX", "model": "HCX-005",
+                "prompt_version": "v2", "python_ms": 1, "hcx_ms": 1,
+                "total_ms": 2, "hcx_calls": 1, "source_row_count": 1,
+                "sentence_count": 1,
+            },
+            [{
+                "sentence_index": 1, "sentence_hash": "huge", "sentence_text": "가" * 2_000,
+                "python_candidate": False, "python_reason": "python", "hcx_status": "success",
+                "hcx_candidate": True, "hcx_reason": "hcx", "evidence_status": "search_required",
+                "disagreement_class": "P-/H+",
+            }],
+        )
+        with pytest.raises(ValueError, match="CSV 용량|필터를 좁혀 주세요"):
+            export_filtered_csv(store, {}, max_rows=10, max_bytes=500)
+
+
+def test_filtered_export_ignores_stale_pre_summary_and_enforces_actual_rows(monkeypatch):
+    from clafact.experiment_export import export_filtered_csv
+
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        monkeypatch.setattr(
+            store, "get_history_summary",
+            lambda **_filters: {"run_count": 1, "sentence_count": 0, "counts": {}},
+        )
+        with pytest.raises(ValueError, match="필터를 좁혀 주세요"):
+            export_filtered_csv(store, {}, max_rows=1)

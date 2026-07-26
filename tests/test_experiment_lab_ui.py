@@ -177,6 +177,13 @@ def test_history_uses_exact_sql_pagination_and_lazy_bounded_export():
     assert "build_history_page(" in history
     assert "list_runs(" in history
     assert "limit=50" in history
+    assert "st.number_input(" in history
+    assert 'base_page["options"]' not in history
+    assert "history_store.get_revision(" in history
+    assert "revision=history_revision" in history
+    assert "payload=filtered_export.payload" in history
+    assert "row_count=filtered_export.row_count" in history
+    assert "현재 업로드 입력은 재사용하지 않으며 연구 DB에 저장된 문장만 조회합니다." in history
     assert '"필터 CSV 준비"' in history
     assert history.index('"필터 CSV 준비"') < history.index("export_filtered_csv(")
     assert "MAX_FILTERED_EXPORT_ROWS" in history
