@@ -7,6 +7,7 @@
   🔄 자산 현황  — 자산 축적 대시보드 (문서 11)
 """
 import csv
+import hashlib
 import io
 import os
 import json
@@ -14,6 +15,7 @@ import tempfile
 import sys
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import streamlit as st
 
@@ -33,7 +35,9 @@ from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
+from clafact.experiment_store import ExperimentStore
 from clafact.llm import HcxClient
+from clafact.pipeline.detect_llm import SYSTEM as HCX_CANDIDATE_SYSTEM
 from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
@@ -46,6 +50,59 @@ def format_elapsed_ms(elapsed_ms: int) -> str:
 GOLDEN = ROOT / "data/goldenset/golden_v0.jsonl"
 RULES_DIR = ROOT / "data/assets/rules"
 FAILURES = ROOT / "data/failures/failures.jsonl"
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def save_experiment_research_run(result, context: dict) -> str:
+    """Persist one explicit full-comparison run in the research-only database."""
+    mode_results = getattr(result, "mode_results", {})
+    if not {"python", "llm", "hybrid"}.issubset(mode_results):
+        raise ValueError("전체 비교 결과만 연구 이력에 저장할 수 있습니다")
+
+    created_at = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    run_id = f"vlab-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:10]}"
+    python_result = mode_results["python"]
+    hcx_result = mode_results["llm"]
+    run_row = {
+        "run_id": run_id,
+        "created_at": created_at,
+        "article_hash": _sha256_text(context["article_text"]),
+        "article_title": context.get("article_title", ""),
+        "article_date": context.get("article_date", ""),
+        "provider": "HCX",
+        "model": "HCX-005",
+        "prompt_version": f"candidate-evidence-v2:{_sha256_text(HCX_CANDIDATE_SYSTEM)[:12]}",
+        "python_ms": python_result.elapsed_ms,
+        "hcx_ms": hcx_result.elapsed_ms,
+        "total_ms": result.elapsed_ms,
+        "hcx_calls": hcx_result.llm_calls,
+        "source_row_count": context.get("source_row_count", 1),
+        "sentence_count": len(result.rows),
+    }
+    sentence_rows = []
+    for sentence_index, (row, python_row) in enumerate(
+        zip(result.rows, python_result.rows), start=1
+    ):
+        hcx_candidate = row.llm_verifiable if row.hcx_status == "success" else None
+        sentence_rows.append({
+            "sentence_index": sentence_index,
+            "sentence_hash": _sha256_text(row.sentence),
+            "sentence_text": row.sentence,
+            "python_candidate": row.python_candidate,
+            "python_reason": python_row.reason,
+            "hcx_status": row.hcx_status,
+            "hcx_candidate": hcx_candidate,
+            "hcx_reason": row.llm_reason,
+            "evidence_status": row.hcx_evidence_status,
+            "disagreement_class": row.disagreement_class,
+        })
+
+    with ExperimentStore(ROOT / "data/research/verification_lab.db") as research_store:
+        research_store.append_run(run_row, sentence_rows)
+    return run_id
 
 SAMPLES = {
     "과수 농가 고령화 (파생 계산·일치)": {
@@ -723,12 +780,14 @@ if view == "검증 실험실":
 
     lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
     selected_lab_article = None
+    lab_source_row_count = 1
     if lab_csv is not None:
         try:
             csv_rows = list(csv.DictReader(io.StringIO(lab_csv.getvalue().decode("utf-8-sig"))))
         except UnicodeDecodeError:
             st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
             csv_rows = []
+        lab_source_row_count = len(csv_rows)
 
         csv_articles = []
         csv_excluded_rows = 0
@@ -766,9 +825,11 @@ if view == "검증 실험실":
     hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
     comparison_text = lab_text
     comparison_date = str(lab_date)
+    comparison_title = "직접 입력"
     if selected_lab_article:
         comparison_text = selected_lab_article["body"]
         comparison_date = selected_lab_article["date"] or comparison_date
+        comparison_title = selected_lab_article["title"] or "제목 없음"
         st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
 
     if hcx_available:
@@ -795,10 +856,17 @@ if view == "검증 실험실":
             with st.spinner("선택한 방식을 독립 실행 중…"):
                 if requested_mode == "all":
                     st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
+                    st.session_state["experiment_lab_run_context"] = {
+                        "article_text": comparison_text,
+                        "article_title": comparison_title,
+                        "article_date": comparison_date,
+                        "source_row_count": lab_source_row_count,
+                    }
                     st.session_state.pop("experiment_lab_mode_result", None)
                 else:
                     st.session_state["experiment_lab_mode_result"] = (requested_mode, run_mode(comparison_text, comparison_date, requested_mode, judge_fn=judge_fn))
                     st.session_state.pop("experiment_lab_result", None)
+                    st.session_state.pop("experiment_lab_run_context", None)
 
     hcx_evidence_labels = {
         "sufficient": "기사 내부 근거 충분",
@@ -852,20 +920,45 @@ if view == "검증 실험실":
         c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
         st.caption(f"문장 {len(result.rows)}개 · HCX 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
 
+        st.markdown("##### Python × HCX 결과 매트릭스")
+        disagreement_order = ("P+/H+", "P+/H-", "P-/H+", "P-/H-", "HCX_ERROR")
+        disagreement_labels = {
+            "P+/H+": "둘 다 탐지",
+            "P+/H-": "Python만 탐지",
+            "P-/H+": "HCX만 탐지",
+            "P-/H-": "둘 다 미탐지",
+            "HCX_ERROR": "HCX 오류",
+        }
+        outcome_columns = st.columns(5)
+        outcome_total = len(result.rows)
+        for column, outcome in zip(outcome_columns, disagreement_order):
+            count = result.disagreement_counts.get(outcome, 0)
+            percentage = (count / outcome_total * 100) if outcome_total else 0.0
+            column.metric(f"{outcome} · {disagreement_labels[outcome]}", f"{count}건 · {percentage:.1f}%")
+        st.caption("HCX_ERROR는 의미적 미탐지(H-)에서 제외합니다. 호출·파싱 실패를 P+/H- 또는 P-/H-로 해석하지 않습니다.")
+
+        selected_outcome = st.selectbox("유형 필터", ["전체", *disagreement_order], key="experiment_lab_disagreement_filter")
+        filtered_disagreement_rows = [
+            (number, row) for number, row in enumerate(result.rows, start=1)
+            if selected_outcome == "전체" or row.disagreement_class == selected_outcome
+        ]
         display_rows = []
-        for number, row in enumerate(result.rows, start=1):
+        for number, row in filtered_disagreement_rows:
             display_rows.append({
-                "#": number, "문장": row.sentence,
-                "Python 규칙만": "탐지" if row.python_candidate else "미탐지",
-                "HCX-005만": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "미사용"),
+                "#": number,
+                "유형": row.disagreement_class,
+                "문장": row.sentence,
+                "Python": "탐지" if row.python_candidate else "미탐지",
+                "Python 판단 근거": getattr(mode_results["python"].rows[number - 1], "reason", ""),
+                "HCX": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "오류"),
+                "HCX 상태": row.hcx_status,
+                "HCX 판단 근거": row.llm_reason,
                 "HCX 근거 상태": hcx_evidence_label(row.hcx_evidence_status),
-                "하이브리드": "탐지" if row.hybrid_candidate else "미탐지",
-                "차이": "확인 필요" if row in differing else "동일",
             })
         st.dataframe(display_rows, use_container_width=True, hide_index=True)
 
         st.markdown("##### 방식별 판단 근거")
-        for number, row in enumerate(result.rows, start=1):
+        for number, row in filtered_disagreement_rows:
             with st.expander(f"{number}. {row.sentence}", expanded=False):
                 st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
                 st.write(f"**HCX-005만:** {'탐지' if row.llm_verifiable is True else ('미탐지' if row.llm_verifiable is False else '미사용')} · {row.llm_reason}")
@@ -874,6 +967,19 @@ if view == "검증 실험실":
                     st.caption(f"HCX 원문 인용: {' · '.join(row.hcx_quoted_spans)}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
                 st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
+
+        save_research = st.button("연구 이력 저장", key="experiment_lab_save_research")
+        if save_research:
+            run_context = st.session_state.get("experiment_lab_run_context")
+            if not run_context:
+                st.error("저장할 전체 비교 실행 정보가 없습니다. 전체 비교를 다시 실행해 주세요.")
+            else:
+                try:
+                    saved_run_id = save_experiment_research_run(result, run_context)
+                except Exception as error:
+                    st.error(f"연구 이력 저장 실패: {error}")
+                else:
+                    st.success(f"연구 전용 이력에 저장했습니다. 실행 ID: {saved_run_id}")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")
