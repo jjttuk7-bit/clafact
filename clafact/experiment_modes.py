@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from clafact.experiment_analysis import classify_disagreement
-from clafact.experiment_lab import ComparisonResult, ComparisonRow, Judge
+from clafact.experiment_types import ComparisonResult, ComparisonRow, Judge
 from clafact.pipeline.detect_llm import HcxDecision
 from clafact.pipeline import detect, source_classify
 from clafact.pipeline.ingest import split_sentences

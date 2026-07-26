@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from typing import get_args
 
 import pytest
@@ -191,3 +193,13 @@ def test_judge_result_contract_supports_structured_and_tuple_results() -> None:
 
     assert HcxDecision in result_types
     assert tuple[bool, str] in result_types
+
+@pytest.mark.parametrize("module", ["clafact.experiment_modes", "clafact.experiment_lab"])
+def test_experiment_modules_import_in_fresh_interpreter(module: str) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", f"import {module}"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
