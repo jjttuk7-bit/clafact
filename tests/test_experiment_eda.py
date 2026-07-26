@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from clafact.experiment_eda import analyze_rows
+from clafact.pipeline.ingest import split_sentences
 
 
 def test_analyze_rows_records_missing_invalid_and_duplicate_rows():
@@ -253,3 +254,132 @@ def test_one_bad_row_is_recorded_without_aborting_later_rows():
     assert [article.row_number for article in report.articles] == [2]
     assert dict(report.excluded_counts) == {"row_error": 1}
     assert report.issues[0].codes == ("row_error",)
+
+def test_sentence_and_aggregate_profiles_reuse_existing_python_rules():
+    body = (
+        "지난달 소비자물가는 2.4% 상승했다. "
+        "회사는 매출 3억 원을 기록했다. "
+        "전체 인구는 5만 명으로 집계됐다. "
+        "내년 물가는 3.0% 오를 전망이다. "
+        "시장은 안정적이다."
+    )
+
+    report = analyze_rows(
+        [{"title": "수치 기사", "date": "2025-11-04", "body": body}]
+    )
+
+    assert report.total_sentence_count == 5
+    assert report.numeric_sentence_count == 4
+    assert report.python_candidate_count == 4
+    assert report.kosis_routing_count >= 1
+    assert dict(report.quantity_type_counts) == {
+        "percentage": 2,
+        "money": 1,
+        "people_household": 1,
+    }
+    assert report.period_class_counts["past"] == 1
+    assert report.period_class_counts["forecast"] == 1
+    assert report.route_counts["KOSIS_RETRIEVAL"] >= 1
+    assert report.claim_type_counts["전망형"] == 1
+
+    sentences = report.articles[0].sentences
+    assert tuple(item.text for item in sentences) == tuple(split_sentences(body))
+    assert all(item.text in report.articles[0].cleaned_body for item in sentences)
+    assert sentences[0].quantities == ("2.4%",)
+    assert sentences[0].period == "2025-10"
+    assert sentences[0].period_class == "past"
+    assert sentences[0].source_type == "KOSIS_BUT_COMPLEX"
+    assert sentences[0].route == "KOSIS_RETRIEVAL"
+    assert sentences[0].python_candidate is True
+    assert sentences[0].python_rule == "NUMERIC_UNIT"
+    assert "수치+단위" in sentences[0].python_reason
+    assert sentences[3].period_class == "forecast"
+    assert sentences[4].quantities == ()
+    assert sentences[4].python_candidate is False
+    assert sentences[4].python_rule == "NO_MATCH"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "expected_type"),
+    [
+        ("증가율은 2.4%였다.", "percentage"),
+        ("증가폭은 0.3%p였다.", "percentage"),
+        ("비율은 3퍼센트였다.", "percentage"),
+        ("격차는 2포인트였다.", "percentage"),
+        ("예산은 3억 원이었다.", "money"),
+        ("인구는 5만 명이었다.", "people_household"),
+        ("가구는 2천 세대였다.", "people_household"),
+        ("거래는 8건이었다.", "count_rank"),
+        ("순위는 2위였다.", "count_rank"),
+        ("면적은 3㎢였다.", "other"),
+    ],
+)
+def test_quantity_type_mapping_is_deterministic(sentence, expected_type):
+    report = analyze_rows(
+        [{"title": "단위", "date": "2025-11-04", "body": sentence}]
+    )
+
+    assert dict(report.quantity_type_counts) == {expected_type: 1}
+
+
+def test_invalid_article_date_never_fabricates_a_period():
+    sentence = "지난달 소비자물가는 2.4% 상승했다."
+    report = analyze_rows(
+        [{"title": "날짜 오류", "date": "not-a-date", "body": sentence}]
+    )
+
+    profiled = report.articles[0].sentences[0]
+    assert profiled.quantities == ("2.4%",)
+    assert profiled.route == "KOSIS_RETRIEVAL"
+    assert profiled.period == ""
+    assert profiled.period_class == "unknown"
+
+
+def test_structure_statistics_use_nearest_rank_and_iqr_original_rows():
+    rows = [
+        {"title": "a", "date": "2025-01-01", "body": "가."},
+        {"title": "b", "date": "2025-01-01", "body": "나다."},
+        {"title": "c", "date": "2025-01-01", "body": "라마바."},
+        {
+            "title": "d",
+            "date": "2025-01-01",
+            "body": (
+                "아" * 100
+                + "다. 둘째 문장이다. 셋째 문장이다. "
+                + "넷째 문장이다. 다섯째 문장이다."
+            ),
+        },
+    ]
+
+    report = analyze_rows(rows)
+    body_stats = report.body_length_stats
+    sentence_stats = report.sentence_count_stats
+    body_lengths = [article.clean_length for article in report.articles]
+
+    assert body_stats.minimum == min(body_lengths)
+    assert body_stats.maximum == max(body_lengths)
+    assert body_stats.mean == pytest.approx(sum(body_lengths) / 4)
+    assert body_stats.median == pytest.approx(
+        (sorted(body_lengths)[1] + sorted(body_lengths)[2]) / 2
+    )
+    assert body_stats.q1 == sorted(body_lengths)[0]
+    assert body_stats.q3 == sorted(body_lengths)[2]
+    assert body_stats.outlier_row_numbers == (4,)
+    assert sentence_stats.minimum == 1
+    assert sentence_stats.maximum == 5
+    assert sentence_stats.q1 == 1
+    assert sentence_stats.q3 == 1
+    assert sentence_stats.outlier_row_numbers == (4,)
+
+
+def test_structure_statistics_do_not_label_outliers_below_four_articles():
+    report = analyze_rows(
+        [
+            {"title": "a", "date": "2025-01-01", "body": "짧다."},
+            {"title": "b", "date": "2025-01-01", "body": "아" * 500 + "다."},
+            {"title": "c", "date": "2025-01-01", "body": "보통 길이다."},
+        ]
+    )
+
+    assert report.body_length_stats.outlier_row_numbers == ()
+    assert report.sentence_count_stats.outlier_row_numbers == ()

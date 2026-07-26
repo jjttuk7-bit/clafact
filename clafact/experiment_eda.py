@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
+import statistics
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
@@ -11,7 +13,9 @@ from types import MappingProxyType
 from typing import Iterable, Literal, Mapping
 
 from clafact.experiment_input import clean_uploaded_article_body
-from clafact.pipeline.ingest import FIELD_ALIASES
+from clafact.pipeline import detect, source_classify
+from clafact.pipeline.ingest import FIELD_ALIASES, split_sentences
+from clafact.pipeline.parse import Quantity, extract_quantities, normalize_period
 
 
 IssueSeverity = Literal["warning", "excluded"]
@@ -32,9 +36,29 @@ _MESSAGES = {
 
 @dataclass(frozen=True)
 class EdaSentence:
-    """후속 문장 분석이 채울 자리. Task 1에서는 문장을 생성하지 않는다."""
+    """업로드 본문의 정확한 문장과 Python 규칙 분석 결과."""
 
     text: str
+    quantities: tuple[str, ...]
+    period: str
+    period_class: Literal["past", "current", "forecast", "unknown"]
+    claim_type: str
+    source_type: str
+    route: str
+    python_candidate: bool
+    python_rule: str
+    python_reason: str
+
+
+@dataclass(frozen=True)
+class StructureStats:
+    minimum: int
+    maximum: int
+    mean: float
+    median: float
+    q1: float
+    q3: float
+    outlier_row_numbers: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -68,6 +92,16 @@ class EdaReport:
     issues: tuple[EdaIssue, ...]
     excluded_counts: Mapping[str, int]
     warning_counts: Mapping[str, int]
+    total_sentence_count: int
+    numeric_sentence_count: int
+    python_candidate_count: int
+    kosis_routing_count: int
+    quantity_type_counts: Mapping[str, int]
+    period_class_counts: Mapping[str, int]
+    claim_type_counts: Mapping[str, int]
+    route_counts: Mapping[str, int]
+    body_length_stats: StructureStats
+    sentence_count_stats: StructureStats
 
     @property
     def valid_article_count(self) -> int:
@@ -143,6 +177,137 @@ def _immutable_counts(counter: Counter[str]) -> Mapping[str, int]:
     return MappingProxyType(dict(counter))
 
 
+def _quantity_type(quantity: Quantity) -> str:
+    if quantity.unit in {"%", "%p", "퍼센트", "포인트"}:
+        return "percentage"
+    if quantity.unit == "원":
+        return "money"
+    if quantity.unit in {"명", "인", "가구", "세대"}:
+        return "people_household"
+    if quantity.unit in {"건", "배", "위", "호"}:
+        return "count_rank"
+    return "other"
+
+
+def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
+    """detect.is_candidate의 실제 우선순위와 같은 규칙 이름·사유를 반환한다."""
+
+    if not candidate:
+        return "NO_MATCH", "Python 후보 규칙에 맞는 수치·비교 표현이 없습니다."
+    if detect.RE_NUM_UNIT.search(sentence):
+        return "NUMERIC_UNIT", "수치+단위 표현을 탐지했습니다."
+    if detect.RE_NUM.search(sentence) and detect.RE_TREND.search(sentence):
+        return "NUMERIC_TREND", "수치와 변화·비교 표현을 함께 탐지했습니다."
+    if detect.RE_SUPERLATIVE.search(sentence):
+        return "SUPERLATIVE", "수치 없는 사상·역대 최상급 표현을 탐지했습니다."
+    rule_id = detect.which_rule(sentence)
+    if rule_id:
+        return rule_id, f"규칙 카드 {rule_id} 패턴을 탐지했습니다."
+    return "CANDIDATE", "Python 후보 규칙을 통과했습니다."
+
+
+def _period_key(period: str) -> tuple[int, int] | None:
+    if match := re.fullmatch(r"(\d{4})-(\d{2})", period):
+        month = int(match.group(2))
+        return (int(match.group(1)), month) if 1 <= month <= 12 else None
+    if match := re.fullmatch(r"(\d{4})-Q([1-4])", period):
+        return int(match.group(1)), int(match.group(2)) * 3
+    if match := re.fullmatch(r"(\d{4})", period):
+        return int(match.group(1)), 0
+    return None
+
+
+def _period_class(
+    period: str,
+    claim_type: str,
+    article_date: date | None,
+) -> Literal["past", "current", "forecast", "unknown"]:
+    if claim_type == "전망형":
+        return "forecast"
+    if not period or article_date is None:
+        return "unknown"
+    key = _period_key(period)
+    if key is None:
+        return "unknown"
+    year, marker = key
+    if year < article_date.year:
+        return "past"
+    if year > article_date.year:
+        return "unknown"
+    if marker == 0:
+        return "current"
+    if marker < article_date.month:
+        return "past"
+    if marker == article_date.month or (
+        "-Q" in period and ((article_date.month - 1) // 3 + 1) == marker // 3
+    ):
+        return "current"
+    return "unknown"
+
+
+def _profile_sentences(cleaned_body: str, article_date: str) -> tuple[EdaSentence, ...]:
+    valid_date: date | None = None
+    if match := _DATE_PREFIX.match(article_date):
+        try:
+            valid_date = date(*(int(part) for part in match.groups()))
+        except ValueError:
+            pass
+
+    rows: list[EdaSentence] = []
+    for sentence in split_sentences(cleaned_body):
+        quantities = extract_quantities(sentence)
+        candidate = detect.is_candidate(sentence)
+        python_rule, python_reason = _python_evidence(sentence, candidate)
+        source = source_classify.classify(sentence)
+        period = normalize_period(sentence, valid_date) if valid_date is not None else ""
+        rows.append(
+            EdaSentence(
+                text=sentence,
+                quantities=tuple(quantity.raw for quantity in quantities),
+                period=period,
+                period_class=_period_class(period, source.claim_type, valid_date),
+                claim_type=source.claim_type,
+                source_type=source.source_type,
+                route=source.route,
+                python_candidate=candidate,
+                python_rule=python_rule,
+                python_reason=python_reason,
+            )
+        )
+    return tuple(rows)
+
+
+def _nearest_rank(values: list[int], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return float(ordered[max(0, math.ceil(percentile * len(ordered)) - 1)])
+
+
+def _structure_stats(values: list[int], row_numbers: list[int]) -> StructureStats:
+    if not values:
+        return StructureStats(0, 0, 0.0, 0.0, 0.0, 0.0, ())
+    q1 = _nearest_rank(values, 0.25)
+    q3 = _nearest_rank(values, 0.75)
+    outliers: tuple[int, ...] = ()
+    if len(values) >= 4:
+        iqr = q3 - q1
+        low, high = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        outliers = tuple(
+            row_number
+            for value, row_number in zip(values, row_numbers)
+            if value < low or value > high
+        )
+    return StructureStats(
+        minimum=min(values),
+        maximum=max(values),
+        mean=statistics.fmean(values),
+        median=float(statistics.median(values)),
+        q1=q1,
+        q3=q3,
+        outlier_row_numbers=outliers,
+    )
+
 def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
     """행별 오류를 격리해 CSV 품질과 정제된 유효 기사만 반환한다."""
 
@@ -204,6 +369,7 @@ def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
                         removed_length=max(0, len(raw_body) - len(cleaned_body)),
                         cleaned_body=cleaned_body,
                         warnings=warning_tuple,
+                        sentences=_profile_sentences(cleaned_body, article_date),
                     )
                 )
 
@@ -222,10 +388,42 @@ def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
                 )
             )
 
+    sentence_rows = tuple(
+        sentence for article in articles for sentence in article.sentences
+    )
+    quantity_type_counts: Counter[str] = Counter()
+    period_class_counts: Counter[str] = Counter()
+    claim_type_counts: Counter[str] = Counter()
+    route_counts: Counter[str] = Counter()
+    for article in articles:
+        for sentence in article.sentences:
+            extracted = extract_quantities(sentence.text)
+            quantity_type_counts.update(_quantity_type(quantity) for quantity in extracted)
+            if sentence.python_candidate:
+                period_class_counts[sentence.period_class] += 1
+                claim_type_counts[sentence.claim_type] += 1
+                route_counts[sentence.route] += 1
+
+    row_numbers = [article.row_number for article in articles]
+    body_lengths = [article.clean_length for article in articles]
+    sentence_counts = [len(article.sentences) for article in articles]
     return EdaReport(
         source_row_count=source_row_count,
         articles=tuple(articles),
         issues=tuple(issues),
         excluded_counts=_immutable_counts(excluded_counts),
         warning_counts=_immutable_counts(warning_counts),
+        total_sentence_count=len(sentence_rows),
+        numeric_sentence_count=sum(bool(sentence.quantities) for sentence in sentence_rows),
+        python_candidate_count=sum(sentence.python_candidate for sentence in sentence_rows),
+        kosis_routing_count=sum(
+            sentence.python_candidate and sentence.route == "KOSIS_RETRIEVAL"
+            for sentence in sentence_rows
+        ),
+        quantity_type_counts=_immutable_counts(quantity_type_counts),
+        period_class_counts=_immutable_counts(period_class_counts),
+        claim_type_counts=_immutable_counts(claim_type_counts),
+        route_counts=_immutable_counts(route_counts),
+        body_length_stats=_structure_stats(body_lengths, row_numbers),
+        sentence_count_stats=_structure_stats(sentence_counts, row_numbers),
     )
