@@ -45,10 +45,18 @@ from clafact.experiment_eda_session import (
     EDA_VIEW_KEY,
     MAX_EDA_ROWS,
     EdaRange,
+    UploadIdentity,
+    UploadMetadata,
     cache_key as eda_cache_key,
-    invalidate_for_payload,
-    payload_signature,
+    cached_upload_metadata,
+    comparison_input_signature,
+    hash_seekable_stream,
+    invalidate_comparison_for_input,
+    prepare_cache_scope,
+    read_csv_range,
     resolve_eda_range,
+    scan_csv_stream,
+    store_upload_metadata,
 )
 from clafact.experiment_eda_view import (
     build_eda_view,
@@ -786,20 +794,38 @@ if view == "검증 실험실":
     lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
     selected_lab_article = None
     lab_source_row_count = 1
+    lab_signature = ""
+    upload_identity = None
+    selected_eda_range = None
     if lab_csv is not None:
-        lab_payload = lab_csv.getvalue()
-        lab_signature = payload_signature(lab_payload)
-        invalidate_for_payload(st.session_state, lab_signature)
-        try:
-            csv_rows = list(csv.DictReader(io.StringIO(lab_payload.decode("utf-8-sig"))))
-        except UnicodeDecodeError:
-            st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
-            csv_rows = []
-        lab_source_row_count = len(csv_rows)
+        upload_identity = UploadIdentity(
+            file_id=str(getattr(lab_csv, "file_id", "")),
+            name=str(lab_csv.name),
+            size=int(lab_csv.size),
+        )
+        upload_metadata = cached_upload_metadata(st.session_state, upload_identity)
+        scan = None
+        if upload_metadata is None:
+            try:
+                lab_signature = hash_seekable_stream(lab_csv)
+                scan = scan_csv_stream(lab_csv)
+            except UnicodeDecodeError:
+                st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
+            else:
+                upload_metadata = UploadMetadata(
+                    identity=upload_identity,
+                    signature=lab_signature,
+                    row_count=scan.row_count,
+                )
+                store_upload_metadata(st.session_state, upload_metadata)
+        else:
+            lab_signature = upload_metadata.signature
+
+        lab_source_row_count = upload_metadata.row_count if upload_metadata else 0
         selected_eda_range = None
         range_submitted = False
 
-        if lab_source_row_count > MAX_EDA_ROWS:
+        if upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
             st.info(
                 f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
                 f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."
@@ -833,28 +859,36 @@ if view == "검증 실험실":
                     st.session_state.pop(EDA_RANGE_KEY, None)
                     st.error(str(error))
             selected_eda_range = st.session_state.get(EDA_RANGE_KEY)
-        else:
+        elif upload_metadata:
             selected_eda_range = resolve_eda_range(lab_source_row_count)
 
         eda_report = None
         eda_view = None
         if selected_eda_range is not None:
             current_cache_key = eda_cache_key(lab_signature, selected_eda_range)
-            if st.session_state.get(EDA_CACHE_KEY) != current_cache_key:
-                slice_start, slice_end = selected_eda_range.slice_bounds
-                selected_rows = csv_rows[slice_start:slice_end]
-                eda_report = analyze_rows(
-                    selected_rows,
-                    row_number_start=selected_eda_range.start,
-                )
-                eda_view = build_eda_view(eda_report)
-                st.session_state[EDA_CACHE_KEY] = current_cache_key
-                st.session_state[EDA_REPORT_KEY] = eda_report
-                st.session_state[EDA_VIEW_KEY] = eda_view
+            same_cache_scope = st.session_state.get(EDA_CACHE_KEY) == current_cache_key
+            if not same_cache_scope:
+                prepare_cache_scope(st.session_state, current_cache_key)
+                try:
+                    if lab_source_row_count > MAX_EDA_ROWS:
+                        selected_rows = read_csv_range(lab_csv, selected_eda_range)
+                    else:
+                        small_scan = scan if scan is not None else scan_csv_stream(lab_csv)
+                        selected_rows = small_scan.rows
+                except UnicodeDecodeError:
+                    st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
+                    selected_rows = ()
+                if selected_rows:
+                    eda_report = analyze_rows(
+                        selected_rows,
+                        row_number_start=selected_eda_range.start,
+                    )
+                    eda_view = build_eda_view(eda_report)
+                    st.session_state[EDA_REPORT_KEY] = eda_report
+                    st.session_state[EDA_VIEW_KEY] = eda_view
             else:
                 eda_report = st.session_state.get(EDA_REPORT_KEY)
                 eda_view = st.session_state.get(EDA_VIEW_KEY)
-
         if eda_report is not None and eda_view is not None:
             csv_articles = [
                 {
@@ -1099,6 +1133,16 @@ if view == "검증 실험실":
         comparison_title = selected_lab_article["title"] or "제목 없음"
         st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
 
+    current_comparison_signature = comparison_input_signature(
+        text=comparison_text,
+        article_date=comparison_date,
+        title=comparison_title,
+        source_row=selected_lab_article["row_number"] if selected_lab_article else None,
+        file_signature=lab_signature,
+        upload_identity=upload_identity,
+        analysis_range=selected_eda_range,
+    )
+    invalidate_comparison_for_input(st.session_state, current_comparison_signature)
     if hcx_available:
         st.caption("HCX 모드: HCX-005 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
     else:

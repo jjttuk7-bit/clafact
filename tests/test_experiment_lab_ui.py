@@ -14,7 +14,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert "하이브리드" in section
     assert 'st.file_uploader("검증 실험실 CSV 파일"' in section
     assert 'key="experiment_lab_csv"' in section
-    assert 'csv.DictReader' in section
+    assert 'scan_csv_stream' in section
     assert "기사 본문 전체" in section
     assert 'analyze_rows' in section
     assert '기사 선택' in section
@@ -40,7 +40,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert 'st.bar_chart([len(article["body"]) for article in csv_articles])' not in section
     assert "MAX_EDA_ROWS" in section
     assert "resolve_eda_range" in section
-    assert "invalidate_for_payload" in section
+    assert "store_upload_metadata" in section
     assert "build_eda_view" in section
     assert "filter_articles" in section
     assert "selected_article_rows" in section
@@ -64,7 +64,7 @@ def test_eda_range_selection_is_explicit_and_large_files_do_not_auto_analyze():
     assert "if lab_source_row_count > MAX_EDA_ROWS:" in eda
     assert "confirmed=range_submitted" in eda
     assert "if selected_eda_range is not None:" in eda
-    assert "selected_eda_range.slice_bounds" in eda
+    assert "read_csv_range(lab_csv, selected_eda_range)" in eda
     assert "analyze_rows(" in eda
     assert "row_number_start=selected_eda_range.start" in eda
     assert "분석 구간" in eda
