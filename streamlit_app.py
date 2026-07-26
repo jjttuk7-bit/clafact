@@ -1008,6 +1008,10 @@ if view == "검증 실험실":
                         hide_index=True,
                     )
                     st.caption(
+                        "TP·FP·FN·TN을 함께 표시합니다. 정밀도 또는 재현율의 "
+                        "분모가 0이면 0%가 아니라 ‘산출 불가’입니다."
+                    )
+                    st.caption(
                         "독립 HCX 문장 판정 응답률: "
                         f"{evaluation_display.independent_hcx_response_success} / "
                         f"{evaluation_display.independent_hcx_response_total} "

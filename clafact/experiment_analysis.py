@@ -33,10 +33,10 @@ class ConfusionMetrics:
     fn: int
     tn: int
     evaluated_count: int
-    precision: float
-    recall: float
+    precision: float | None
+    recall: float | None
 
-    def as_dict(self) -> dict[str, int | float]:
+    def as_dict(self) -> dict[str, int | float | None]:
         return {
             "tp": self.tp,
             "fp": self.fp,
@@ -83,8 +83,8 @@ def _confusion_metrics(observations: Iterable[tuple[bool, bool]]) -> ConfusionMe
         fn=fn,
         tn=tn,
         evaluated_count=evaluated_count,
-        precision=tp / precision_denominator if precision_denominator else 0.0,
-        recall=tp / recall_denominator if recall_denominator else 0.0,
+        precision=tp / precision_denominator if precision_denominator else None,
+        recall=tp / recall_denominator if recall_denominator else None,
     )
 
 

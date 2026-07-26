@@ -35,12 +35,19 @@ def build_reviewed_evaluation(
     if metrics.reviewed_count == 0:
         return None
 
+    def format_metric(value: float | None) -> str:
+        return "산출 불가" if value is None else f"{value:.1%}"
+
     rows = tuple(
         {
             "방식": method,
             "평가 표본": f"{result.evaluated_count}건",
-            "정밀도": f"{result.precision:.1%}",
-            "재현율": f"{result.recall:.1%}",
+            "TP": result.tp,
+            "FP": result.fp,
+            "FN": result.fn,
+            "TN": result.tn,
+            "정밀도": format_metric(result.precision),
+            "재현율": format_metric(result.recall),
         }
         for method, result in (
             ("Python", metrics.python),

@@ -81,7 +81,7 @@
   4. `P- / H-`: 양쪽 모두 미탐지(HCX는 정상 응답)
   5. `HCX_ERROR`: HCX 실행·응답·파싱 실패 — 의미적 H-와 분리
 - **구현:** 전체 비교에서 모든 문장을 Python과 HCX에 독립 입력하고 `P+/H+`, `P+/H-`, `P-/H+`, `P-/H-`, `HCX_ERROR`로 상호 배타 분류한다. 결과는 운영 DB와 분리된 연구 SQLite에 명시적으로 저장하며, CSV 내보내기와 `P+/H-`·`P-/H+` 사람 승인 골든셋 승격을 제공한다.
-- **평가 계약:** `true_candidate`, `false_positive`로 사람 검토가 끝난 행만 정답 표본이다. `hold`와 미검토 행은 정밀도·재현율에서 제외한다. HCX 오류 행은 HCX 분류 지표에서 제외하고 HCX 평가 건수를 따로 표시하며, `Python OR HCX`는 HCX 오류 시 Python 결과를 보존한다. `독립 HCX 문장 판정 응답률`은 전체 공급 문장 행 중 `success` 비율로 별도 집계한다. 현재 UI가 검토하는 `P+/H-`·`P-/H+` 표본의 지표는 **불일치 검토 표본 조건부 지표**이며 전체 기사 문장 성능이 아니다. 불일치 유형의 건수 자체를 정확도라고 부르지 않는다.
+- **평가 계약:** `true_candidate`, `false_positive`로 사람 검토가 끝난 행만 정답 표본이다. `hold`와 미검토 행은 정밀도·재현율에서 제외한다. HCX 오류 행은 HCX 분류 지표에서 제외하고 HCX 평가 건수를 따로 표시하며, `Python OR HCX`는 HCX 오류 시 Python 결과를 보존한다. `독립 HCX 문장 판정 응답률`은 전체 공급 문장 행 중 `success` 비율로 별도 집계한다. 현재 UI가 검토하는 `P+/H-`·`P-/H+` 표본의 지표는 **불일치 검토 표본 조건부 지표**이며 전체 기사 문장 성능이 아니다. 분모가 0인 정밀도·재현율은 0%로 표시하지 않고 `산출 불가`로 표시하며 TP·FP·FN·TN을 함께 공개한다. 불일치 유형의 건수 자체를 정확도라고 부르지 않는다.
 - **구현 커밋:** 분류 `da7ea30`, `304881f`; 연구 저장 `a5abf8f`, `1d89a81`; 전체 비교 연결 `c4300da`, `bad15b4`, `108eca1`; 연구 UI·저장 `f7323eb`, `e55dbac`, `3877998`; CSV·검토·골든셋 `8526f61`, `12058a6`; 사람 검토 지표 `e39c5dd`.
 - **검증:** `tests/test_experiment_analysis.py`, `tests/test_experiment_store.py`, `tests/test_experiment_lab.py`, `tests/test_experiment_research.py`, `tests/test_experiment_export.py`에서 분류 합계, 오류 우선순위, 저장 무결성, 중복 저장, 승인 제한, 지표 표본 제외와 fail-open을 고정한다.
 - **남은 과제:** 축적된 사람 검토 표본에서 `Python OR HCX`가 Python 대비 재현율을 실제로 높이는지, 오탐과 비용 증가가 허용 가능한지 검증한 뒤에만 운영 하이브리드 변경을 결정한다.

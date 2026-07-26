@@ -191,7 +191,7 @@ def test_hcx_error_is_excluded_from_hcx_metrics_and_or_fails_open_to_python() ->
     assert result.independent_hcx_response_rate == 0.0
 
 
-def test_reviewed_metrics_use_zero_for_empty_precision_and_recall_denominators() -> None:
+def test_reviewed_metrics_mark_empty_precision_and_recall_denominators_undefined() -> None:
     result = compute_reviewed_metrics(
         [
             {
@@ -204,8 +204,8 @@ def test_reviewed_metrics_use_zero_for_empty_precision_and_recall_denominators()
     )
 
     for metrics in (result.python, result.hcx, result.python_or_hcx):
-        assert metrics.precision == 0.0
-        assert metrics.recall == 0.0
+        assert metrics.precision is None
+        assert metrics.recall is None
         assert metrics.tn == 1
         assert metrics.evaluated_count == 1
 
@@ -220,3 +220,5 @@ def test_empty_input_has_explicit_zero_sample_sizes() -> None:
     assert result.independent_hcx_response_success == 0
     assert result.independent_hcx_response_total == 0
     assert result.independent_hcx_response_rate == 0.0
+    assert result.python.precision is None
+    assert result.python.recall is None

@@ -138,6 +138,8 @@ def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
     assert '"사람 검토 기반 평가"' in section
     assert "evaluation_display.reviewed_count" in section
     assert "evaluation_display.rows" in section
+    assert "TP·FP·FN·TN을 함께 표시합니다" in section
+    assert "‘산출 불가’" in section
     assert "독립 HCX 문장 판정 응답률" in section
     assert "evaluation_display.independent_hcx_response_success" in section
     assert "evaluation_display.independent_hcx_response_total" in section
