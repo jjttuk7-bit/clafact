@@ -143,6 +143,17 @@ def test_histogram_never_emits_reversed_integer_ranges_for_narrow_domain():
     assert identical[0].value == 3
 
 
+def test_histogram_uses_only_actual_integer_bins_after_width_rounding():
+    for size in (36, 40):
+        values = [index % 10 + 1 for index in range(size)]
+        rows = _histogram(values)
+
+        assert len(rows) <= BODY_BIN_LIMIT
+        assert sum(row.value for row in rows) == size
+        ranges = [tuple(int(part) for part in row.key.split("-")) for row in rows]
+        assert all(1 <= lower <= upper <= 10 for lower, upper in ranges)
+        assert ranges[-1][1] == 10
+
 def test_warning_kpi_counts_only_valid_articles_but_keeps_excluded_issues():
     report = analyze_rows([{"title": "제외", "date": "bad", "body": ""}])
     view = build_eda_view(report)

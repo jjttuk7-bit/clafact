@@ -138,6 +138,7 @@ def _histogram(values: list[int]) -> tuple[CountRow, ...]:
         max(1, math.ceil(math.sqrt(len(values)))),
     )
     width = max(1, math.ceil((high - low + 1) / bin_count))
+    bin_count = math.ceil((high - low + 1) / width)
     buckets = [0] * bin_count
     for value in values:
         index = min((value - low) // width, bin_count - 1)
