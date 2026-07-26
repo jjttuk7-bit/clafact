@@ -142,6 +142,61 @@ def test_invalid_calendar_date_is_a_warning_and_does_not_exclude_article():
     assert report.articles[0].article_date == "2025.13.42"
 
 
+@pytest.mark.parametrize(
+    "article_date",
+    [
+        "2025-11-040",
+        "2025/01/01123",
+        "2025.11.041",
+    ],
+)
+def test_date_prefix_rejects_an_extra_digit_after_the_day(article_date):
+    report = analyze_rows(
+        [{"title": "날짜", "date": article_date, "body": "정상 본문입니다."}]
+    )
+
+    assert dict(report.warning_counts) == {"invalid_date": 1}
+
+
+def test_fallback_fingerprint_normalizes_nfkc_without_mutating_articles():
+    report = analyze_rows(
+        [
+            {
+                "title": "ＡＢＣ 가격",
+                "date": "2025-01-01",
+                "body": "증가율은 ２．４％입니다.",
+            },
+            {
+                "title": "ABC 가격",
+                "date": "2025-01-02",
+                "body": "증가율은 2.4%입니다.",
+            },
+        ]
+    )
+
+    assert report.valid_article_count == 1
+    assert report.excluded_counts["duplicate"] == 1
+    assert report.articles[0].title == "ＡＢＣ 가격"
+    assert report.articles[0].cleaned_body == "증가율은 ２．４％입니다."
+
+
+def test_fallback_fingerprint_treats_nfc_and_nfd_hangul_as_equal():
+    import unicodedata
+
+    nfc_title = "경제"
+    nfd_title = unicodedata.normalize("NFD", nfc_title)
+    report = analyze_rows(
+        [
+            {"title": nfc_title, "date": "2025-01-01", "body": "같은 본문"},
+            {"title": nfd_title, "date": "2025-01-02", "body": "같은 본문"},
+        ]
+    )
+
+    assert nfc_title != nfd_title
+    assert report.valid_article_count == 1
+    assert report.excluded_counts["duplicate"] == 1
+
+
 def test_original_row_numbers_are_preserved_after_exclusions():
     report = analyze_rows(
         [
@@ -157,9 +212,14 @@ def test_original_row_numbers_are_preserved_after_exclusions():
 
 def test_issue_records_do_not_expose_raw_or_cleaned_bodies():
     raw_secret = "외부에 노출하면 안 되는 전체 원문"
-    report = analyze_rows([{"title": "제외", "date": "", "body": ""}])
+    report = analyze_rows(
+        [
+            {"title": "기준", "date": "2025-01-01", "url": "u", "body": "기준 본문"},
+            {"title": "제외", "date": "", "url": "u", "body": raw_secret},
+        ]
+    )
 
-    issue = report.issues[0]
+    issue = report.issues[-1]
     assert not hasattr(issue, "raw_body")
     assert not hasattr(issue, "cleaned_body")
     assert raw_secret not in repr(issue)

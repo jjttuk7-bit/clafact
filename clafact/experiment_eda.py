@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
@@ -15,7 +16,7 @@ from clafact.pipeline.ingest import FIELD_ALIASES
 
 IssueSeverity = Literal["warning", "excluded"]
 
-_DATE_PREFIX = re.compile(r"^\s*(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})")
+_DATE_PREFIX = re.compile(r"^\s*(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
 _SPACES = re.compile(r"\s+")
 
 _MESSAGES = {
@@ -101,8 +102,14 @@ def _date_is_valid(value: str) -> bool:
 
 
 def _fingerprint(title: str, cleaned_body: str) -> str:
-    normalized_title = _SPACES.sub(" ", title).strip().casefold()
-    normalized_body = _SPACES.sub(" ", cleaned_body).strip()
+    # NFKC로 호환 문자와 NFC/NFD 차이만 중복 비교에서 흡수한다.
+    # 표시되는 제목과 정제 본문 자체는 변경하지 않는다.
+    normalized_title = _SPACES.sub(
+        " ", unicodedata.normalize("NFKC", title)
+    ).strip().casefold()
+    normalized_body = _SPACES.sub(
+        " ", unicodedata.normalize("NFKC", cleaned_body)
+    ).strip()
     material = f"{normalized_title}\0{normalized_body}".encode("utf-8")
     return hashlib.sha256(material).hexdigest()
 
