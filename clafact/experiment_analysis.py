@@ -1,13 +1,13 @@
-from typing import Literal
+from typing import Final, Literal
 
-
-P_PLUS_H_PLUS = "P+/H+"
-P_PLUS_H_MINUS = "P+/H-"
-P_MINUS_H_PLUS = "P-/H+"
-P_MINUS_H_MINUS = "P-/H-"
-HCX_ERROR = "HCX_ERROR"
 
 DisagreementType = Literal["P+/H+", "P+/H-", "P-/H+", "P-/H-", "HCX_ERROR"]
+
+P_PLUS_H_PLUS: Final[Literal["P+/H+"]] = "P+/H+"
+P_PLUS_H_MINUS: Final[Literal["P+/H-"]] = "P+/H-"
+P_MINUS_H_PLUS: Final[Literal["P-/H+"]] = "P-/H+"
+P_MINUS_H_MINUS: Final[Literal["P-/H-"]] = "P-/H-"
+HCX_ERROR: Final[Literal["HCX_ERROR"]] = "HCX_ERROR"
 
 
 def classify_disagreement(

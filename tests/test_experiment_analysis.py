@@ -1,7 +1,9 @@
 from collections import Counter
+from typing import Final, Literal, get_args, get_origin
 
 import pytest
 
+from clafact import experiment_analysis
 from clafact.experiment_analysis import (
     HCX_ERROR,
     P_MINUS_H_MINUS,
@@ -33,10 +35,35 @@ def test_classifies_successful_semantic_results(
     )
 
 
+@pytest.mark.parametrize("python_candidate", [False, True])
+@pytest.mark.parametrize("hcx_candidate", [False, True])
 @pytest.mark.parametrize("hcx_status", ["error", "timeout", "parse_error", None])
-def test_hcx_failure_is_never_conflated_with_h_minus(hcx_status: str | None) -> None:
-    assert classify_disagreement(True, False, hcx_status) == HCX_ERROR
-    assert classify_disagreement(False, False, hcx_status) == HCX_ERROR
+def test_hcx_failure_always_takes_priority(
+    python_candidate: bool,
+    hcx_candidate: bool,
+    hcx_status: str | None,
+) -> None:
+    assert (
+        classify_disagreement(python_candidate, hcx_candidate, hcx_status)
+        == HCX_ERROR
+    )
+
+
+def test_bucket_constants_keep_precise_literal_types() -> None:
+    expected = {
+        "P_PLUS_H_PLUS": P_PLUS_H_PLUS,
+        "P_PLUS_H_MINUS": P_PLUS_H_MINUS,
+        "P_MINUS_H_PLUS": P_MINUS_H_PLUS,
+        "P_MINUS_H_MINUS": P_MINUS_H_MINUS,
+        "HCX_ERROR": HCX_ERROR,
+    }
+
+    for name, value in expected.items():
+        annotation = experiment_analysis.__annotations__[name]
+        assert get_origin(annotation) is Final
+        literal_type = get_args(annotation)[0]
+        assert get_origin(literal_type) is Literal
+        assert get_args(literal_type) == (value,)
 
 
 def test_each_sentence_contributes_to_exactly_one_bucket() -> None:
