@@ -1,5 +1,8 @@
+from typing import get_args
+
 import pytest
 
+from clafact import experiment_lab
 from clafact.experiment_analysis import HCX_ERROR
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.pipeline.detect_llm import HcxDecision
@@ -152,3 +155,39 @@ def test_disagreement_class_counts_cover_every_comparison_row() -> None:
 
     assert sum(result.disagreement_counts.values()) == len(result.rows)
     assert result.disagreement_counts == {"P+/H-": 1, "P-/H+": 1}
+
+@pytest.mark.parametrize(
+    "invalid_result",
+    [
+        (0, "정수 0은 bool이 아님"),
+        (1, "정수 1은 bool이 아님"),
+        ("", "빈 문자열은 bool이 아님"),
+        (object(), "임의 객체는 bool이 아님"),
+        HcxDecision(1, "정수 후보", "unknown", "잘못된 후보 타입", []),
+    ],
+)
+def test_invalid_hcx_candidate_is_normalized_and_hybrid_fails_open(invalid_result) -> None:
+    def judge(_sentence: str):
+        return invalid_result
+
+    result = run_comparison(
+        "물가는 지난해보다 2.4% 올랐다.",
+        "2025-11-04",
+        judge_fn=judge,
+    )
+    row = result.rows[0]
+    hybrid_row = result.mode_results["hybrid"].rows[0]
+
+    assert row.hcx_status == "invalid_response"
+    assert row.llm_verifiable is None
+    assert row.disagreement_class == HCX_ERROR
+    assert row.hybrid_candidate is True
+    assert hybrid_row.hcx_status == "invalid_response"
+    assert "보수적 유지" in hybrid_row.reason
+
+
+def test_judge_result_contract_supports_structured_and_tuple_results() -> None:
+    result_types = set(get_args(experiment_lab.JudgeResult))
+
+    assert HcxDecision in result_types
+    assert tuple[bool, str] in result_types

@@ -53,7 +53,13 @@ def _safe_hcx_decision(sentence: str, judge_fn: Judge | None) -> tuple[HcxDecisi
             return result, "success"
         reason = f"{result.candidate_reason} {result.evidence_reason}"
         status = "parse_error" if "파싱" in reason or "JSON" in reason else "invalid_response"
-        return result, status
+        return HcxDecision(
+            None,
+            result.candidate_reason,
+            result.evidence_status,
+            result.evidence_reason,
+            result.quoted_spans,
+        ), status
     try:
         candidate, reason = result
     except (TypeError, ValueError):
@@ -61,8 +67,16 @@ def _safe_hcx_decision(sentence: str, judge_fn: Judge | None) -> tuple[HcxDecisi
             HcxDecision(None, "빈 HCX 응답", "unknown", "후보 판정 결과가 없습니다", []),
             "empty_response" if result is None else "invalid_response",
         )
-    decision = HcxDecision(candidate, reason, "unknown", "기존 판정 함수는 근거 상태를 제공하지 않습니다", [])
-    return decision, "success" if isinstance(candidate, bool) else "invalid_response"
+    status = "success" if isinstance(candidate, bool) else "invalid_response"
+    normalized_candidate = candidate if status == "success" else None
+    decision = HcxDecision(
+        normalized_candidate,
+        reason,
+        "unknown",
+        "기존 판정 함수는 근거 상태를 제공하지 않습니다",
+        [],
+    )
+    return decision, status
 
 
 def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = None) -> ModeResult:
@@ -101,7 +115,7 @@ def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = N
                 candidate = hcx_decision.candidate
                 reason = hcx_decision.candidate_reason
                 llm_calls += 1
-                if candidate is None:
+                if hcx_status != "success":
                     candidate = True
                     reason = f"{reason} → Python 후보를 보수적 유지"
         rows.append(ModeRow(

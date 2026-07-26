@@ -6,11 +6,12 @@ from time import perf_counter
 from typing import Callable
 
 from clafact.pipeline import detect, source_classify
-from clafact.pipeline.detect_llm import judge
+from clafact.pipeline.detect_llm import HcxDecision, judge
 from clafact.pipeline.ingest import split_sentences
 from clafact.pipeline.parse import parse_claim
 
-Judge = Callable[[str], tuple[bool, str]]
+JudgeResult = HcxDecision | tuple[bool, str]
+Judge = Callable[[str], JudgeResult]
 
 
 @dataclass
