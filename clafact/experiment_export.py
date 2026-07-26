@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import os
+import re
 import tempfile
 import time
 from contextlib import contextmanager
@@ -24,7 +25,11 @@ _LOCK_RETRY_SECONDS = 0.01
 
 
 def _spreadsheet_safe(value: Any) -> Any:
-    if isinstance(value, str) and value.startswith(_SPREADSHEET_FORMULA_PREFIXES):
+    if not isinstance(value, str) or not value:
+        return value
+    leading_formula = re.match(r"^[\s\x00-\x1f]*[=+\-@]", value) is not None
+    leading_control = value[0] in {"\t", "\r", "\n"}
+    if leading_formula or leading_control:
         return "'" + value
     return value
 
@@ -67,6 +72,37 @@ def export_runs_csv(store: ExperimentStore, run_ids: Sequence[str]) -> bytes:
                 column: _spreadsheet_safe(combined.get(column))
                 for column in CSV_COLUMNS
             })
+    return output.getvalue().encode("utf-8-sig")
+
+MAX_FILTERED_EXPORT_ROWS = 50_000
+_HISTORY_FILTER_KEYS = frozenset({
+    "date_from", "date_to", "provider", "model", "prompt_version"
+})
+
+
+def export_filtered_csv(
+    store: ExperimentStore,
+    filters: dict[str, str | None],
+    *,
+    max_rows: int = MAX_FILTERED_EXPORT_ROWS,
+) -> bytes:
+    """Export an exact filtered period after enforcing a documented row cap."""
+    safe_filters = {
+        key: value for key, value in filters.items() if key in _HISTORY_FILTER_KEYS
+    }
+    summary = store.get_history_summary(**safe_filters)
+    if summary["sentence_count"] > max_rows:
+        raise ValueError(
+            f"CSV는 최대 {max_rows:,}문장까지 준비할 수 있습니다. 필터를 좁혀 주세요."
+        )
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for combined in store.iter_filtered_export_rows(**safe_filters):
+        writer.writerow({
+            column: _spreadsheet_safe(combined.get(column))
+            for column in CSV_COLUMNS
+        })
     return output.getvalue().encode("utf-8-sig")
 
 def _sentence_for_promotion(

@@ -256,3 +256,56 @@ def test_list_all_runs_pages_through_more_than_ui_batch_limit():
     assert len(runs) == 501
     assert runs[0]["run_id"] == "run-500"
     assert runs[-1]["run_id"] == "run-000"
+
+
+def test_sql_history_summary_and_pagination_cover_501_runs_exactly():
+    with ExperimentStore(":memory:") as store:
+        for index in range(501):
+            sentence = {
+                **_sentences()[0],
+                "sentence_hash": f"hash-{index}",
+                "disagreement_class": "P+/H+",
+            }
+            store.append_run(
+                {
+                    **_run(f"exact-{index:03d}"),
+                    "created_at": "2026-07-26T10:00:00+09:00",
+                    "sentence_count": 1,
+                },
+                [sentence],
+            )
+
+        summary = store.get_history_summary(provider="NAVER")
+        final_page = store.list_runs(provider="NAVER", limit=50, offset=500)
+        facets = store.get_history_filter_facets()
+
+    assert summary == {
+        "run_count": 501,
+        "sentence_count": 501,
+        "counts": {
+            "P+/H+": 501, "P+/H-": 0, "P-/H+": 0,
+            "P-/H-": 0, "HCX_ERROR": 0,
+        },
+    }
+    assert [row["run_id"] for row in final_page] == ["exact-000"]
+    assert facets["date_min"] == facets["date_max"] == "2026-07-26"
+    assert facets["providers"] == ("NAVER",)
+    assert facets["models"] == ("HCX-005",)
+    assert facets["prompt_versions"] == ("candidate-v2",)
+
+
+def test_get_filtered_sentences_is_exact_beyond_500_runs():
+    with ExperimentStore(":memory:") as store:
+        for index in range(501):
+            store.append_run(
+                {
+                    **_run(f"filtered-{index:03d}"),
+                    "created_at": "2026-07-26T10:00:00+09:00",
+                    "sentence_count": 1,
+                },
+                [{**_sentences()[0], "sentence_hash": f"filtered-hash-{index}"}],
+            )
+
+        rows = store.get_filtered_sentences(provider="NAVER")
+
+    assert len(rows) == 501

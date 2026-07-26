@@ -182,3 +182,12 @@ def test_reviewed_evaluation_exposes_samples_metrics_response_and_error_policy()
     assert display.independent_hcx_response_success == 2
     assert display.independent_hcx_response_total == 3
     assert display.independent_hcx_response_rate == "66.7%"
+
+
+def test_current_and_history_review_feedback_are_isolated():
+    session_state = {}
+    store_review_feedback(session_state, "현재", scope="current")
+    store_review_feedback(session_state, "과거", scope="history")
+
+    assert pop_review_feedback(session_state, scope="history") == "과거"
+    assert pop_review_feedback(session_state, scope="current") == "현재"

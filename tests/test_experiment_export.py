@@ -292,3 +292,68 @@ def test_live_current_lock_is_not_stolen(tmp_path, monkeypatch):
     assert metadata["pid"] == os.getpid()
     assert metadata["created_at"] <= time.time()
     assert not golden_path.exists()
+
+
+def test_filtered_export_covers_501_runs_and_enforces_exact_safety_cap():
+    from clafact.experiment_export import export_filtered_csv
+
+    with ExperimentStore(":memory:") as store:
+        for index in range(501):
+            store.append_run(
+                {
+                    "run_id": f"bulk-{index:03d}",
+                    "created_at": "2026-07-26T10:00:00+09:00",
+                    "article_hash": f"article-{index}",
+                    "article_title": "bulk",
+                    "article_date": "2026-07-26",
+                    "provider": "HCX", "model": "HCX-005",
+                    "prompt_version": "candidate-v2",
+                    "python_ms": 1, "hcx_ms": 2, "total_ms": 3,
+                    "hcx_calls": 1, "source_row_count": 1,
+                    "sentence_count": 1,
+                },
+                [{
+                    "sentence_index": 1, "sentence_hash": f"bulk-hash-{index}",
+                    "sentence_text": f"{index}%", "python_candidate": False,
+                    "python_reason": "python", "hcx_status": "success",
+                    "hcx_candidate": True, "hcx_reason": "hcx",
+                    "evidence_status": "search_required", "disagreement_class": "P-/H+",
+                }],
+            )
+
+        payload = export_filtered_csv(store, {"provider": "HCX"}, max_rows=501)
+        with pytest.raises(ValueError, match="필터를 좁혀 주세요"):
+            export_filtered_csv(store, {"provider": "HCX"}, max_rows=500)
+
+    rows = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
+    assert len(rows) == 501
+    assert rows[0]["run_id"] == "bulk-500"
+    assert rows[-1]["run_id"] == "bulk-000"
+
+
+@pytest.mark.parametrize("dangerous", ["\n=HYPERLINK(\"x\")", "  \n=SUM(1,2)", "\v@CMD"])
+def test_csv_formula_safety_handles_lf_and_leading_whitespace_controls(dangerous):
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        store.conn.execute(
+            "UPDATE experiment_sentences SET sentence_text = ? WHERE run_id = ? AND sentence_index = ?",
+            (dangerous, "run-001", 1),
+        )
+        payload = export_run_csv(store, "run-001")
+
+    row = next(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
+    assert row["sentence_text"].startswith("'")
+    assert row["sentence_text"][1:] == dangerous
+
+
+def test_multi_run_csv_formula_safety_handles_leading_lf_formula():
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        store.conn.execute(
+            "UPDATE experiment_runs SET article_title = ? WHERE run_id = ?",
+            ("\n=HYPERLINK(\"x\")", "run-001"),
+        )
+        payload = export_runs_csv(store, ["run-001"])
+
+    row = next(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
+    assert row["article_title"].startswith("'\n=HYPERLINK")

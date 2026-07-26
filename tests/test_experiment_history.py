@@ -38,3 +38,37 @@ def test_distinct_history_filters_are_sorted_and_ignore_blanks():
     ]
     assert distinct_filter_values(runs, "provider") == ("GPT", "HCX")
     assert distinct_filter_values(runs, "model") == ("HCX-005", "gpt-5")
+
+
+def test_history_filter_signature_invalidates_prepared_export_and_pages_are_bounded():
+    from clafact.experiment_history import (
+        HistoryFilters,
+        PreparedHistoryExport,
+        build_history_page,
+        filter_signature,
+        prepared_export_for_filters,
+    )
+
+    filters = HistoryFilters("2026-07-01", "2026-07-26", "HCX", "HCX-005", "v2")
+    signature = filter_signature(filters)
+    prepared = PreparedHistoryExport(signature=signature, payload=b"csv", row_count=4)
+
+    assert prepared_export_for_filters(prepared, filters) == prepared
+    assert prepared_export_for_filters(
+        prepared,
+        HistoryFilters("2026-07-01", "2026-07-26", "GPT", "gpt-5", "v2"),
+    ) is None
+    assert build_history_page(total_runs=501, requested_page=99, page_size=50) == {
+        "page": 11, "page_count": 11, "offset": 500, "options": tuple(range(1, 12))
+    }
+    assert build_history_page(total_runs=0, requested_page=3, page_size=50) == {
+        "page": 1, "page_count": 1, "offset": 0, "options": (1,)
+    }
+
+
+def test_history_action_target_preserves_selected_past_run_and_sentence():
+    from clafact.experiment_history import build_history_action_target
+
+    target = build_history_action_target("past-run-42", 7)
+    assert target.run_id == "past-run-42"
+    assert target.sentence_index == 7

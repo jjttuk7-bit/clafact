@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 from clafact.experiment_analysis import (
     HCX_ERROR,
@@ -297,15 +297,16 @@ class ExperimentStore:
         provider: str | None = None,
         model: str | None = None,
         prompt_version: str | None = None,
+        column_prefix: str = "",
     ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         values: list[Any] = []
         for expression, value in (
-            ("substr(created_at, 1, 10) >= ?", date_from),
-            ("substr(created_at, 1, 10) <= ?", date_to),
-            ("provider = ?", provider),
-            ("model = ?", model),
-            ("prompt_version = ?", prompt_version),
+            (f"substr({column_prefix}created_at, 1, 10) >= ?", date_from),
+            (f"substr({column_prefix}created_at, 1, 10) <= ?", date_to),
+            (f"{column_prefix}provider = ?", provider),
+            (f"{column_prefix}model = ?", model),
+            (f"{column_prefix}prompt_version = ?", prompt_version),
         ):
             if value:
                 clauses.append(expression)
@@ -354,7 +355,6 @@ class ExperimentStore:
     ) -> list[dict[str, Any]]:
         """Collect every filtered run through bounded deterministic pages."""
         result: list[dict[str, Any]] = []
-        page_size = 500
         while True:
             page = self.list_runs(
                 date_from=date_from,
@@ -362,12 +362,85 @@ class ExperimentStore:
                 provider=provider,
                 model=model,
                 prompt_version=prompt_version,
-                limit=page_size,
+                limit=500,
                 offset=len(result),
             )
             result.extend(page)
-            if len(page) < page_size:
+            if len(page) < 500:
                 return result
+
+    def get_history_filter_facets(self) -> dict[str, Any]:
+        """Read history filter bounds and values without loading run rows."""
+        bounds = self.conn.execute(
+            """
+            SELECT MIN(substr(created_at, 1, 10)), MAX(substr(created_at, 1, 10))
+            FROM experiment_runs
+            """
+        ).fetchone()
+
+        def distinct(column: str) -> tuple[str, ...]:
+            rows = self.conn.execute(
+                f"SELECT DISTINCT {column} FROM experiment_runs "
+                f"WHERE {column} <> '' ORDER BY {column}"
+            ).fetchall()
+            return tuple(str(row[0]) for row in rows)
+
+        return {
+            "date_min": bounds[0],
+            "date_max": bounds[1],
+            "providers": distinct("provider"),
+            "models": distinct("model"),
+            "prompt_versions": distinct("prompt_version"),
+        }
+
+    def get_history_summary(
+        self,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        prompt_version: str | None = None,
+    ) -> dict[str, Any]:
+        """Return exact SQL-backed run, sentence, and five-outcome counts."""
+        where, values = self._run_filters(
+            date_from=date_from,
+            date_to=date_to,
+            provider=provider,
+            model=model,
+            prompt_version=prompt_version,
+            column_prefix="run.",
+        )
+        run_count = self.conn.execute(
+            "SELECT COUNT(*) FROM experiment_runs AS run" + where,
+            values,
+        ).fetchone()[0]
+        aggregate = self.conn.execute(
+            """
+            SELECT
+                COUNT(sentence.run_id),
+                COALESCE(SUM(sentence.disagreement_class = 'P+/H+'), 0),
+                COALESCE(SUM(sentence.disagreement_class = 'P+/H-'), 0),
+                COALESCE(SUM(sentence.disagreement_class = 'P-/H+'), 0),
+                COALESCE(SUM(sentence.disagreement_class = 'P-/H-'), 0),
+                COALESCE(SUM(sentence.disagreement_class = 'HCX_ERROR'), 0)
+            FROM experiment_runs AS run
+            LEFT JOIN experiment_sentences AS sentence ON sentence.run_id = run.run_id
+            """ + where,
+            values,
+        ).fetchone()
+        return {
+            "run_count": int(run_count),
+            "sentence_count": int(aggregate[0]),
+            "counts": {
+                "P+/H+": int(aggregate[1]),
+                "P+/H-": int(aggregate[2]),
+                "P-/H+": int(aggregate[3]),
+                "P-/H-": int(aggregate[4]),
+                "HCX_ERROR": int(aggregate[5]),
+            },
+        }
+
     def get_sentences_for_runs(
         self, run_ids: Sequence[str]
     ) -> list[dict[str, Any]]:
@@ -375,19 +448,30 @@ class ExperimentStore:
         unique_ids = list(dict.fromkeys(str(run_id) for run_id in run_ids))
         if not unique_ids:
             return []
-        placeholders = ", ".join("?" for _ in unique_ids)
-        rows = self.conn.execute(
-            f"""
-            SELECT sentence.*
-            FROM experiment_sentences AS sentence
-            JOIN experiment_runs AS run ON run.run_id = sentence.run_id
-            WHERE sentence.run_id IN ({placeholders})
-            ORDER BY run.created_at DESC, run.run_id DESC, sentence.sentence_index
-            """,
-            unique_ids,
-        ).fetchall()
+        rows: list[dict[str, Any]] = []
+        for start in range(0, len(unique_ids), 400):
+            chunk = unique_ids[start:start + 400]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows.extend(dict(row) for row in self.conn.execute(
+                f"""
+                SELECT sentence.*, run.created_at AS _run_created_at
+                FROM experiment_sentences AS sentence
+                JOIN experiment_runs AS run ON run.run_id = sentence.run_id
+                WHERE sentence.run_id IN ({placeholders})
+                """,
+                chunk,
+            ).fetchall())
+        rows.sort(
+            key=lambda row: (
+                str(row["_run_created_at"]),
+                str(row["run_id"]),
+                -int(row["sentence_index"]),
+            ),
+            reverse=True,
+        )
+        for row in rows:
+            row.pop("_run_created_at")
         return [self._sentence_dict(row) for row in rows]
-
     def get_filtered_sentences(
         self,
         *,
@@ -396,17 +480,69 @@ class ExperimentStore:
         provider: str | None = None,
         model: str | None = None,
         prompt_version: str | None = None,
-        limit_runs: int = 500,
     ) -> list[dict[str, Any]]:
-        runs = self.list_runs(
+        """Return every filtered sentence; callers must apply their own safety cap."""
+        where, values = self._run_filters(
             date_from=date_from,
             date_to=date_to,
             provider=provider,
             model=model,
             prompt_version=prompt_version,
-            limit=limit_runs,
+            column_prefix="run.",
         )
-        return self.get_sentences_for_runs([run["run_id"] for run in runs])
+        rows = self.conn.execute(
+            """
+            SELECT sentence.*
+            FROM experiment_runs AS run
+            JOIN experiment_sentences AS sentence ON sentence.run_id = run.run_id
+            """ + where + " ORDER BY run.created_at DESC, run.run_id DESC, sentence.sentence_index",
+            values,
+        ).fetchall()
+        return [self._sentence_dict(row) for row in rows]
+    def iter_filtered_export_rows(
+        self,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        prompt_version: str | None = None,
+        batch_size: int = 500,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield all filtered run/sentence export rows in stable bounded batches."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        where, values = self._run_filters(
+            date_from=date_from,
+            date_to=date_to,
+            provider=provider,
+            model=model,
+            prompt_version=prompt_version,
+            column_prefix="run.",
+        )
+        cursor = self.conn.execute(
+            """
+            SELECT run.*, sentence.sentence_index, sentence.sentence_hash,
+                   sentence.sentence_text, sentence.python_candidate,
+                   sentence.python_reason, sentence.hcx_status,
+                   sentence.hcx_candidate, sentence.hcx_reason,
+                   sentence.evidence_status, sentence.disagreement_class,
+                   sentence.human_label, sentence.review_note, sentence.reviewed_at
+            FROM experiment_runs AS run
+            JOIN experiment_sentences AS sentence ON sentence.run_id = run.run_id
+            """ + where + " ORDER BY run.created_at DESC, run.run_id DESC, sentence.sentence_index",
+            values,
+        )
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                return
+            for row in rows:
+                result = dict(row)
+                result["python_candidate"] = bool(result["python_candidate"])
+                if result["hcx_candidate"] is not None:
+                    result["hcx_candidate"] = bool(result["hcx_candidate"])
+                yield result
     def update_review(
         self,
         run_id: str,

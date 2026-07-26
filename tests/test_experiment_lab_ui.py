@@ -156,12 +156,30 @@ def test_historical_research_is_available_without_a_current_result():
     history = section[section.index('"누적 연구 이력"'):]
 
     assert "ExperimentStore(" in history
-    assert "list_all_runs(" in history
+    assert "list_runs(" in history
     assert "get_sentences_for_runs(" in history
-    assert "build_history_summary(" in history
-    assert '"기간 전체 CSV 다운로드"' in history
-    assert "export_runs_csv(" in history
+    assert "get_history_summary(" in history
+    assert '"준비된 필터 CSV 다운로드"' in history
+    assert "export_filtered_csv(" in history
     assert '"과거 실행 선택"' in history
     assert "save_human_review(" in history
     assert "promote_reviewed_sentence(" in history
     assert section.index('"누적 연구 이력"') > section.index("if result:")
+
+
+def test_history_uses_exact_sql_pagination_and_lazy_bounded_export():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    history = section[section.index('"누적 연구 이력"'):]
+
+    assert "get_history_filter_facets(" in history
+    assert "get_history_summary(" in history
+    assert "build_history_page(" in history
+    assert "list_runs(" in history
+    assert "limit=50" in history
+    assert '"필터 CSV 준비"' in history
+    assert history.index('"필터 CSV 준비"') < history.index("export_filtered_csv(")
+    assert "MAX_FILTERED_EXPORT_ROWS" in history
+    assert "list_all_runs(" not in history
+    assert "export_runs_csv(" not in history
+    assert 'scope="history"' in history

@@ -11,7 +11,8 @@ from clafact.experiment_store import ExperimentStore
 
 
 REVIEWABLE_DISAGREEMENTS = frozenset({"P+/H-", "P-/H+"})
-REVIEW_FEEDBACK_KEY = "experiment_lab_research_feedback"
+CURRENT_REVIEW_FEEDBACK_KEY = "experiment_lab_current_review_feedback"
+HISTORY_REVIEW_FEEDBACK_KEY = "experiment_lab_history_review_feedback"
 REVIEW_SAVED_MESSAGE = "사람 검토를 연구 전용 이력에 저장했습니다."
 
 
@@ -120,9 +121,21 @@ def promote_reviewed_sentence(
         )
 
 
-def store_review_feedback(session_state: MutableMapping[str, Any], message: str) -> None:
-    session_state[REVIEW_FEEDBACK_KEY] = message
+def _feedback_key(scope: str) -> str:
+    if scope == "current":
+        return CURRENT_REVIEW_FEEDBACK_KEY
+    if scope == "history":
+        return HISTORY_REVIEW_FEEDBACK_KEY
+    raise ValueError("scope must be current or history")
 
 
-def pop_review_feedback(session_state: MutableMapping[str, Any]) -> str:
-    return str(session_state.pop(REVIEW_FEEDBACK_KEY, ""))
+def store_review_feedback(
+    session_state: MutableMapping[str, Any], message: str, *, scope: str = "current"
+) -> None:
+    session_state[_feedback_key(scope)] = message
+
+
+def pop_review_feedback(
+    session_state: MutableMapping[str, Any], *, scope: str = "current"
+) -> str:
+    return str(session_state.pop(_feedback_key(scope), ""))
