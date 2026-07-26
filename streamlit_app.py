@@ -47,6 +47,13 @@ ROOT = Path(__file__).resolve().parent
 
 def format_elapsed_ms(elapsed_ms: int) -> str:
     return f"{elapsed_ms / 1000:,.3f}초 ({elapsed_ms:,} ms)"
+
+
+def _hcx_candidate_display(candidate, status: str) -> str:
+    if status != "success":
+        return f"실행 실패 ({status})"
+    return "탐지" if candidate is True else "미탐지"
+
 GOLDEN = ROOT / "data/goldenset/golden_v0.jsonl"
 RULES_DIR = ROOT / "data/assets/rules"
 FAILURES = ROOT / "data/failures/failures.jsonl"
@@ -950,7 +957,7 @@ if view == "검증 실험실":
                 "문장": row.sentence,
                 "Python": "탐지" if row.python_candidate else "미탐지",
                 "Python 판단 근거": getattr(mode_results["python"].rows[number - 1], "reason", ""),
-                "HCX": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "오류"),
+                "HCX": _hcx_candidate_display(row.llm_verifiable, row.hcx_status),
                 "HCX 상태": row.hcx_status,
                 "HCX 판단 근거": row.llm_reason,
                 "HCX 근거 상태": hcx_evidence_label(row.hcx_evidence_status),
@@ -960,9 +967,13 @@ if view == "검증 실험실":
         st.markdown("##### 방식별 판단 근거")
         for number, row in filtered_disagreement_rows:
             with st.expander(f"{number}. {row.sentence}", expanded=False):
-                st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
-                st.write(f"**HCX-005만:** {'탐지' if row.llm_verifiable is True else ('미탐지' if row.llm_verifiable is False else '미사용')} · {row.llm_reason}")
-                st.write(f"**HCX 근거 상태:** {hcx_evidence_label(row.hcx_evidence_status)} · {row.hcx_evidence_reason}")
+                python_reason = mode_results["python"].rows[number - 1].reason
+                hcx_candidate_display = _hcx_candidate_display(row.llm_verifiable, row.hcx_status)
+                st.write(f"**Python 판단 근거:** {'탐지' if row.python_candidate else '미탐지'} · {python_reason}")
+                st.write(f"**HCX-005만:** {hcx_candidate_display}")
+                st.write(f"**HCX 실행 상태:** {row.hcx_status}")
+                st.write(f"**HCX 후보 판단 근거:** {row.llm_reason}")
+                st.write(f"**HCX 근거 판단:** {hcx_evidence_label(row.hcx_evidence_status)} · {row.hcx_evidence_reason}")
                 if row.hcx_quoted_spans:
                     st.caption(f"HCX 원문 인용: {' · '.join(row.hcx_quoted_spans)}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")

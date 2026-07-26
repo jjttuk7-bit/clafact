@@ -75,3 +75,42 @@ def test_research_history_metadata_matches_the_independent_hcx_comparison():
     assert '"hcx_candidate": hcx_candidate' in helper
     assert '"evidence_status": row.hcx_evidence_status' in helper
     assert '"disagreement_class": row.disagreement_class' in helper
+
+
+def _load_hcx_candidate_display():
+    import ast
+
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    function = next(
+        (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_hcx_candidate_display"),
+        None,
+    )
+    assert function is not None, "HCX UI 상태 formatter가 필요합니다"
+    namespace = {}
+    ast.fix_missing_locations(function)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "streamlit_app.py", "exec"), namespace)
+    return namespace["_hcx_candidate_display"]
+
+
+def test_hcx_candidate_display_separates_execution_errors_from_semantic_misses():
+    display = _load_hcx_candidate_display()
+
+    assert display(True, "success") == "탐지"
+    assert display(False, "success") == "미탐지"
+    assert display(None, "call_error") == "실행 실패 (call_error)"
+    assert display(None, "parse_error") == "실행 실패 (parse_error)"
+    assert display(None, "invalid_response") == "실행 실패 (invalid_response)"
+
+
+def test_filtered_detail_uses_actual_python_reason_and_explicit_hcx_status():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    detail = section[section.index("filtered_disagreement_rows"):]
+
+    assert 'python_reason = mode_results["python"].rows[number - 1].reason' in detail
+    assert "**Python 판단 근거:**" in detail
+    assert '_hcx_candidate_display(row.llm_verifiable, row.hcx_status)' in detail
+    assert "**HCX 실행 상태:** {row.hcx_status}" in detail
+    assert "**HCX 후보 판단 근거:**" in detail
+    assert "**HCX 근거 판단:**" in detail
