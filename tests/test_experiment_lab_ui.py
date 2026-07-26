@@ -16,7 +16,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert 'key="experiment_lab_csv"' in section
     assert 'scan_csv_stream' in section
     assert "기사 본문 전체" in section
-    assert 'analyze_rows' in section
+    assert 'prepare_eda' in section
     assert '기사 선택' in section
     assert '자동 일괄 실행하지 않습니다' in section
     assert '전체 비교 실행' in section
@@ -41,7 +41,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert "MAX_EDA_ROWS" in section
     assert "resolve_eda_range" in section
     assert "store_upload_metadata" in section
-    assert "build_eda_view" in section
+    assert "prepare_eda" in section
     assert "filter_articles" in section
     assert "selected_article_rows" in section
     assert 'width="stretch"' in section
@@ -65,27 +65,27 @@ def test_eda_range_selection_is_explicit_and_large_files_do_not_auto_analyze():
     assert "confirmed=range_submitted" in eda
     assert "if selected_eda_range is not None:" in eda
     assert "read_csv_range(lab_csv, selected_eda_range)" in eda
-    assert "analyze_rows(" in eda
+    assert "prepare_eda(" in eda
     assert "row_number_start=selected_eda_range.start" in eda
     assert "분석 구간" in eda
     assert "전체" in eda
 
 
-def test_empty_or_header_only_csv_warns_and_never_enters_analysis():
+def test_empty_or_header_only_csv_uses_the_tested_controller_path():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     section = source[
         source.index('if view == "검증 실험실":'):source.index("lab_date =")
     ]
 
-    assert "lab_source_row_count == 0" in section
-    assert "CSV에 분석할 데이터 행이 없습니다." in section
-    empty_guard = section.index("lab_source_row_count == 0")
-    range_resolution = section.index("resolve_eda_range(lab_source_row_count)")
-    analysis = section.index("analyze_rows(")
-    assert empty_guard < range_resolution < analysis
+    assert "from clafact.experiment_eda_controller import prepare_eda" in source
+    assert "empty_preparation = prepare_eda(())" in section
+    assert 'if empty_preparation.status == "empty":' in section
+    assert "st.warning(empty_preparation.user_message)" in section
+    assert "prepared = prepare_eda(" in section
+    assert "row_number_start=selected_eda_range.start" in section
 
 
-def test_eda_analysis_boundary_excludes_external_engines_and_storage():
+def test_eda_analysis_boundary_wires_only_the_tested_python_controller():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     section = source[source.index("selected_eda_range = None"):source.index("lab_date =")]
 
@@ -99,8 +99,9 @@ def test_eda_analysis_boundary_excludes_external_engines_and_storage():
         "KosisOpenApiClient",
     )
     assert all(name not in section for name in forbidden)
-    assert "analyze_rows(" in section
-    assert "build_eda_view(" in section
+    assert "prepare_eda(" in section
+    assert "analyze_rows(" not in section
+    assert "build_eda_view(" not in section
     assert "selected_article_rows(" in section
 
 

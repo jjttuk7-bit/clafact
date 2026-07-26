@@ -33,7 +33,7 @@ from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
-from clafact.experiment_eda import analyze_rows
+from clafact.experiment_eda_controller import prepare_eda
 from clafact.experiment_eda_session import (
     EDA_CACHE_KEY,
     EDA_FILTER_STATE_KEYS,
@@ -59,7 +59,6 @@ from clafact.experiment_eda_session import (
     store_upload_metadata,
 )
 from clafact.experiment_eda_view import (
-    build_eda_view,
     filter_articles,
     selected_article_rows,
 )
@@ -825,9 +824,7 @@ if view == "검증 실험실":
         selected_eda_range = None
         range_submitted = False
 
-        if upload_metadata and lab_source_row_count == 0:
-            st.warning("CSV에 분석할 데이터 행이 없습니다.")
-        elif upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
+        if upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
             st.info(
                 f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
                 f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."
@@ -866,7 +863,11 @@ if view == "검증 실험실":
 
         eda_report = None
         eda_view = None
-        if selected_eda_range is not None:
+        if upload_metadata and lab_source_row_count == 0:
+            empty_preparation = prepare_eda(())
+            if empty_preparation.status == "empty":
+                st.warning(empty_preparation.user_message)
+        elif selected_eda_range is not None:
             current_cache_key = eda_cache_key(lab_signature, selected_eda_range)
             same_cache_scope = st.session_state.get(EDA_CACHE_KEY) == current_cache_key
             if not same_cache_scope:
@@ -880,12 +881,15 @@ if view == "검증 실험실":
                 except UnicodeDecodeError:
                     st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
                     selected_rows = ()
-                if selected_rows:
-                    eda_report = analyze_rows(
-                        selected_rows,
-                        row_number_start=selected_eda_range.start,
-                    )
-                    eda_view = build_eda_view(eda_report)
+                prepared = prepare_eda(
+                    selected_rows,
+                    row_number_start=selected_eda_range.start,
+                )
+                if prepared.status == "empty":
+                    st.warning(prepared.user_message)
+                else:
+                    eda_report = prepared.report
+                    eda_view = prepared.view
                     st.session_state[EDA_REPORT_KEY] = eda_report
                     st.session_state[EDA_VIEW_KEY] = eda_view
             else:
