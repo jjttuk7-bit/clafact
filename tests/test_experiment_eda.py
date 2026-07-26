@@ -360,6 +360,50 @@ def test_period_class_compares_normalized_period_with_valid_article_date(
     assert profiled.period == expected_period
     assert profiled.period_class == expected_class
 
+
+def test_bare_integer_with_trend_is_a_numeric_python_candidate():
+    report = analyze_rows(
+        [{"title": "수치", "date": "2025-11-04", "body": "생산량은 500 증가했다."}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.quantities == ()
+    assert sentence.numeric is True
+    assert sentence.python_candidate is True
+    assert sentence.python_rule == "NUMERIC_TREND"
+    assert report.numeric_sentence_count == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_rule", "reason_fragment"),
+    [
+        ("2025년 11월 4일", "EXCLUDED_DATE_ONLY", "날짜"),
+        (
+            "실시간 뉴스 2분 전 소비자물가는 2.4% 상승했다.",
+            "EXCLUDED_SITE_CHROME",
+            "실시간 뉴스·사이트 크롬",
+        ),
+        ("식별번호는 500이다.", "NUMERIC_NO_CLAIM", "수치 표현"),
+        ("시장은 안정적이다.", "NO_MATCH", "수치·비교 표현"),
+    ],
+)
+def test_non_candidates_report_the_actual_exclusion_path(
+    text,
+    expected_rule,
+    reason_fragment,
+):
+    report = analyze_rows(
+        [{"title": "제외", "date": "2025-11-04", "body": text}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.numeric is False
+    assert sentence.python_candidate is False
+    assert sentence.python_rule == expected_rule
+    assert reason_fragment in sentence.python_reason
+    assert report.numeric_sentence_count == 0
+
+
 def test_structure_statistics_use_nearest_rank_and_iqr_original_rows():
     rows = [
         {"title": "a", "date": "2025-01-01", "body": "가."},

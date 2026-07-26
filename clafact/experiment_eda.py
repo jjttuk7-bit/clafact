@@ -40,6 +40,7 @@ class EdaSentence:
 
     text: str
     quantities: tuple[str, ...]
+    numeric: bool
     period: str
     period_class: Literal["past", "current", "forecast", "unknown"]
     claim_type: str
@@ -193,6 +194,15 @@ def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
     """detect.is_candidate의 실제 우선순위와 같은 규칙 이름·사유를 반환한다."""
 
     if not candidate:
+        if detect.RE_NOISE_ONLY.match(sentence.strip()):
+            return "EXCLUDED_DATE_ONLY", "날짜만 있는 식별 표현은 후보에서 제외합니다."
+        if reason := detect.exclusion_reason(sentence):
+            return "EXCLUDED_SITE_CHROME", reason
+        if detect.RE_NUM.search(sentence):
+            return (
+                "NUMERIC_NO_CLAIM",
+                "수치 표현은 있으나 단위 또는 변화·비교 조건을 충족하지 않습니다.",
+            )
         return "NO_MATCH", "Python 후보 규칙에 맞는 수치·비교 표현이 없습니다."
     if detect.RE_NUM_UNIT.search(sentence):
         return "NUMERIC_UNIT", "수치+단위 표현을 탐지했습니다."
@@ -204,6 +214,15 @@ def _python_evidence(sentence: str, candidate: bool) -> tuple[str, str]:
     if rule_id:
         return rule_id, f"규칙 카드 {rule_id} 패턴을 탐지했습니다."
     return "CANDIDATE", "Python 후보 규칙을 통과했습니다."
+
+
+def _has_numeric_expression(sentence: str, quantities: list[Quantity]) -> bool:
+    stripped = sentence.strip()
+    if detect.RE_NOISE_ONLY.match(stripped) or detect.exclusion_reason(stripped):
+        return False
+    return bool(quantities) or bool(
+        detect.RE_NUM.search(stripped) and detect.RE_TREND.search(stripped)
+    )
 
 
 def _period_key(period: str) -> tuple[int, int] | None:
@@ -264,6 +283,7 @@ def _profile_sentences(cleaned_body: str, article_date: str) -> tuple[EdaSentenc
             EdaSentence(
                 text=sentence,
                 quantities=tuple(quantity.raw for quantity in quantities),
+                numeric=_has_numeric_expression(sentence, quantities),
                 period=period,
                 period_class=_period_class(period, source.claim_type, valid_date),
                 claim_type=source.claim_type,
@@ -414,7 +434,7 @@ def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
         excluded_counts=_immutable_counts(excluded_counts),
         warning_counts=_immutable_counts(warning_counts),
         total_sentence_count=len(sentence_rows),
-        numeric_sentence_count=sum(bool(sentence.quantities) for sentence in sentence_rows),
+        numeric_sentence_count=sum(sentence.numeric for sentence in sentence_rows),
         python_candidate_count=sum(sentence.python_candidate for sentence in sentence_rows),
         kosis_routing_count=sum(
             sentence.python_candidate and sentence.route == "KOSIS_RETRIEVAL"
