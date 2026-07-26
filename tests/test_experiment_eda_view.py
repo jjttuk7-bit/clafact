@@ -9,6 +9,7 @@ from clafact.experiment_eda_view import (
     build_eda_view,
     filter_articles,
     selected_article_rows,
+    _histogram,
 )
 
 
@@ -130,6 +131,30 @@ def test_distribution_bins_are_aggregate_and_bounded():
     assert sum(row.value for row in view.sentence_count_bins) == 25
 
 
+def test_histogram_never_emits_reversed_integer_ranges_for_narrow_domain():
+    rows = _histogram([1, 2] * 12 + [1])
+
+    assert sum(row.value for row in rows) == 25
+    for row in rows:
+        lower, upper = (int(part) for part in row.key.split("-"))
+        assert lower <= upper
+    identical = _histogram([1, 1, 1])
+    assert len(identical) == 1
+    assert identical[0].value == 3
+
+
+def test_warning_kpi_counts_only_valid_articles_but_keeps_excluded_issues():
+    report = analyze_rows([{"title": "제외", "date": "bad", "body": ""}])
+    view = build_eda_view(report)
+
+    assert report.valid_article_count == 0
+    assert report.warning_article_count == 0
+    assert next(card for card in view.quality_kpis if card.key == "warning_articles").value == 0
+    assert ("invalid_date", 1) in [
+        (row.key, row.value) for row in view.issue_reason_rows
+    ]
+    assert view.problem_rows.total == 1
+
 def test_filters_articles_in_source_order():
     report = _report()
 
@@ -147,6 +172,40 @@ def test_filters_articles_in_source_order():
     )
 
 
+def test_filters_exact_zero_and_bounded_candidate_ranges():
+    report = analyze_rows([
+        {"title": "후보 없음", "date": "2025-11-04", "body": "설명 문장입니다."},
+        {"title": "후보 있음", "date": "2025-11-04", "body": "물가는 2% 상승했다."},
+    ])
+    zero = filter_articles(report, min_candidates=0, max_candidates=0)
+    one_or_more = filter_articles(report, min_candidates=1)
+
+    assert zero
+    assert all(
+        sum(sentence.python_candidate for sentence in article.sentences) == 0
+        for article in zero
+    )
+    assert all(
+        sum(sentence.python_candidate for sentence in article.sentences) >= 1
+        for article in one_or_more
+    )
+
+
+def test_filters_reject_unknown_modes_and_invalid_candidate_ranges():
+    report = _report()
+
+    for kwargs in (
+        {"quality": "unknown"},
+        {"body_band": "unknown"},
+        {"min_candidates": -1},
+        {"min_candidates": 2, "max_candidates": 1},
+    ):
+        try:
+            filter_articles(report, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"ValueError expected for {kwargs}")
 def test_selected_rows_are_exact_stored_sentences_and_never_expose_body():
     article = _report().articles[0]
     rows = selected_article_rows(article)

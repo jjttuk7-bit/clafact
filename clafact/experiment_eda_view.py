@@ -132,7 +132,11 @@ def _histogram(values: list[int]) -> tuple[CountRow, ...]:
     low, high = min(values), max(values)
     if low == high:
         return (CountRow(str(low), f"{low:,}", len(values)),)
-    bin_count = min(BODY_BIN_LIMIT, max(1, math.ceil(math.sqrt(len(values)))))
+    bin_count = min(
+        BODY_BIN_LIMIT,
+        high - low + 1,
+        max(1, math.ceil(math.sqrt(len(values)))),
+    )
     width = max(1, math.ceil((high - low + 1) / bin_count))
     buckets = [0] * bin_count
     for value in values:
@@ -188,7 +192,7 @@ def build_eda_view(report: EdaReport) -> EdaView:
             _kpi("source_rows", "원본 행", report.source_row_count, "업로드 CSV에서 읽은 전체 행입니다."),
             _kpi("valid_articles", "유효 기사", article_count, "본문 정제를 통과한 기사입니다."),
             _kpi("excluded_articles", "제외 기사", report.excluded_article_count, "분석에서 제외된 기사입니다."),
-            _kpi("warning_articles", "품질 경고 기사", report.warning_article_count, "분석에는 포함되지만 확인이 필요합니다."),
+            _kpi("warning_articles", "품질 경고 기사", report.warning_article_count, "유효 기사 중 분석에는 포함되지만 확인이 필요한 기사입니다."),
         ),
         claim_kpis=(
             _kpi("total_sentences", "전체 문장", report.total_sentence_count, _INDEPENDENT_NOTE),
@@ -222,11 +226,21 @@ def build_eda_view(report: EdaReport) -> EdaView:
 def filter_articles(
     report: EdaReport,
     *,
-    quality: str = "all",
-    body_band: str = "all",
+    quality: Literal["all", "warnings", "outliers", "clean"] = "all",
+    body_band: Literal["all", "short", "typical", "long"] = "all",
     min_candidates: int = 0,
+    max_candidates: int | None = None,
 ) -> tuple[EdaArticle, ...]:
     """품질·본문 길이·후보 수로 기사 목록을 원본 행 순서대로 제한한다."""
+
+    if quality not in {"all", "warnings", "outliers", "clean"}:
+        raise ValueError(f"unknown quality filter: {quality}")
+    if body_band not in {"all", "short", "typical", "long"}:
+        raise ValueError(f"unknown body band: {body_band}")
+    if min_candidates < 0:
+        raise ValueError("min_candidates must be non-negative")
+    if max_candidates is not None and max_candidates < min_candidates:
+        raise ValueError("max_candidates must be greater than or equal to min_candidates")
 
     outliers = set(report.body_length_stats.outlier_row_numbers) | set(
         report.sentence_count_stats.outlier_row_numbers
@@ -247,11 +261,12 @@ def filter_articles(
         if body_band == "long" and article.clean_length <= q3:
             continue
         candidate_count = sum(sentence.python_candidate for sentence in article.sentences)
-        if candidate_count < max(0, min_candidates):
+        if candidate_count < min_candidates:
+            continue
+        if max_candidates is not None and candidate_count > max_candidates:
             continue
         selected.append(article)
     return tuple(selected)
-
 
 def selected_article_rows(article: EdaArticle) -> tuple[SelectedSentenceRow, ...]:
     """저장된 문장과 그 근거만 노출한다. 기사 본문은 뷰 모델에 복사하지 않는다."""

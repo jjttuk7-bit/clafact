@@ -122,7 +122,7 @@ class EdaReport:
 
     @property
     def warning_article_count(self) -> int:
-        return sum(1 for issue in self.issues if issue.codes and _has_warning(issue.codes))
+        return sum(bool(article.warnings) for article in self.articles)
 
 
 def _pick(row: Mapping[str, object], key: str, *, strip: bool = True) -> str:
