@@ -34,7 +34,7 @@ from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
 from clafact.llm import HcxClient
-from clafact.pipeline.detect_llm import judge as llm_judge
+from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
 
@@ -788,7 +788,7 @@ if view == "검증 실험실":
         else:
             if hcx_available:
                 client = HcxClient()
-                judge_fn = lambda sentence: llm_judge(sentence, client)
+                judge_fn = lambda sentence: hcx_judge(sentence, client)
             else:
                 def judge_fn(_sentence):
                     raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
@@ -799,6 +799,15 @@ if view == "검증 실험실":
                 else:
                     st.session_state["experiment_lab_mode_result"] = (requested_mode, run_mode(comparison_text, comparison_date, requested_mode, judge_fn=judge_fn))
                     st.session_state.pop("experiment_lab_result", None)
+
+    hcx_evidence_labels = {
+        "sufficient": "기사 내부 근거 충분",
+        "needs_retrieval": "검색 필요",
+        "not_applicable": "해당 없음",
+        "unknown": "확인 불가",
+    }
+    def hcx_evidence_label(status: str) -> str:
+        return hcx_evidence_labels.get(status, "확인 불가")
 
     result = st.session_state.get("experiment_lab_result")
     mode_execution = st.session_state.get("experiment_lab_mode_result")
@@ -816,6 +825,10 @@ if view == "검증 실험실":
             with st.expander(f"{number}. {row.sentence}", expanded=False):
                 evidence_label = "Python 규칙 근거" if mode_name == "python" else ("HCX 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
                 st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
+                if mode_name != "python":
+                    st.write(f"**HCX 근거 상태:** {hcx_evidence_label(row.evidence_status)} · {row.evidence_reason}")
+                    if row.quoted_spans:
+                        st.caption(f"HCX 원문 인용: {' · '.join(row.quoted_spans)}")
                 st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 
     if result:
@@ -845,6 +858,7 @@ if view == "검증 실험실":
                 "#": number, "문장": row.sentence,
                 "Python 규칙만": "탐지" if row.python_candidate else "미탐지",
                 "HCX-005만": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "미사용"),
+                "HCX 근거 상태": hcx_evidence_label(row.hcx_evidence_status),
                 "하이브리드": "탐지" if row.hybrid_candidate else "미탐지",
                 "차이": "확인 필요" if row in differing else "동일",
             })
@@ -854,7 +868,10 @@ if view == "검증 실험실":
         for number, row in enumerate(result.rows, start=1):
             with st.expander(f"{number}. {row.sentence}", expanded=False):
                 st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
-                st.write(f"**HCX-005만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
+                st.write(f"**HCX-005만:** {'탐지' if row.llm_verifiable is True else ('미탐지' if row.llm_verifiable is False else '미사용')} · {row.llm_reason}")
+                st.write(f"**HCX 근거 상태:** {hcx_evidence_label(row.hcx_evidence_status)} · {row.hcx_evidence_reason}")
+                if row.hcx_quoted_spans:
+                    st.caption(f"HCX 원문 인용: {' · '.join(row.hcx_quoted_spans)}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
                 st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════

@@ -62,3 +62,30 @@ def test_parse_extracts_from_noisy_json():
     m = MockLLMClient(default='분석 결과: {"verifiable": false, "reason": "연도"} 입니다')
     ok, _ = detect_llm.judge("2024년 사건", m)
     assert ok is False
+
+
+def test_judge_decision_keeps_comparative_numeric_claim_as_candidate():
+    sentence = "이같은 물가 상승률은 지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치다."
+    client = MockLLMClient(default=(
+        '{"candidate": true, "candidate_reason": "2.6%와 15개월 비교가 있는 수치 주장", '
+        '"evidence_status": "needs_retrieval", "evidence_reason": "기사 안의 직접 통계표는 없음", '
+        '"quoted_spans": ["지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치"]}'
+    ))
+
+    decision = detect_llm.judge_decision(sentence, client)
+
+    assert decision.candidate is True
+    assert decision.evidence_status == "needs_retrieval"
+    assert decision.candidate_reason == "2.6%와 15개월 비교가 있는 수치 주장"
+    assert decision.quoted_spans == ["지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치"]
+
+
+def test_judge_decision_discards_quote_not_in_source_sentence():
+    client = MockLLMClient(default=(
+        '{"candidate": true, "candidate_reason": "수치 주장", "evidence_status": "needs_retrieval", '
+        '"evidence_reason": "검색 필요", "quoted_spans": ["원문에 없는 생성 문장"]}'
+    ))
+
+    decision = detect_llm.judge_decision("물가 상승률은 2.6%였다.", client)
+
+    assert decision.quoted_spans == []

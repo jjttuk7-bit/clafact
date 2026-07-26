@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import perf_counter
 
-from clafact.experiment_lab import ComparisonResult, ComparisonRow, Judge, _safe_judge
+from clafact.experiment_lab import ComparisonResult, ComparisonRow, Judge
+from clafact.pipeline.detect_llm import HcxDecision
 from clafact.pipeline import detect, source_classify
 from clafact.pipeline.ingest import split_sentences
 from clafact.pipeline.parse import parse_claim
@@ -19,6 +20,9 @@ class ModeRow:
     parsed_period: str
     route: str
     claim_type: str
+    evidence_status: str = "not_applicable"
+    evidence_reason: str = ""
+    quoted_spans: list[str] | None = None
 
 
 @dataclass
@@ -26,6 +30,19 @@ class ModeResult:
     rows: list[ModeRow]
     llm_calls: int
     elapsed_ms: int
+
+
+def _safe_hcx_decision(sentence: str, judge_fn: Judge | None) -> HcxDecision:
+    if judge_fn is None:
+        return HcxDecision(None, "HCX 호출 함수가 없습니다", "unknown", "HCX가 설정되지 않았습니다", [])
+    try:
+        result = judge_fn(sentence)
+    except Exception as error:
+        return HcxDecision(None, f"HCX 호출 실패: {error}", "unknown", "호출 실패로 근거 상태를 알 수 없습니다", [])
+    if isinstance(result, HcxDecision):
+        return result
+    candidate, reason = result
+    return HcxDecision(candidate, reason, "unknown", "기존 판정 함수는 근거 상태를 제공하지 않습니다", [])
 
 
 def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = None) -> ModeResult:
@@ -40,6 +57,7 @@ def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = N
         parsed = parse_claim(sentence, article_date)
         classified = source_classify.classify(sentence)
         quantities = [quantity.raw for quantity in parsed.quantities]
+        hcx_decision = HcxDecision(None, "해당 방식에서 HCX 미실행", "not_applicable", "HCX 미실행", [])
         if mode == "python":
             candidate = detect.is_candidate(sentence)
             evidence = f"원문 수치: {' · '.join(quantities) or '-'} | 해석 시점: {parsed.period or '-'} | 주장 유형: {classified.claim_type} | 후속 라우팅 (사실 검증 아님): {classified.route}"
@@ -48,7 +66,9 @@ def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = N
             else:
                 reason = f"후보 판정: 제외 | 적용 규칙 미충족: 수치 표현 또는 변화/비교 서술 없음 | {evidence}"
         elif mode == "llm":
-            candidate, reason = _safe_judge(sentence, judge_fn) if judge_fn else (None, "LLM 호출 함수가 없습니다")
+            hcx_decision = _safe_hcx_decision(sentence, judge_fn)
+            candidate = hcx_decision.candidate
+            reason = hcx_decision.candidate_reason
             llm_calls += 1
         else:
             python_candidate = detect.is_candidate(sentence)
@@ -56,12 +76,17 @@ def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = N
                 candidate = False
                 reason = "Python 1차 후보가 아니므로 LLM 2차 판별 미호출"
             else:
-                candidate, reason = _safe_judge(sentence, judge_fn) if judge_fn else (None, "LLM 호출 함수가 없습니다")
+                hcx_decision = _safe_hcx_decision(sentence, judge_fn)
+                candidate = hcx_decision.candidate
+                reason = hcx_decision.candidate_reason
                 llm_calls += 1
                 if candidate is None:
                     candidate = True
                     reason = f"{reason} → Python 후보를 보수적 유지"
-        rows.append(ModeRow(sentence, candidate, reason, quantities, parsed.period, classified.route, classified.claim_type))
+        rows.append(ModeRow(
+            sentence, candidate, reason, quantities, parsed.period, classified.route, classified.claim_type,
+            hcx_decision.evidence_status, hcx_decision.evidence_reason, hcx_decision.quoted_spans,
+        ))
     return ModeResult(rows, llm_calls, round((perf_counter() - started) * 1000))
 
 
@@ -88,6 +113,9 @@ def run_comparison(text: str, article_date: str, judge_fn: Judge | None = None) 
             parsed_period=python_row.parsed_period,
             route=python_row.route,
             claim_type=python_row.claim_type,
+            hcx_evidence_status=llm_row.evidence_status,
+            hcx_evidence_reason=llm_row.evidence_reason,
+            hcx_quoted_spans=llm_row.quoted_spans,
         ))
     total_elapsed = round((perf_counter() - started) * 1000)
     result = ComparisonResult(

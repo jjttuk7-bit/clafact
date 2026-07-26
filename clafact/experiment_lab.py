@@ -25,6 +25,9 @@ class ComparisonRow:
     parsed_period: str
     route: str
     claim_type: str
+    hcx_evidence_status: str = "unknown"
+    hcx_evidence_reason: str = ""
+    hcx_quoted_spans: list[str] | None = None
 
 
 @dataclass

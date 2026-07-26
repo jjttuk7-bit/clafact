@@ -1,4 +1,5 @@
 from clafact.experiment_lab import run_comparison, run_mode
+from clafact.pipeline.detect_llm import HcxDecision
 
 
 def _judge(sentence: str) -> tuple[bool, str]:
@@ -64,3 +65,24 @@ def test_full_comparison_records_separate_mode_timings():
 
     assert set(result.mode_results) == {"python", "llm", "hybrid"}
     assert result.elapsed_ms >= sum(mode.elapsed_ms for mode in result.mode_results.values())
+
+
+def test_hcx_mode_preserves_candidate_and_evidence_status_separately():
+    sentence = "이같은 물가 상승률은 지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치다."
+
+    def judge(_sentence: str):
+        return HcxDecision(
+            candidate=True,
+            candidate_reason="수치와 비교 기간이 있는 후보 주장",
+            evidence_status="needs_retrieval",
+            evidence_reason="기사 내부의 직접 통계 근거는 부족함",
+            quoted_spans=["지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치"],
+        )
+
+    result = run_mode(sentence, "2025-11-04", "llm", judge_fn=judge)
+
+    row = result.rows[0]
+    assert row.candidate is True
+    assert row.evidence_status == "needs_retrieval"
+    assert row.evidence_reason == "기사 내부의 직접 통계 근거는 부족함"
+    assert row.quoted_spans == ["지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치"]

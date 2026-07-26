@@ -41,7 +41,7 @@
 | VLAB-006 | Resolved · Backfilled | 2026-07-26 | 비교 방식 | 세 방식의 결과와 시간이 한 번의 흐름으로 섞여 개별 방식 성능을 판단하기 어려웠다. | 전체 비교 + Python/HCX/하이브리드 독립 실행 및 모드별 시간 기록. `6b3fcef`, `81b546d`. |
 | VLAB-007 | Resolved · Backfilled | 2026-07-26 | 관측성 | 처리 시간이 밀리초 숫자로만 보여 사람이 해석하기 어려웠고, 근거가 충분히 구분되지 않았다. | 초와 ms 동시 표기, 방식별 근거·EDA·문장별 차이 표시. `81b546d`. |
 | VLAB-008 | Resolved · Backfilled | 2026-07-26 | Python 근거 | Python 후보 수 `13`이 전체 문장 수와 분리되어 오해를 만들고, 탐지 근거가 ‘수치 주장’처럼 과장됐다. | `13 / 14` 표기, 적용 규칙·원문 수치·시점·라우팅을 분리해 표시. `070b644`. |
-| VLAB-009 | Open | 2026-07-26 | HCX 후보 탐지 | 문장 “이같은 물가 상승률은 지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치다.”를 HCX가 미탐지했다. | 수치·비교 기간이 있는 후보이므로 후보 탐지 기준에서는 통과가 적절하다. ‘공식 출처 직접 인용 없음’은 별도 근거 충분성 상태로 분리해야 한다. 골든셋과 프롬프트/스키마 개선이 필요하다. |
+| VLAB-009 | Resolved | 2026-07-26 | HCX 후보 탐지 | 문장 “이같은 물가 상승률은 지난해 7월(2.6%) 이후 15개월만에 가장 높은 수치다.”를 HCX가 미탐지했다. | HCX 결과를 `candidate`와 `evidence_status`로 분리했다. 해당 문장은 `candidate=true`, `needs_retrieval`로 처리하며, 회귀 테스트로 고정했다. |
 | VLAB-010 | Monitoring | 2026-07-26 | 모델 투명성 | 화면이 일반명 `LLM`을 사용해 실제 제공자·모델과 장래 GPT 비교 대상을 구별하기 어려웠다. | 화면을 `HCX-005`로 표기하도록 변경 중. 다음 단계는 제공자·모델·호출 성공/오류·요청 식별자(비밀 제외)를 실행 결과에 구조화해 남기는 것이다. |
 | VLAB-011 | Baseline | 2026-07-26 | 테스트 | 전체 테스트 3건이 실패하지만 기능 변경 전 `main`에서도 재현됐다. | 검증 실험실 대상 테스트는 통과. 실패 목록은 아래 기준선에 보관하며 별도 수리 과제로 분리한다. |
 
@@ -53,12 +53,9 @@
 - **영향:** 실제 검증할 수치·비교 주장이 후보군에서 빠져 재현율이 낮아진다.
 - **현재 원인 가설:** 현재 HCX 프롬프트가 “공식 통계로 검증 가능한 수치 주장”을 한 번에 판단해, 후보 여부와 기사 안의 직접 공식 출처 인용 여부를 혼동한다.
 - **확정 판단:** 후보 탐지 결과는 `탐지`가 맞다. 이 문장만으로 실제 수치의 참·거짓 또는 공식 근거 확보가 확정되는 것은 아니다.
-- **해결 방향:**
-  1. 1단계 `candidate_detection`: 수치·비교·시점이 있어 검증 후보인지 판정한다.
-  2. 2단계 `evidence_sufficiency`: 기사 안에 기관명·통계명·발표 시점·원문 인용이 충분한지 판정한다.
-  3. 3단계 `retrieval/verification`: KOSIS 등 외부 공식 근거로 실제 대조한다.
-  4. HCX 응답을 JSON 스키마(`candidate`, `candidate_reason`, `evidence_status`, `evidence_reason`, `quoted_spans`, `confidence`)로 강제하고, 파싱 실패·API 오류는 명시적으로 기록한다.
-- **다음 검증:** 이 문장을 포함한 골든셋에 기대값 `candidate=true`, `evidence_status=needs_retrieval`을 추가한다.
+- **해결:** HCX 프롬프트와 응답 계약을 `candidate`, `candidate_reason`, `evidence_status`, `evidence_reason`, `quoted_spans`로 분리했다. `needs_retrieval`은 후보 탈락이 아닌 정상 탐지 상태다.
+- **검증:** `tests/test_detect_llm.py::test_judge_decision_keeps_comparative_numeric_claim_as_candidate`, `tests/test_experiment_lab.py::test_hcx_mode_preserves_candidate_and_evidence_status_separately`가 이 문장을 `candidate=true`, `needs_retrieval`로 고정한다.
+- **후속 관찰:** 실 API HCX-005 응답의 JSON 준수율과 원문 인용 구간의 정확도는 골든셋 확장 시 계속 관찰한다.
 
 ### VLAB-010 — 제공자·모델이 드러나는 비교 체계
 
