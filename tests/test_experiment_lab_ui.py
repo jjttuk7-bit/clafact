@@ -18,5 +18,11 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert '"기사 본문 전체"' in section
     assert '기사 선택' in section
     assert '자동 일괄 실행하지 않습니다' in section
+    assert '전체 비교 실행' in section
+    assert 'Python만 실행' in section
+    assert 'LLM만 실행' in section
+    assert '하이브리드만 실행' in section
+    assert '방식별 판단 근거' in section
+    assert '전체 비교 경과시간' in section
     assert "Store(" not in section
     assert "process_pending(" not in section

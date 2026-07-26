@@ -1,4 +1,4 @@
-from clafact.experiment_lab import run_comparison
+from clafact.experiment_lab import run_comparison, run_mode
 
 
 def _judge(sentence: str) -> tuple[bool, str]:
@@ -37,3 +37,27 @@ def test_hybrid_preserves_python_candidate_when_llm_call_fails():
     assert row.llm_verifiable is None
     assert row.hybrid_candidate is True
     assert "보수적 유지" in row.hybrid_reason
+
+def test_each_mode_runs_independently_and_keeps_evidence():
+    text = "지난해 실업률은 2.7%였다. 전화번호는 1234-5678이다."
+
+    python_result = run_mode(text, "2025-07-14", "python", judge_fn=_judge)
+    llm_result = run_mode(text, "2025-07-14", "llm", judge_fn=_judge)
+    hybrid_result = run_mode(text, "2025-07-14", "hybrid", judge_fn=_judge)
+
+    assert python_result.llm_calls == 0
+    assert llm_result.llm_calls == 2
+    assert hybrid_result.llm_calls == 1
+    assert python_result.rows[0].candidate is True
+    assert llm_result.rows[0].candidate is True
+    assert hybrid_result.rows[0].candidate is True
+    assert python_result.rows[0].quantities == ["2.7%"]
+    assert python_result.rows[0].parsed_period == "2024"
+    assert hybrid_result.rows[1].reason == "Python 1차 후보가 아니므로 LLM 2차 판별 미호출"
+
+
+def test_full_comparison_records_separate_mode_timings():
+    result = run_comparison("지난해 실업률은 2.7%였다.", "2025-07-14", judge_fn=_judge)
+
+    assert set(result.mode_results) == {"python", "llm", "hybrid"}
+    assert result.elapsed_ms >= sum(mode.elapsed_ms for mode in result.mode_results.values())

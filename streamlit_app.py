@@ -31,7 +31,7 @@ from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
-from clafact.experiment_lab import run_comparison
+from clafact.experiment_lab import run_comparison, run_mode
 from clafact.llm import HcxClient
 from clafact.pipeline.detect_llm import judge as llm_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
@@ -760,7 +760,13 @@ if view == "검증 실험실":
     else:
         st.warning("LLM 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 LLM 열은 ‘미사용’으로 표시됩니다.")
 
-    if st.button("세 방식 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run"):
+    all_button, python_button, llm_button, hybrid_button = st.columns(4)
+    run_all = all_button.button("전체 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run_all")
+    run_python = python_button.button("Python만 실행", use_container_width=True, key="experiment_lab_run_python")
+    run_llm = llm_button.button("LLM만 실행", use_container_width=True, key="experiment_lab_run_llm")
+    run_hybrid = hybrid_button.button("하이브리드만 실행", use_container_width=True, key="experiment_lab_run_hybrid")
+    requested_mode = "all" if run_all else ("python" if run_python else ("llm" if run_llm else ("hybrid" if run_hybrid else None)))
+    if requested_mode:
         if not comparison_text.strip():
             st.error("비교할 기사 본문을 입력해 주세요.")
         else:
@@ -770,20 +776,49 @@ if view == "검증 실험실":
             else:
                 def judge_fn(_sentence):
                     raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
-            with st.spinner("세 탐지 방식을 독립 실행 중…"):
-                st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
+            with st.spinner("선택한 방식을 독립 실행 중…"):
+                if requested_mode == "all":
+                    st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
+                    st.session_state.pop("experiment_lab_mode_result", None)
+                else:
+                    st.session_state["experiment_lab_mode_result"] = (requested_mode, run_mode(comparison_text, comparison_date, requested_mode, judge_fn=judge_fn))
+                    st.session_state.pop("experiment_lab_result", None)
 
     result = st.session_state.get("experiment_lab_result")
+    mode_execution = st.session_state.get("experiment_lab_mode_result")
+    if mode_execution:
+        mode_name, mode_result = mode_execution
+        candidate_count = sum(row.candidate is True for row in mode_result.rows)
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"{mode_name.upper()} 탐지", candidate_count if mode_name != "llm" or hcx_available else "미사용")
+        c2.metric("LLM 호출", mode_result.llm_calls)
+        c3.metric(f"{mode_name.upper()} 처리 시간", f"{mode_result.elapsed_ms}ms")
+        st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {mode_name.upper()} 방식만 실행했습니다.")
+        st.markdown("##### 방식별 판단 근거")
+        for number, row in enumerate(mode_result.rows, start=1):
+            with st.expander(f"{number}. {row.sentence}", expanded=False):
+                st.write(f"**판정:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
+                st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
+
     if result:
         python_count = sum(row.python_candidate for row in result.rows)
         llm_count = sum(row.llm_verifiable is True for row in result.rows)
         hybrid_count = sum(row.hybrid_candidate for row in result.rows)
         differing = [row for row in result.rows if len({row.python_candidate, row.llm_verifiable, row.hybrid_candidate}) > 1]
+        mode_results = getattr(result, "mode_results", {})
+        if mode_results:
+            st.markdown("##### 방식별 실행 시간")
+            t1, t2, t3, t4 = st.columns(4)
+            t1.metric("Python만", f"{mode_results['python'].elapsed_ms}ms")
+            t2.metric("LLM만", f"{mode_results['llm'].elapsed_ms}ms")
+            t3.metric("하이브리드만", f"{mode_results['hybrid'].elapsed_ms}ms")
+            t4.metric("전체 비교 경과시간", f"{result.elapsed_ms}ms")
+
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Python 규칙만", python_count)
         c2.metric("LLM만", llm_count if hcx_available else "미사용")
         c3.metric("하이브리드", hybrid_count)
-        c4.metric("처리 시간", f"{result.elapsed_ms}ms")
+        c4.metric("전체 비교 경과시간", f"{result.elapsed_ms}ms")
         st.caption(f"문장 {len(result.rows)}개 · LLM 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
 
         display_rows = []
@@ -797,16 +832,13 @@ if view == "검증 실험실":
             })
         st.dataframe(display_rows, use_container_width=True, hide_index=True)
 
-        if differing:
-            st.markdown("##### 방식별 결과가 다른 문장")
-            for row in differing:
-                with st.expander(row.sentence, expanded=False):
-                    st.write(f"**Python 규칙만:** {'탐지' if row.python_candidate else '미탐지'}")
-                    st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
-                    st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
-                    st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
-        else:
-            st.success("현재 입력에서는 세 방식의 탐지 결과가 같습니다. 문맥 의존·전망·복합 수치 문장을 넣어 차이를 비교해 보세요.")
+        st.markdown("##### 방식별 판단 근거")
+        for number, row in enumerate(result.rows, start=1):
+            with st.expander(f"{number}. {row.sentence}", expanded=False):
+                st.write(f"**Python 규칙만:** {'탐지' if row.python_candidate else '미탐지'}")
+                st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
+                st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
+                st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")

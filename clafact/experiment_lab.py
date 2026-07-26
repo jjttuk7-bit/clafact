@@ -83,3 +83,5 @@ def run_comparison(text: str, article_date: str, judge_fn: Judge | None = None) 
         llm_calls=llm_calls,
         elapsed_ms=round((perf_counter() - started) * 1000),
     )
+
+from clafact.experiment_modes import run_comparison, run_mode
