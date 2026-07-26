@@ -39,6 +39,10 @@ from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
 
 ROOT = Path(__file__).resolve().parent
+
+
+def format_elapsed_ms(elapsed_ms: int) -> str:
+    return f"{elapsed_ms / 1000:,.3f}초 ({elapsed_ms:,} ms)"
 GOLDEN = ROOT / "data/goldenset/golden_v0.jsonl"
 RULES_DIR = ROOT / "data/assets/rules"
 FAILURES = ROOT / "data/failures/failures.jsonl"
@@ -746,6 +750,13 @@ if view == "검증 실험실":
                 format_func=lambda index: f"{csv_articles[index]['title'] or '제목 없음'} · {csv_articles[index]['date'] or '날짜 없음'} (행 {csv_articles[index]['row_number']})",
             )
             selected_lab_article = csv_articles[selected_article_index]
+            with st.expander("CSV 전처리·EDA", expanded=False):
+                e1, e2, e3 = st.columns(3)
+                e1.metric("원본 행", len(csv_rows))
+                e2.metric("유효 기사", len(csv_articles))
+                e3.metric("본문 경계 제외", csv_excluded_rows)
+                st.caption("유효 기사별 정제 후 본문 길이 분포")
+                st.bar_chart([len(article["body"]) for article in csv_articles])
         else:
             st.warning("본문 열(body, 본문, content, text)이 있는 기사를 찾지 못했습니다.")
 
@@ -794,15 +805,17 @@ if view == "검증 실험실":
     if mode_execution:
         mode_name, mode_result = mode_execution
         candidate_count = sum(row.candidate is True for row in mode_result.rows)
-        c1, c2, c3 = st.columns(3)
-        c1.metric(f"{mode_name.upper()} 탐지", candidate_count if mode_name != "llm" or hcx_available else "미사용")
-        c2.metric("LLM 호출", mode_result.llm_calls)
-        c3.metric(f"{mode_name.upper()} 처리 시간", f"{mode_result.elapsed_ms}ms")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Python", candidate_count if mode_name == "python" else "미실행")
+        c2.metric("LLM", (candidate_count if hcx_available else "미사용") if mode_name == "llm" else "미실행")
+        c3.metric("하이브리드", candidate_count if mode_name == "hybrid" else "미실행")
+        c4.metric(f"{mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
         st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {mode_name.upper()} 방식만 실행했습니다.")
         st.markdown("##### 방식별 판단 근거")
         for number, row in enumerate(mode_result.rows, start=1):
             with st.expander(f"{number}. {row.sentence}", expanded=False):
-                st.write(f"**판정:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
+                evidence_label = "Python 규칙 근거" if mode_name == "python" else ("LLM 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
+                st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
                 st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
 
     if result:
@@ -814,16 +827,16 @@ if view == "검증 실험실":
         if mode_results:
             st.markdown("##### 방식별 실행 시간")
             t1, t2, t3, t4 = st.columns(4)
-            t1.metric("Python만", f"{mode_results['python'].elapsed_ms}ms")
-            t2.metric("LLM만", f"{mode_results['llm'].elapsed_ms}ms")
-            t3.metric("하이브리드만", f"{mode_results['hybrid'].elapsed_ms}ms")
-            t4.metric("전체 비교 경과시간", f"{result.elapsed_ms}ms")
+            t1.metric("Python만", format_elapsed_ms(mode_results['python'].elapsed_ms))
+            t2.metric("LLM만", format_elapsed_ms(mode_results['llm'].elapsed_ms))
+            t3.metric("하이브리드만", format_elapsed_ms(mode_results['hybrid'].elapsed_ms))
+            t4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Python 규칙만", python_count)
         c2.metric("LLM만", llm_count if hcx_available else "미사용")
         c3.metric("하이브리드", hybrid_count)
-        c4.metric("전체 비교 경과시간", f"{result.elapsed_ms}ms")
+        c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
         st.caption(f"문장 {len(result.rows)}개 · LLM 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
 
         display_rows = []
@@ -840,7 +853,7 @@ if view == "검증 실험실":
         st.markdown("##### 방식별 판단 근거")
         for number, row in enumerate(result.rows, start=1):
             with st.expander(f"{number}. {row.sentence}", expanded=False):
-                st.write(f"**Python 규칙만:** {'탐지' if row.python_candidate else '미탐지'}")
+                st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
                 st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
                 st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")

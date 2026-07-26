@@ -50,6 +50,7 @@ def test_each_mode_runs_independently_and_keeps_evidence():
     assert hybrid_result.llm_calls == 1
     assert python_result.rows[0].candidate is True
     assert llm_result.rows[0].candidate is True
+    assert "수치 표현" in python_result.rows[0].reason
     assert hybrid_result.rows[0].candidate is True
     assert python_result.rows[0].quantities == ["2.7%"]
     assert python_result.rows[0].parsed_period == "2024"

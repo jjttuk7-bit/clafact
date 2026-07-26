@@ -23,6 +23,11 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert 'Python만 실행' in section
     assert 'LLM만 실행' in section
     assert '하이브리드만 실행' in section
+    assert "미실행" in section
+    assert "format_elapsed_ms" in source
+    assert "원본 행" in section
+    assert "st.bar_chart" in section
+    assert "Python 1차" in section
     assert '방식별 판단 근거' in section
     assert '전체 비교 경과시간' in section
     assert "Store(" not in section
