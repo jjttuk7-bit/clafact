@@ -32,6 +32,7 @@ from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
+from clafact.experiment_input import clean_uploaded_article_body
 from clafact.llm import HcxClient
 from clafact.pipeline.detect_llm import judge as llm_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
@@ -726,16 +727,20 @@ if view == "검증 실험실":
             csv_rows = []
 
         csv_articles = []
+        csv_excluded_rows = 0
         for row_number, row in enumerate(csv_rows, start=1):
-            body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "기사 본문 전체", "content", "text") if row.get(column)), "")
+            raw_body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "기사 본문 전체", "content", "text") if row.get(column)), "")
+            body = clean_uploaded_article_body(raw_body)
             if not body:
+                if raw_body:
+                    csv_excluded_rows += 1
                 continue
             title = next((str(row.get(column) or "").strip() for column in ("title", "제목", "기사 제목", "기사제목") if row.get(column)), "")
             article_date = next((str(row.get(column) or "").strip() for column in ("date", "작성일", "게시일", "published_at") if row.get(column)), "")
             csv_articles.append({"row_number": row_number, "title": title, "date": article_date, "body": body})
 
         if csv_articles:
-            st.caption(f"CSV 유효 기사 {len(csv_articles):,}건 · 자동 일괄 실행하지 않습니다. 비교할 기사 한 건을 선택하세요.")
+            st.caption(f"CSV 유효 기사 {len(csv_articles):,}건 · 본문 경계 제외 {csv_excluded_rows}건 · 자동 일괄 실행하지 않습니다. 비교할 기사 한 건을 선택하세요.")
             selected_article_index = st.selectbox(
                 "기사 선택", options=range(len(csv_articles)), key="experiment_lab_article",
                 format_func=lambda index: f"{csv_articles[index]['title'] or '제목 없음'} · {csv_articles[index]['date'] or '날짜 없음'} (행 {csv_articles[index]['row_number']})",
