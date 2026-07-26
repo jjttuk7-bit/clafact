@@ -9,7 +9,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO, Iterator, Sequence
 from uuid import uuid4
 
 from clafact.experiment_store import ExperimentStore, RUN_COLUMNS, SENTENCE_COLUMNS
@@ -43,6 +43,31 @@ def export_run_csv(store: ExperimentStore, run_id: str) -> bytes:
         writer.writerow({column: _spreadsheet_safe(combined.get(column)) for column in CSV_COLUMNS})
     return output.getvalue().encode("utf-8-sig")
 
+
+def export_runs_csv(store: ExperimentStore, run_ids: Sequence[str]) -> bytes:
+    """Export selected persisted runs newest first as one deterministic safe CSV."""
+    unique_ids = list(dict.fromkeys(str(run_id) for run_id in run_ids))
+    if not unique_ids:
+        raise ValueError("실험 실행을 하나 이상 선택해야 합니다")
+    runs = []
+    for run_id in unique_ids:
+        run = store.get_run(run_id)
+        if run is None:
+            raise KeyError(f"실험 실행을 찾을 수 없습니다: {run_id}")
+        runs.append(run)
+    runs.sort(key=lambda row: (row["created_at"], row["run_id"]), reverse=True)
+
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for run in runs:
+        for sentence in store.get_sentences(run["run_id"]):
+            combined = {**run, **sentence}
+            writer.writerow({
+                column: _spreadsheet_safe(combined.get(column))
+                for column in CSV_COLUMNS
+            })
+    return output.getvalue().encode("utf-8-sig")
 
 def _sentence_for_promotion(
     store: ExperimentStore,

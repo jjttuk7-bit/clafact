@@ -108,3 +108,55 @@ def test_explicit_save_is_idempotent_and_persists_total_calls_and_every_class(tm
 
 def test_semantic_difference_excludes_agreement_and_hcx_errors():
     assert semantic_disagreement_count(_comparison_result()) == 2
+
+def test_concurrent_identical_saves_are_atomic_and_idempotent(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    database_path = tmp_path / "research" / "verification_lab.db"
+    result = _comparison_result()
+    context = build_run_context(
+        article_text=" ".join(row.sentence for row in result.rows),
+        article_date="2025-11-04",
+        article_title="소비자물가",
+        source_row_count=1,
+        prompt_version="candidate-v2",
+        created_at="2026-07-26T12:00:00+09:00",
+        run_token="concurrent-token",
+    )
+    start = threading.Barrier(2)
+
+    def save_once():
+        start.wait()
+        return save_comparison_run(database_path, result, context)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: save_once(), range(2)))
+
+    assert sorted(outcome.created for outcome in outcomes) == [False, True]
+    with ExperimentStore(database_path) as store:
+        assert len(store.list_runs()) == 1
+        assert len(store.get_sentences(context.run_id)) == len(result.rows)
+
+
+def test_same_run_id_with_conflicting_payload_is_rejected(tmp_path):
+    import pytest
+    from dataclasses import replace
+
+    database_path = tmp_path / "research.db"
+    result = _comparison_result()
+    context = build_run_context(
+        article_text=" ".join(row.sentence for row in result.rows),
+        article_date="2025-11-04",
+        article_title="원본 제목",
+        source_row_count=1,
+        prompt_version="candidate-v2",
+        created_at="2026-07-26T12:00:00+09:00",
+        run_token="conflict-token",
+    )
+    save_comparison_run(database_path, result, context)
+
+    with pytest.raises(ValueError, match="run_id.*payload|실행 ID.*다른"):
+        save_comparison_run(
+            database_path, result, replace(context, article_title="충돌 제목")
+        )

@@ -148,3 +148,20 @@ def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
     assert "evaluation_display.run_label" in section
     assert "HCX 오류 행은 HCX 정밀도·재현율 표본에서 제외" in section
     assert "Python OR HCX는 HCX 오류 시 Python 결과를 유지" in section
+
+
+def test_historical_research_is_available_without_a_current_result():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+    history = section[section.index('"누적 연구 이력"'):]
+
+    assert "ExperimentStore(" in history
+    assert "list_all_runs(" in history
+    assert "get_sentences_for_runs(" in history
+    assert "build_history_summary(" in history
+    assert '"기간 전체 CSV 다운로드"' in history
+    assert "export_runs_csv(" in history
+    assert '"과거 실행 선택"' in history
+    assert "save_human_review(" in history
+    assert "promote_reviewed_sentence(" in history
+    assert section.index('"누적 연구 이력"') > section.index("if result:")

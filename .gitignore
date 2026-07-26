@@ -29,3 +29,5 @@ data/external/
 
 # Local Git worktrees — independent working directories, never repository content
 .worktrees/
+
+data/goldenset/*.lock

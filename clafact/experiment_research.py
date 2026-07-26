@@ -137,7 +137,5 @@ def save_comparison_run(
         })
 
     with ExperimentStore(database_path) as research_store:
-        if research_store.get_run(context.run_id) is not None:
-            return SaveOutcome(context.run_id, created=False)
-        research_store.append_run(run_row, sentence_rows)
-    return SaveOutcome(context.run_id, created=True)
+        created = research_store.append_run_idempotent(run_row, sentence_rows)
+    return SaveOutcome(context.run_id, created=created)

@@ -7,7 +7,7 @@ import time
 import pytest
 
 from clafact import experiment_export as export_module
-from clafact.experiment_export import export_run_csv, promote_to_golden
+from clafact.experiment_export import export_run_csv, export_runs_csv, promote_to_golden
 from clafact.experiment_store import ExperimentStore
 
 
@@ -69,6 +69,43 @@ def test_export_rejects_an_unknown_run():
         with pytest.raises(KeyError, match="run-missing"):
             export_run_csv(store, "run-missing")
 
+
+def test_exports_multiple_runs_with_stable_run_metadata_and_order():
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        run_two = {
+            "run_id": "run-002", "created_at": "2026-07-27T11:30:00+09:00",
+            "article_hash": "article-hash-2", "article_title": "+두 번째",
+            "article_date": "2026-07-27", "provider": "GPT", "model": "=gpt-5",
+            "prompt_version": "candidate-v3", "python_ms": 4, "hcx_ms": 10,
+            "total_ms": 14, "hcx_calls": 2, "source_row_count": 1,
+            "sentence_count": 1,
+        }
+        store.append_run(run_two, [{
+            "sentence_index": 1, "sentence_hash": "sentence-hash-3",
+            "sentence_text": "두 번째 문장", "python_candidate": False,
+            "python_reason": "python", "hcx_status": "success",
+            "hcx_candidate": True, "hcx_reason": "hcx",
+            "evidence_status": "search_required", "disagreement_class": "P-/H+",
+        }])
+        payload = export_runs_csv(store, ["run-001", "run-002"])
+
+    rows = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
+    assert [(row["run_id"], row["sentence_index"]) for row in rows] == [
+        ("run-002", "1"), ("run-001", "1"), ("run-001", "2")
+    ]
+    assert rows[0]["provider"] == "GPT"
+    assert rows[0]["model"] == "'=gpt-5"
+    assert rows[0]["article_title"] == "'+두 번째"
+
+
+def test_multiple_run_export_rejects_missing_and_empty_selection():
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        with pytest.raises(ValueError, match="하나 이상"):
+            export_runs_csv(store, [])
+        with pytest.raises(KeyError, match="run-missing"):
+            export_runs_csv(store, ["run-001", "run-missing"])
 
 @pytest.mark.parametrize("label", [None, "hold"])
 def test_golden_promotion_rejects_unreviewed_or_held_sentences(tmp_path, label):

@@ -34,7 +34,12 @@ from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
-from clafact.experiment_export import export_run_csv
+from clafact.experiment_export import export_run_csv, export_runs_csv
+from clafact.experiment_history import (
+    DISAGREEMENT_ORDER,
+    build_history_summary,
+    distinct_filter_values,
+)
 from clafact.experiment_review import (
     build_reviewed_evaluation,
     pop_review_feedback,
@@ -1108,6 +1113,248 @@ if view == "검증 실험실":
                             st.error(f"골든셋 승격 실패: {error}")
                         else:
                             st.success("사람이 승인한 사례를 하이브리드 불일치 골든셋에 추가했습니다.")
+    st.subheader("누적 연구 이력")
+    history_feedback = pop_review_feedback(st.session_state)
+    if history_feedback:
+        st.success(history_feedback)
+    st.caption(
+        "앱을 다시 시작해도 연구 전용 SQLite에 저장된 문장 판정 이력을 조회합니다. "
+        "업로드 기사 본문을 다시 읽거나 운영 DB를 사용하지 않습니다."
+    )
+    history_database = ROOT / "data/research/verification_lab.db"
+    try:
+        with ExperimentStore(history_database) as history_store:
+            all_history_runs = history_store.list_all_runs()
+    except Exception as error:
+        st.error(f"누적 연구 이력을 불러오지 못했습니다: {error}")
+        all_history_runs = []
+
+    if not all_history_runs:
+        st.info("저장된 연구 실행이 없습니다. 전체 비교 후 ‘연구 이력 저장’을 눌러 주세요.")
+    else:
+        history_dates = [str(run["created_at"])[:10] for run in all_history_runs]
+        with st.form("experiment_lab_history_filters"):
+            date_column, provider_column, model_column, prompt_column = st.columns(4)
+            history_date_range = date_column.date_input(
+                "실행 기간",
+                value=(
+                    datetime.fromisoformat(min(history_dates)).date(),
+                    datetime.fromisoformat(max(history_dates)).date(),
+                ),
+                key="experiment_lab_history_dates",
+            )
+            provider_options = [
+                "전체", *distinct_filter_values(all_history_runs, "provider")
+            ]
+            model_options = [
+                "전체", *distinct_filter_values(all_history_runs, "model")
+            ]
+            prompt_options = [
+                "전체", *distinct_filter_values(all_history_runs, "prompt_version")
+            ]
+            history_provider = provider_column.selectbox(
+                "제공자", provider_options, key="experiment_lab_history_provider"
+            )
+            history_model = model_column.selectbox(
+                "모델", model_options, key="experiment_lab_history_model"
+            )
+            history_prompt = prompt_column.selectbox(
+                "프롬프트", prompt_options, key="experiment_lab_history_prompt"
+            )
+            st.form_submit_button("누적 이력 필터 적용", width="stretch")
+
+        if isinstance(history_date_range, tuple) and len(history_date_range) == 2:
+            history_date_from, history_date_to = map(str, history_date_range)
+        else:
+            history_date_from = history_date_to = str(history_date_range)
+        history_filters = {
+            "date_from": history_date_from,
+            "date_to": history_date_to,
+            "provider": None if history_provider == "전체" else history_provider,
+            "model": None if history_model == "전체" else history_model,
+            "prompt_version": None if history_prompt == "전체" else history_prompt,
+        }
+        try:
+            with ExperimentStore(history_database) as history_store:
+                filtered_history_runs = history_store.list_runs(
+                    **history_filters, limit=500
+                )
+                filtered_history_sentences = history_store.get_sentences_for_runs(
+                    [run["run_id"] for run in filtered_history_runs]
+                )
+                filtered_history_csv = (
+                    export_runs_csv(
+                        history_store,
+                        [run["run_id"] for run in filtered_history_runs],
+                    )
+                    if filtered_history_runs else None
+                )
+        except Exception as error:
+            st.error(f"필터된 연구 이력을 불러오지 못했습니다: {error}")
+            filtered_history_runs = []
+            filtered_history_sentences = []
+            filtered_history_csv = None
+
+        history_summary = build_history_summary(
+            filtered_history_runs, filtered_history_sentences
+        )
+        st.caption(
+            f"필터 결과: 실행 {history_summary.run_count}건 · 문장 {history_summary.sentence_count}건"
+        )
+        history_count_columns = st.columns(5)
+        for count_column, outcome in zip(history_count_columns, DISAGREEMENT_ORDER):
+            count_column.metric(outcome, f"{history_summary.counts[outcome]}건")
+        st.caption(
+            "누적 화면은 모델·프롬프트 버전이 섞일 수 있어 5유형 건수만 표시합니다. "
+            "정밀도·재현율은 아래에서 선택한 단일 실행의 사람 검토 표본에만 표시합니다."
+        )
+        if filtered_history_csv is not None:
+            st.download_button(
+                "기간 전체 CSV 다운로드",
+                data=filtered_history_csv,
+                file_name=f"verification_lab_history_{history_date_from}_{history_date_to}.csv",
+                mime="text/csv; charset=utf-8",
+                key="experiment_lab_history_download_csv",
+                width="stretch",
+            )
+
+        if filtered_history_runs:
+            historical_run_by_label = {
+                (
+                    f"{run['created_at']} · {run['provider']}/{run['model']} · "
+                    f"{run['prompt_version']} · {run['run_id']}"
+                ): run["run_id"]
+                for run in filtered_history_runs
+            }
+            selected_historical_label = st.selectbox(
+                "과거 실행 선택",
+                list(historical_run_by_label),
+                key="experiment_lab_historical_run",
+            )
+            selected_historical_run_id = historical_run_by_label[
+                selected_historical_label
+            ]
+            selected_historical_run = next(
+                run for run in filtered_history_runs
+                if run["run_id"] == selected_historical_run_id
+            )
+            selected_historical_sentences = [
+                sentence for sentence in filtered_history_sentences
+                if sentence["run_id"] == selected_historical_run_id
+            ]
+            historical_evaluation = build_reviewed_evaluation(
+                selected_historical_sentences, selected_historical_run
+            )
+            if historical_evaluation is not None:
+                st.markdown("###### 선택 실행의 사람 검토 기반 평가")
+                st.caption(
+                    f"{historical_evaluation.metric_scope_label} · "
+                    f"{historical_evaluation.run_label} · 단일 실행 조건부 지표"
+                )
+                st.dataframe(
+                    list(historical_evaluation.rows),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            st.dataframe(
+                [
+                    {
+                        "문장 번호": sentence["sentence_index"],
+                        "유형": sentence["disagreement_class"],
+                        "문장": sentence["sentence_text"],
+                        "HCX 상태": sentence["hcx_status"],
+                        "사람 검토": sentence.get("human_label") or "미검토",
+                    }
+                    for sentence in selected_historical_sentences
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+            historical_review_rows = reviewable_sentences(selected_historical_sentences)
+            if historical_review_rows:
+                historical_review_by_label = {
+                    f"{row['sentence_index']}. {row['sentence_text'][:90]}": row
+                    for row in historical_review_rows
+                }
+                historical_review_label = st.selectbox(
+                    "과거 실행 검토 문장",
+                    list(historical_review_by_label),
+                    key=f"experiment_lab_history_review_sentence_{selected_historical_run_id}",
+                )
+                historical_sentence = historical_review_by_label[historical_review_label]
+                historical_sentence_index = historical_sentence["sentence_index"]
+                historical_labels = ["true_candidate", "false_positive", "hold"]
+                historical_current_label = historical_sentence.get("human_label")
+                historical_human_label = st.selectbox(
+                    "과거 실행 사람 검토 라벨",
+                    historical_labels,
+                    index=(
+                        historical_labels.index(historical_current_label)
+                        if historical_current_label in historical_labels else 2
+                    ),
+                    format_func=lambda value: {
+                        "true_candidate": "실제 검증 후보",
+                        "false_positive": "오탐",
+                        "hold": "보류",
+                    }[value],
+                    key=(
+                        f"experiment_lab_history_review_label_"
+                        f"{selected_historical_run_id}_{historical_sentence_index}"
+                    ),
+                )
+                historical_review_note = st.text_area(
+                    "과거 실행 검토 메모",
+                    value=historical_sentence.get("review_note") or "",
+                    key=(
+                        f"experiment_lab_history_review_note_"
+                        f"{selected_historical_run_id}_{historical_sentence_index}"
+                    ),
+                )
+                if st.button(
+                    "과거 실행 사람 검토 저장",
+                    key=(
+                        f"experiment_lab_history_save_review_"
+                        f"{selected_historical_run_id}_{historical_sentence_index}"
+                    ),
+                ):
+                    try:
+                        history_review_message = save_human_review(
+                            history_database,
+                            selected_historical_run_id,
+                            historical_sentence_index,
+                            human_label=historical_human_label,
+                            review_note=historical_review_note,
+                            reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                        )
+                    except Exception as error:
+                        st.error(f"과거 실행 사람 검토 저장 실패: {error}")
+                    else:
+                        store_review_feedback(st.session_state, history_review_message)
+                        st.rerun()
+
+                historical_promotable = historical_sentence.get("human_label") in {
+                    "true_candidate", "false_positive"
+                }
+                if st.button(
+                    "과거 실행 승인 사례를 골든셋으로 승격",
+                    disabled=not historical_promotable,
+                    key=(
+                        f"experiment_lab_history_promote_"
+                        f"{selected_historical_run_id}_{historical_sentence_index}"
+                    ),
+                ):
+                    try:
+                        promote_reviewed_sentence(
+                            history_database,
+                            selected_historical_run_id,
+                            historical_sentence_index,
+                            ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
+                        )
+                    except Exception as error:
+                        st.error(f"과거 실행 골든셋 승격 실패: {error}")
+                    else:
+                        st.success("선택한 과거 사례를 골든셋에 추가했습니다.")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")

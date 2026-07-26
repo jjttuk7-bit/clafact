@@ -183,3 +183,76 @@ def test_file_backed_store_initializes_parent_directory(tmp_path):
 
     with ExperimentStore(database) as reopened:
         assert reopened.get_run("run-001")["model"] == "HCX-005"
+
+
+def test_lists_runs_with_deterministic_filters_and_pagination():
+    with ExperimentStore(":memory:") as store:
+        fixtures = [
+            ("run-a", "2026-07-24T10:00:00+09:00", "HCX", "HCX-003", "v1"),
+            ("run-b", "2026-07-25T10:00:00+09:00", "HCX", "HCX-005", "v2"),
+            ("run-c", "2026-07-26T10:00:00+09:00", "GPT", "gpt-5", "v2"),
+            ("run-d", "2026-07-26T10:00:00+09:00", "HCX", "HCX-005", "v2"),
+        ]
+        for run_id, created_at, provider, model, prompt_version in fixtures:
+            store.append_run(
+                {
+                    **_run(run_id), "created_at": created_at, "provider": provider,
+                    "model": model, "prompt_version": prompt_version,
+                },
+                _sentences(),
+            )
+
+        assert [row["run_id"] for row in store.list_runs(limit=2)] == ["run-d", "run-c"]
+        assert [row["run_id"] for row in store.list_runs(limit=2, offset=2)] == ["run-b", "run-a"]
+        assert [row["run_id"] for row in store.list_runs(
+            date_from="2026-07-25", date_to="2026-07-26", provider="HCX",
+            model="HCX-005", prompt_version="v2",
+        )] == ["run-d", "run-b"]
+
+
+def test_gets_sentences_for_selected_runs_and_filtered_aggregate():
+    with ExperimentStore(":memory:") as store:
+        for run_id, created_at, provider in (
+            ("run-old", "2026-07-24T10:00:00+09:00", "HCX"),
+            ("run-new", "2026-07-26T10:00:00+09:00", "GPT"),
+        ):
+            store.append_run(
+                {**_run(run_id), "created_at": created_at, "provider": provider},
+                _sentences(),
+            )
+
+        selected = store.get_sentences_for_runs(["run-new", "run-old"])
+        filtered = store.get_filtered_sentences(
+            date_from="2026-07-26", date_to="2026-07-26", provider="GPT"
+        )
+
+    assert [(row["run_id"], row["sentence_index"]) for row in selected] == [
+        ("run-new", 0), ("run-new", 1), ("run-old", 0), ("run-old", 1)
+    ]
+    assert {row["run_id"] for row in filtered} == {"run-new"}
+
+
+@pytest.mark.parametrize(("limit", "offset"), [(0, 0), (501, 0), (1, -1)])
+def test_list_runs_rejects_unsafe_pagination(limit, offset):
+    with ExperimentStore(":memory:") as store:
+        with pytest.raises(ValueError, match="limit|offset"):
+            store.list_runs(limit=limit, offset=offset)
+
+
+def test_list_all_runs_pages_through_more_than_ui_batch_limit():
+    with ExperimentStore(":memory:") as store:
+        for index in range(501):
+            store.append_run(
+                {
+                    **_run(f"run-{index:03d}"),
+                    "created_at": f"2026-07-26T10:{index // 60:02d}:{index % 60:02d}+09:00",
+                    "sentence_count": 0,
+                },
+                [],
+            )
+
+        runs = store.list_all_runs(provider="NAVER")
+
+    assert len(runs) == 501
+    assert runs[0]["run_id"] == "run-500"
+    assert runs[-1]["run_id"] == "run-000"
