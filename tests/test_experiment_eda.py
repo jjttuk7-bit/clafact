@@ -349,6 +349,44 @@ def test_invalid_article_date_never_fabricates_a_period():
     assert profiled.period_class == "unknown"
 
 
+@pytest.mark.parametrize("article_date", ["", "   ", "not-a-date", "2025.13.42"])
+def test_missing_or_invalid_article_date_never_uses_the_current_date(article_date):
+    report = analyze_rows(
+        [
+            {
+                "title": "날짜 없음",
+                "date": article_date,
+                "body": "지난달 소비자물가는 2.4% 상승했다.",
+            }
+        ]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.period == ""
+    assert sentence.period_class == "unknown"
+
+
+def test_every_eda_sentence_is_an_exact_uploaded_cleaned_sentence():
+    uploaded_body = (
+        "입력 2025.11.04. 09:00 첫 문장은 물가가 2.4% 올랐다고 밝혔다. "
+        "둘째 문장은 생산량이 500 증가했다고 설명했다. "
+        "관련 기사 이 문장부터는 기사 본문이 아니다."
+    )
+
+    report = analyze_rows(
+        [{"title": "원문 보존", "date": "2025-11-04", "body": uploaded_body}]
+    )
+    article = report.articles[0]
+    expected = tuple(split_sentences(article.cleaned_body))
+
+    assert tuple(sentence.text for sentence in article.sentences) == expected
+    assert all(sentence.text in article.cleaned_body for sentence in article.sentences)
+    assert all(sentence.text in uploaded_body for sentence in article.sentences)
+    assert "기사 본문이 아니다" not in " ".join(
+        sentence.text for sentence in article.sentences
+    )
+
+
 @pytest.mark.parametrize(
     ("article_date", "sentence", "expected_period", "expected_class"),
     [

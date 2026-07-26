@@ -825,7 +825,9 @@ if view == "검증 실험실":
         selected_eda_range = None
         range_submitted = False
 
-        if upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
+        if upload_metadata and lab_source_row_count == 0:
+            st.warning("CSV에 분석할 데이터 행이 없습니다.")
+        elif upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
             st.info(
                 f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
                 f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."

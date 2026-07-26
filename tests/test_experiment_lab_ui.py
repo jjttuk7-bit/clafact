@@ -71,6 +71,52 @@ def test_eda_range_selection_is_explicit_and_large_files_do_not_auto_analyze():
     assert "전체" in eda
 
 
+def test_empty_or_header_only_csv_warns_and_never_enters_analysis():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[
+        source.index('if view == "검증 실험실":'):source.index("lab_date =")
+    ]
+
+    assert "lab_source_row_count == 0" in section
+    assert "CSV에 분석할 데이터 행이 없습니다." in section
+    empty_guard = section.index("lab_source_row_count == 0")
+    range_resolution = section.index("resolve_eda_range(lab_source_row_count)")
+    analysis = section.index("analyze_rows(")
+    assert empty_guard < range_resolution < analysis
+
+
+def test_eda_analysis_boundary_excludes_external_engines_and_storage():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index("selected_eda_range = None"):source.index("lab_date =")]
+
+    forbidden = (
+        "HcxClient",
+        "judge_sentence",
+        "ExperimentStore",
+        "Store(",
+        "process_pending(",
+        "KosisClient",
+        "KosisOpenApiClient",
+    )
+    assert all(name not in section for name in forbidden)
+    assert "analyze_rows(" in section
+    assert "build_eda_view(" in section
+    assert "selected_article_rows(" in section
+
+
+def test_eda_ui_never_reintroduces_the_single_article_giant_body_bar():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[
+        source.index('if view == "검증 실험실":'):source.index("lab_date =")
+    ]
+
+    assert 'structure_chart_mode == "single"' in section
+    assert "의미 없는 분포 차트 대신 실제 정제·문장 지표" in section
+    assert 'st.bar_chart([len(article["body"]) for article in csv_articles])' not in section
+    assert 'bar_chart([article.clean_length' not in section
+    assert 'bar_chart([len(article.cleaned_body)' not in section
+
+
 def test_eda_uses_session_scoped_cache_and_resets_selection_outside_range():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     section = source[source.index('if view == "검증 실험실":'):source.index("# ═════════════ 탭 2: 검증자 리뷰")]
