@@ -806,9 +806,9 @@ if view == "검증 실험실":
         mode_name, mode_result = mode_execution
         candidate_count = sum(row.candidate is True for row in mode_result.rows)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Python", candidate_count if mode_name == "python" else "미실행")
-        c2.metric("LLM", (candidate_count if hcx_available else "미사용") if mode_name == "llm" else "미실행")
-        c3.metric("하이브리드", candidate_count if mode_name == "hybrid" else "미실행")
+        c1.metric("Python 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "python" else "미실행")
+        c2.metric("LLM 후보 문장", (f"{candidate_count} / {len(mode_result.rows)}" if hcx_available else "미사용") if mode_name == "llm" else "미실행")
+        c3.metric("하이브리드 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "hybrid" else "미실행")
         c4.metric(f"{mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
         st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {mode_name.upper()} 방식만 실행했습니다.")
         st.markdown("##### 방식별 판단 근거")
@@ -816,7 +816,7 @@ if view == "검증 실험실":
             with st.expander(f"{number}. {row.sentence}", expanded=False):
                 evidence_label = "Python 규칙 근거" if mode_name == "python" else ("LLM 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
                 st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
-                st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
+                st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 
     if result:
         python_count = sum(row.python_candidate for row in result.rows)
@@ -833,9 +833,9 @@ if view == "검증 실험실":
             t4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Python 규칙만", python_count)
-        c2.metric("LLM만", llm_count if hcx_available else "미사용")
-        c3.metric("하이브리드", hybrid_count)
+        c1.metric("Python 후보 문장", f"{python_count} / {len(result.rows)}")
+        c2.metric("LLM 후보 문장", f"{llm_count} / {len(result.rows)}" if hcx_available else "미사용")
+        c3.metric("하이브리드 후보 문장", f"{hybrid_count} / {len(result.rows)}")
         c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
         st.caption(f"문장 {len(result.rows)}개 · LLM 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
 
@@ -856,7 +856,7 @@ if view == "검증 실험실":
                 st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
                 st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
-                st.caption(f"Python 추출값: {' · '.join(row.quantities) or '-'} | 시점: {row.parsed_period or '-'} | 유형: {row.claim_type} | 라우팅: {row.route}")
+                st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")

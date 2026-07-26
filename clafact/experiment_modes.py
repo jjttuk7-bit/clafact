@@ -42,8 +42,11 @@ def run_mode(text: str, article_date: str, mode: str, judge_fn: Judge | None = N
         quantities = [quantity.raw for quantity in parsed.quantities]
         if mode == "python":
             candidate = detect.is_candidate(sentence)
-            evidence = f"수치 표현: {' · '.join(quantities) or '-'} | 시점: {parsed.period or '-'} | 유형: {classified.claim_type} | 라우팅: {classified.route}"
-            reason = f"{evidence} → Python 규칙이 수치 주장을 탐지했습니다" if candidate else f"{evidence} → Python 규칙이 수치 주장을 탐지하지 않았습니다"
+            evidence = f"원문 수치: {' · '.join(quantities) or '-'} | 해석 시점: {parsed.period or '-'} | 주장 유형: {classified.claim_type} | 후속 라우팅 (사실 검증 아님): {classified.route}"
+            if candidate:
+                reason = f"후보 판정: 통과 | 적용 규칙: 수치 표현 + 변화/비교 서술 감지 | {evidence}"
+            else:
+                reason = f"후보 판정: 제외 | 적용 규칙 미충족: 수치 표현 또는 변화/비교 서술 없음 | {evidence}"
         elif mode == "llm":
             candidate, reason = _safe_judge(sentence, judge_fn) if judge_fn else (None, "LLM 호출 함수가 없습니다")
             llm_calls += 1
