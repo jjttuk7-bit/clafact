@@ -335,6 +335,31 @@ def test_invalid_article_date_never_fabricates_a_period():
     assert profiled.period_class == "unknown"
 
 
+@pytest.mark.parametrize(
+    ("article_date", "sentence", "expected_period", "expected_class"),
+    [
+        ("2025-11-04", "내년 인구는 3만 명이다.", "2026", "forecast"),
+        ("2025-03-04", "올해 8월 인구는 3만 명이다.", "2025-08", "forecast"),
+        ("2025-03-04", "2025년 4분기 인구는 3만 명이다.", "2025-Q4", "forecast"),
+        ("2025-11-04", "지난달 인구는 3만 명이다.", "2025-10", "past"),
+        ("2025-11-04", "올해 11월 인구는 3만 명이다.", "2025-11", "current"),
+        ("invalid", "내년 인구는 3만 명이다.", "", "unknown"),
+    ],
+)
+def test_period_class_compares_normalized_period_with_valid_article_date(
+    article_date,
+    sentence,
+    expected_period,
+    expected_class,
+):
+    report = analyze_rows(
+        [{"title": "시점", "date": article_date, "body": sentence}]
+    )
+
+    profiled = report.articles[0].sentences[0]
+    assert profiled.period == expected_period
+    assert profiled.period_class == expected_class
+
 def test_structure_statistics_use_nearest_rank_and_iqr_original_rows():
     rows = [
         {"title": "a", "date": "2025-01-01", "body": "가."},

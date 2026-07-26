@@ -233,7 +233,7 @@ def _period_class(
     if year < article_date.year:
         return "past"
     if year > article_date.year:
-        return "unknown"
+        return "forecast"
     if marker == 0:
         return "current"
     if marker < article_date.month:
@@ -242,7 +242,7 @@ def _period_class(
         "-Q" in period and ((article_date.month - 1) // 3 + 1) == marker // 3
     ):
         return "current"
-    return "unknown"
+    return "forecast"
 
 
 def _profile_sentences(cleaned_body: str, article_date: str) -> tuple[EdaSentence, ...]:
