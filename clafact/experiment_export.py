@@ -9,7 +9,8 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, BinaryIO, Iterator
+from uuid import uuid4
 
 from clafact.experiment_store import ExperimentStore, RUN_COLUMNS, SENTENCE_COLUMNS
 
@@ -64,31 +65,70 @@ def _sentence_for_promotion(
     return run, sentence
 
 
+def _try_advisory_lock(lock_file: BinaryIO) -> bool:
+    lock_file.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _release_advisory_lock(lock_file: BinaryIO) -> None:
+    lock_file.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def _exclusive_file_lock(target: Path) -> Iterator[None]:
-    """Acquire an adjacent cross-process lock with a bounded wait."""
+    """Acquire a bounded, crash-released cross-process advisory lock."""
     lock_path = target.with_name(target.name + ".lock")
-    descriptor: int | None = None
-    for attempt in range(_LOCK_RETRIES):
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    lock_file = os.fdopen(descriptor, "r+b", buffering=0)
+    acquired = False
+    try:
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b"\0")
+            os.fsync(lock_file.fileno())
+        for attempt in range(_LOCK_RETRIES):
+            if _try_advisory_lock(lock_file):
+                acquired = True
+                break
             if attempt == _LOCK_RETRIES - 1:
                 raise TimeoutError(f"골든셋 잠금을 획득하지 못했습니다: {lock_path}")
             time.sleep(_LOCK_RETRY_SECONDS)
 
-    assert descriptor is not None
-    try:
-        try:
-            os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        metadata = {
+            "token": uuid4().hex,
+            "pid": os.getpid(),
+            "created_at": time.time(),
+        }
+        lock_file.seek(0)
+        lock_file.write(json.dumps(metadata, sort_keys=True).encode("utf-8"))
+        lock_file.truncate()
+        os.fsync(lock_file.fileno())
         yield
     finally:
-        lock_path.unlink(missing_ok=True)
-
+        try:
+            if acquired:
+                _release_advisory_lock(lock_file)
+        finally:
+            lock_file.close()
 
 def _read_existing_jsonl(path: Path, sentence_hash: str) -> str:
     if not path.exists():

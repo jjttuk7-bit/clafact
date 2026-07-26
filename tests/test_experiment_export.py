@@ -2,9 +2,11 @@ import csv
 import io
 import json
 import os
+import time
 
 import pytest
 
+from clafact import experiment_export as export_module
 from clafact.experiment_export import export_run_csv, promote_to_golden
 from clafact.experiment_store import ExperimentStore
 
@@ -169,7 +171,8 @@ def test_atomic_promotion_preserves_original_and_releases_lock_when_replace_fail
             promote_to_golden(store, "run-001", 1, golden_path)
 
     assert golden_path.read_text(encoding="utf-8") == original
-    assert not golden_path.with_name(golden_path.name + ".lock").exists()
+    with export_module._exclusive_file_lock(golden_path):
+        pass
     assert list(tmp_path.glob(f".{golden_path.name}.*.tmp")) == []
 
 
@@ -213,3 +216,42 @@ def test_p_plus_h_minus_reviewed_sentence_can_be_promoted(tmp_path):
         _stored_class(store, "P+/H-")
         promoted = promote_to_golden(store, "run-denied", 1, golden_path)
     assert promoted["disagreement_class"] == "P+/H-"
+
+def test_dead_owner_lock_is_reclaimed_before_promotion(tmp_path):
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    lock_path = golden_path.with_name(golden_path.name + ".lock")
+    lock_path.write_text(
+        json.dumps({"token": "dead-owner", "pid": 999_999_999, "created_at": time.time()}),
+        encoding="utf-8",
+    )
+    with ExperimentStore(":memory:") as store:
+        _stored_run(store)
+        store.update_review("run-001", 1, human_label="true_candidate", review_note=None,
+                            reviewed_at="2026-07-26T11:40:00+09:00")
+        promoted = promote_to_golden(store, "run-001", 1, golden_path)
+
+    assert promoted["sentence_hash"] == "sentence-hash-1"
+    replacement_metadata = json.loads(lock_path.read_text(encoding="utf-8"))
+    assert replacement_metadata["token"] != "dead-owner"
+    assert replacement_metadata["pid"] == os.getpid()
+
+
+def test_live_current_lock_is_not_stolen(tmp_path, monkeypatch):
+    golden_path = tmp_path / "hybrid_disagreements_v0.jsonl"
+    lock_path = golden_path.with_name(golden_path.name + ".lock")
+    monkeypatch.setattr(export_module, "_LOCK_RETRIES", 2)
+    monkeypatch.setattr(export_module, "_LOCK_RETRY_SECONDS", 0)
+
+    with export_module._exclusive_file_lock(golden_path):
+        with ExperimentStore(":memory:") as store:
+            _stored_run(store)
+            store.update_review("run-001", 1, human_label="true_candidate", review_note=None,
+                                reviewed_at="2026-07-26T11:40:00+09:00")
+            with pytest.raises(TimeoutError, match="잠금을 획득하지 못했습니다"):
+                promote_to_golden(store, "run-001", 1, golden_path)
+
+    metadata = json.loads(lock_path.read_text(encoding="utf-8"))
+    assert metadata["token"]
+    assert metadata["pid"] == os.getpid()
+    assert metadata["created_at"] <= time.time()
+    assert not golden_path.exists()

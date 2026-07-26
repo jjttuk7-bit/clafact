@@ -34,7 +34,14 @@ from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
-from clafact.experiment_export import export_run_csv, promote_to_golden
+from clafact.experiment_export import export_run_csv
+from clafact.experiment_review import (
+    pop_review_feedback,
+    promote_reviewed_sentence,
+    reviewable_sentences,
+    save_human_review,
+    store_review_feedback,
+)
 from clafact.experiment_research import (
     build_run_context,
     input_matches_context,
@@ -968,7 +975,7 @@ if view == "검증 실험실":
         saved_run_id = st.session_state.get("experiment_lab_saved_run_id")
         saved_current_run = bool(run_context) and saved_run_id == run_context.run_id
         if saved_current_run:
-            research_feedback = st.session_state.pop("experiment_lab_research_feedback", "")
+            research_feedback = pop_review_feedback(st.session_state)
             if research_feedback:
                 st.success(research_feedback)
             research_database = ROOT / "data/research/verification_lab.db"
@@ -987,10 +994,7 @@ if view == "검증 실험실":
                     mime="text/csv; charset=utf-8",
                     key="experiment_lab_download_saved_csv",
                 )
-                review_sentences = [
-                    row for row in saved_sentences
-                    if row["disagreement_class"] in {"P+/H-", "P-/H+"}
-                ]
+                review_sentences = reviewable_sentences(saved_sentences)
                 review_choices = {
                     f"{row['sentence_index']}. {row['sentence_text'][:90]}": row["sentence_index"]
                     for row in review_sentences
@@ -1026,26 +1030,24 @@ if view == "검증 실험실":
                         value=selected_saved_sentence.get("review_note") or "",
                         key=f"experiment_lab_review_note_{selected_review_index}",
                     )
-                    save_human_review = st.button(
+                    save_human_review_clicked = st.button(
                         "사람 검토 저장",
                         key=f"experiment_lab_save_review_{selected_review_index}",
                     )
-                    if save_human_review:
+                    if save_human_review_clicked:
                         try:
-                            with ExperimentStore(research_database) as research_store:
-                                research_store.update_review(
-                                    saved_run_id,
-                                    selected_review_index,
-                                    human_label=review_label,
-                                    review_note=review_note.strip() or None,
-                                    reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
-                                )
+                            review_message = save_human_review(
+                                research_database,
+                                saved_run_id,
+                                selected_review_index,
+                                human_label=review_label,
+                                review_note=review_note,
+                                reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                            )
                         except Exception as error:
                             st.error(f"사람 검토 저장 실패: {error}")
                         else:
-                            st.session_state["experiment_lab_research_feedback"] = (
-                                "사람 검토를 연구 전용 이력에 저장했습니다."
-                            )
+                            store_review_feedback(st.session_state, review_message)
                             st.rerun()
 
                     promotable = selected_saved_sentence.get("human_label") in {
@@ -1060,13 +1062,12 @@ if view == "검증 실험실":
                         st.caption("실제 검증 후보 또는 오탐으로 저장된 문장만 골든셋에 승격할 수 있습니다.")
                     if promote_golden:
                         try:
-                            with ExperimentStore(research_database) as research_store:
-                                promote_to_golden(
-                                    research_store,
-                                    saved_run_id,
-                                    selected_review_index,
-                                    ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
-                                )
+                            promote_reviewed_sentence(
+                                research_database,
+                                saved_run_id,
+                                selected_review_index,
+                                ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
+                            )
                         except Exception as error:
                             st.error(f"골든셋 승격 실패: {error}")
                         else:

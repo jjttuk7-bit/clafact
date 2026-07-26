@@ -122,14 +122,16 @@ def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
     assert "true_candidate" in section
     assert "false_positive" in section
     assert "hold" in section
-    assert 'row["disagreement_class"] in {"P+/H-", "P-/H+"}' in section
-    assert 'st.session_state.pop("experiment_lab_research_feedback"' in section
-    assert 'st.session_state["experiment_lab_research_feedback"]' in section
-    assert "update_review(" in section
+    assert "reviewable_sentences(saved_sentences)" in section
+    assert "pop_review_feedback(st.session_state)" in section
+    assert "store_review_feedback(st.session_state" in section
+    assert "save_human_review(" in section
+    assert "save_human_review_clicked = st.button(" in section
+    assert "save_human_review = st.button(" not in section
     assert '"사람 검토 저장"' in section
-    assert "promote_to_golden(" in section
+    assert "promote_reviewed_sentence(" in section
     assert '"승인 사례를 골든셋으로 승격"' in section
     assert 'ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl"' in section
-    assert section.index('"승인 사례를 골든셋으로 승격"') < section.index("promote_to_golden(")
+    assert section.index('"승인 사례를 골든셋으로 승격"') < section.index("promote_reviewed_sentence(")
     assert "정확도" not in section
     assert "재현율" not in section
