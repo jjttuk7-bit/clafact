@@ -356,7 +356,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("""<section class="ops-hero"><div class="ops-kicker">ClaFact · Evidence Operations</div><h1 class="ops-title">국가통계 기반 뉴스 검증 운영</h1><p class="ops-copy">기사 등록부터 판정 근거 확인까지, 근거가 남는 검증 흐름을 한 화면에서 관리합니다.</p><span class="ops-chip">● KOSIS 연결 기준 · 검증 근거 보존</span></section>""", unsafe_allow_html=True)
 
-NAV_ITEMS = ("운영 홈", "검증", "검증 실험실", "검증자 리뷰", "플라이휠", "자산 현황")
+NAV_ITEMS = ("운영 홈", "검증", "검증자 리뷰", "플라이휠", "자산 현황", "검증 실험실")
 st.sidebar.markdown('<div class="ops-kicker">ClaFact</div>', unsafe_allow_html=True)
 st.sidebar.markdown('<div class="sidebar-brand">검증 운영 콘솔</div>', unsafe_allow_html=True)
 st.sidebar.markdown('<div class="sidebar-caption">근거 기반 뉴스 수치 검증과 리뷰 흐름을 관리합니다.</div>', unsafe_allow_html=True)
