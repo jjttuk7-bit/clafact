@@ -718,7 +718,7 @@ if view == "검증":
 # ═════════════ 검증 실험실: 운영과 분리된 엔진 비교 ═════════════
 if view == "검증 실험실":
     st.markdown("#### 검증 실험실")
-    st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, LLM만, 하이브리드 방식으로 비교합니다.")
+    st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, HCX-005만, 하이브리드 방식으로 비교합니다.")
     st.caption("최종 KOSIS 판정 화면이 아니라 수치 주장 탐지·문맥 판별의 연구용 비교 화면입니다.")
 
     lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
@@ -772,14 +772,14 @@ if view == "검증 실험실":
         st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
 
     if hcx_available:
-        st.caption("LLM 모드: HCX 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
+        st.caption("HCX 모드: HCX-005 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
     else:
-        st.warning("LLM 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 LLM 열은 ‘미사용’으로 표시됩니다.")
+        st.warning("HCX 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 HCX 열은 ‘미사용’으로 표시됩니다.")
 
     all_button, python_button, llm_button, hybrid_button = st.columns(4)
     run_all = all_button.button("전체 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run_all")
     run_python = python_button.button("Python만 실행", use_container_width=True, key="experiment_lab_run_python")
-    run_llm = llm_button.button("LLM만 실행", use_container_width=True, key="experiment_lab_run_llm")
+    run_llm = llm_button.button("HCX만 실행", use_container_width=True, key="experiment_lab_run_llm")
     run_hybrid = hybrid_button.button("하이브리드만 실행", use_container_width=True, key="experiment_lab_run_hybrid")
     requested_mode = "all" if run_all else ("python" if run_python else ("llm" if run_llm else ("hybrid" if run_hybrid else None)))
     if requested_mode:
@@ -807,14 +807,14 @@ if view == "검증 실험실":
         candidate_count = sum(row.candidate is True for row in mode_result.rows)
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Python 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "python" else "미실행")
-        c2.metric("LLM 후보 문장", (f"{candidate_count} / {len(mode_result.rows)}" if hcx_available else "미사용") if mode_name == "llm" else "미실행")
+        c2.metric("HCX 후보 문장", (f"{candidate_count} / {len(mode_result.rows)}" if hcx_available else "미사용") if mode_name == "llm" else "미실행")
         c3.metric("하이브리드 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "hybrid" else "미실행")
-        c4.metric(f"{mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
-        st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {mode_name.upper()} 방식만 실행했습니다.")
+        c4.metric(f"{'HCX' if mode_name == 'llm' else mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
+        st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {'HCX' if mode_name == 'llm' else mode_name.upper()} 방식만 실행했습니다.")
         st.markdown("##### 방식별 판단 근거")
         for number, row in enumerate(mode_result.rows, start=1):
             with st.expander(f"{number}. {row.sentence}", expanded=False):
-                evidence_label = "Python 규칙 근거" if mode_name == "python" else ("LLM 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
+                evidence_label = "Python 규칙 근거" if mode_name == "python" else ("HCX 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
                 st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
                 st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 
@@ -828,23 +828,23 @@ if view == "검증 실험실":
             st.markdown("##### 방식별 실행 시간")
             t1, t2, t3, t4 = st.columns(4)
             t1.metric("Python만", format_elapsed_ms(mode_results['python'].elapsed_ms))
-            t2.metric("LLM만", format_elapsed_ms(mode_results['llm'].elapsed_ms))
+            t2.metric("HCX-005만", format_elapsed_ms(mode_results['llm'].elapsed_ms))
             t3.metric("하이브리드만", format_elapsed_ms(mode_results['hybrid'].elapsed_ms))
             t4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Python 후보 문장", f"{python_count} / {len(result.rows)}")
-        c2.metric("LLM 후보 문장", f"{llm_count} / {len(result.rows)}" if hcx_available else "미사용")
+        c2.metric("HCX 후보 문장", f"{llm_count} / {len(result.rows)}" if hcx_available else "미사용")
         c3.metric("하이브리드 후보 문장", f"{hybrid_count} / {len(result.rows)}")
         c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
-        st.caption(f"문장 {len(result.rows)}개 · LLM 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
+        st.caption(f"문장 {len(result.rows)}개 · HCX 호출 {result.llm_calls}회 · 결과 차이 문장 {len(differing)}개")
 
         display_rows = []
         for number, row in enumerate(result.rows, start=1):
             display_rows.append({
                 "#": number, "문장": row.sentence,
                 "Python 규칙만": "탐지" if row.python_candidate else "미탐지",
-                "LLM만": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "미사용"),
+                "HCX-005만": "탐지" if row.llm_verifiable is True else ("미탐지" if row.llm_verifiable is False else "미사용"),
                 "하이브리드": "탐지" if row.hybrid_candidate else "미탐지",
                 "차이": "확인 필요" if row in differing else "동일",
             })
@@ -854,7 +854,7 @@ if view == "검증 실험실":
         for number, row in enumerate(result.rows, start=1):
             with st.expander(f"{number}. {row.sentence}", expanded=False):
                 st.write(f"**Python 규칙 근거:** {'탐지' if row.python_candidate else '미탐지'} · 수치 표현: {' · '.join(row.quantities) or '-'} · 시점: {row.parsed_period or '-'} · 유형: {row.claim_type} · 라우팅: {row.route}")
-                st.write(f"**LLM만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
+                st.write(f"**HCX-005만:** {row.llm_verifiable if row.llm_verifiable is not None else '미사용'} · {row.llm_reason}")
                 st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
                 st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════

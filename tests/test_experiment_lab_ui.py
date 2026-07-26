@@ -10,7 +10,7 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert "운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다" in section
     assert "run_comparison" in section
     assert "Python 규칙만" in section
-    assert "LLM만" in section
+    assert "HCX-005만" in section
     assert "하이브리드" in section
     assert 'st.file_uploader("검증 실험실 CSV 파일"' in section
     assert 'key="experiment_lab_csv"' in section
@@ -21,8 +21,10 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert '자동 일괄 실행하지 않습니다' in section
     assert '전체 비교 실행' in section
     assert 'Python만 실행' in section
-    assert 'LLM만 실행' in section
+    assert 'HCX만 실행' in section
     assert '하이브리드만 실행' in section
+    assert 'HCX-005 실호출' in section
+    assert 'HCX 후보 문장' in section
     assert "미실행" in section
     assert "format_elapsed_ms" in source
     assert "원본 행" in section
