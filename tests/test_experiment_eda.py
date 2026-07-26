@@ -584,3 +584,16 @@ def test_structure_statistics_do_not_label_outliers_below_four_articles():
 
     assert report.body_length_stats.outlier_row_numbers == ()
     assert report.sentence_count_stats.outlier_row_numbers == ()
+
+
+def test_piece_count_is_numeric_candidate_and_count_rank_in_eda():
+    report = analyze_rows(
+        [{"title": "개수", "date": "2025-11-04", "body": "판매량은 3개였다."}]
+    )
+
+    sentence = report.articles[0].sentences[0]
+    assert sentence.quantities == ("3개",)
+    assert sentence.numeric is True
+    assert sentence.python_candidate is True
+    assert sentence.python_rule == "NUMERIC_UNIT"
+    assert dict(report.quantity_type_counts) == {"count_rank": 1}

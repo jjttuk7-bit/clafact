@@ -36,6 +36,7 @@ from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_eda_controller import prepare_eda
 from clafact.experiment_eda_session import (
     EDA_CACHE_KEY,
+    EdaCsvReadError,
     EDA_FILTER_STATE_KEYS,
     EDA_RANGE_END_KEY,
     EDA_RANGE_KEY,
@@ -47,6 +48,7 @@ from clafact.experiment_eda_session import (
     EdaRange,
     UploadIdentity,
     UploadMetadata,
+    analysis_scope_caption,
     cache_key as eda_cache_key,
     cached_upload_metadata,
     comparison_input_signature,
@@ -810,6 +812,8 @@ if view == "검증 실험실":
                 scan = scan_csv_stream(lab_csv)
             except UnicodeDecodeError:
                 st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
+            except EdaCsvReadError as error:
+                st.error(error.user_message)
             else:
                 upload_metadata = UploadMetadata(
                     identity=upload_identity,
@@ -872,6 +876,7 @@ if view == "검증 실험실":
             same_cache_scope = st.session_state.get(EDA_CACHE_KEY) == current_cache_key
             if not same_cache_scope:
                 prepare_cache_scope(st.session_state, current_cache_key)
+                selected_rows = None
                 try:
                     if lab_source_row_count > MAX_EDA_ROWS:
                         selected_rows = read_csv_range(lab_csv, selected_eda_range)
@@ -880,18 +885,22 @@ if view == "검증 실험실":
                         selected_rows = small_scan.rows
                 except UnicodeDecodeError:
                     st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
-                    selected_rows = ()
-                prepared = prepare_eda(
-                    selected_rows,
-                    row_number_start=selected_eda_range.start,
-                )
-                if prepared.status == "empty":
-                    st.warning(prepared.user_message)
-                else:
-                    eda_report = prepared.report
-                    eda_view = prepared.view
-                    st.session_state[EDA_REPORT_KEY] = eda_report
-                    st.session_state[EDA_VIEW_KEY] = eda_view
+                    st.session_state.pop(EDA_CACHE_KEY, None)
+                except EdaCsvReadError as error:
+                    st.error(error.user_message)
+                    st.session_state.pop(EDA_CACHE_KEY, None)
+                if selected_rows is not None:
+                    prepared = prepare_eda(
+                        selected_rows,
+                        row_number_start=selected_eda_range.start,
+                    )
+                    if prepared.status == "empty":
+                        st.warning(prepared.user_message)
+                    else:
+                        eda_report = prepared.report
+                        eda_view = prepared.view
+                        st.session_state[EDA_REPORT_KEY] = eda_report
+                        st.session_state[EDA_VIEW_KEY] = eda_view
             else:
                 eda_report = st.session_state.get(EDA_REPORT_KEY)
                 eda_view = st.session_state.get(EDA_VIEW_KEY)
@@ -910,10 +919,10 @@ if view == "검증 실험실":
                 f"제외 {eda_report.excluded_article_count:,}건 · 자동 일괄 실행하지 않습니다. "
                 "비교할 기사 한 건을 선택하세요."
             )
-            st.caption(
-                f"분석 구간 {selected_eda_range.start:,}~{selected_eda_range.end:,}행 / "
-                f"전체 {lab_source_row_count:,}행"
-            )
+            st.caption(analysis_scope_caption(
+                lab_source_row_count,
+                selected_eda_range,
+            ))
             with st.expander("CSV 통합 EDA", expanded=True):
                 st.caption(
                     "EDA는 Python 규칙만 사용하며 HCX를 자동 호출하지 않습니다. "

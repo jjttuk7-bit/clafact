@@ -9,6 +9,7 @@ from clafact.experiment_eda_session import (
     EDA_VIEW_KEY,
     MAX_EDA_ROWS,
     EdaRange,
+    analysis_scope_caption,
     cache_key,
     invalidate_for_payload,
     payload_signature,
@@ -108,3 +109,7 @@ def test_same_file_signature_preserves_existing_eda_state():
     assert invalidate_for_payload(state, "same") is False
     assert state[EDA_REPORT_KEY] is report
     assert state[EDA_SELECTED_ARTICLE_KEY] == 3
+
+
+def test_small_upload_scope_caption_is_truthful_about_the_full_population():
+    assert analysis_scope_caption(17, EdaRange(1, 17)) == "전체 17행 중 1–17행 분석"

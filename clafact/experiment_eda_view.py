@@ -24,7 +24,7 @@ _QUANTITY_CATEGORIES = (
     ("percentage", "비율·퍼센트"),
     ("money", "금액"),
     ("people_household", "인원·가구"),
-    ("count_rank", "건수·배수·순위"),
+    ("count_rank", "건수·개수·배수·순위"),
     ("other", "기타 단위"),
 )
 _PERIOD_CATEGORIES = (
@@ -190,7 +190,7 @@ def build_eda_view(report: EdaReport) -> EdaView:
     distributions = mode == "distribution"
     return EdaView(
         quality_kpis=(
-            _kpi("source_rows", "원본 행", report.source_row_count, "업로드 CSV에서 읽은 전체 행입니다."),
+            _kpi("source_rows", "분석 행", report.source_row_count, "현재 선택 범위에서 분석한 행입니다."),
             _kpi("valid_articles", "유효 기사", article_count, "본문 정제를 통과한 기사입니다."),
             _kpi("excluded_articles", "제외 기사", report.excluded_article_count, "분석에서 제외된 기사입니다."),
             _kpi("warning_articles", "품질 경고 기사", report.warning_article_count, "유효 기사 중 분석에는 포함되지만 확인이 필요한 기사입니다."),

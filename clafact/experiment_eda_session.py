@@ -10,6 +10,16 @@ from typing import BinaryIO, MutableMapping
 
 
 MAX_EDA_ROWS = 1000
+# Python csv의 기본 128KiB 제한은 정상 뉴스 본문을 거부할 수 있다. 프로세스 전체에
+# 동일한 5MiB 문자 상한을 모듈 import 시 한 번만 설정하며 호출별 변경/복원은 하지 않는다.
+MAX_EDA_CSV_FIELD_CHARS = 5 * 1024 * 1024
+csv.field_size_limit(MAX_EDA_CSV_FIELD_CHARS)
+
+
+class EdaCsvReadError(ValueError):
+    def __init__(self, user_message: str):
+        super().__init__(user_message)
+        self.user_message = user_message
 
 EDA_FILE_SIGNATURE_KEY = "experiment_eda_file_signature"
 EDA_UPLOAD_METADATA_KEY = "experiment_eda_upload_metadata"
@@ -91,6 +101,17 @@ def resolve_eda_range(
     return requested
 
 
+def analysis_scope_caption(total_rows: int, selected: EdaRange) -> str:
+    """업로드 전체 모집단과 현재 선택 분석 구간을 함께 표시한다."""
+
+    if total_rows < 1 or selected.start < 1 or selected.end > total_rows:
+        raise ValueError("분석 구간은 업로드 전체 행 범위 안에 있어야 합니다.")
+    return (
+        f"전체 {total_rows:,}행 중 "
+        f"{selected.start:,}–{selected.end:,}행 분석"
+    )
+
+
 def cache_key(signature: str, selected: EdaRange) -> tuple[str, int, int]:
     return signature, selected.start, selected.end
 
@@ -152,7 +173,7 @@ def hash_seekable_stream(stream: BinaryIO, *, chunk_size: int = 64 * 1024) -> st
 def _csv_reader(stream: BinaryIO) -> tuple[io.TextIOWrapper, csv.DictReader]:
     stream.seek(0)
     wrapper = io.TextIOWrapper(stream, encoding="utf-8-sig", newline="")
-    return wrapper, csv.DictReader(wrapper)
+    return wrapper, csv.DictReader(wrapper, strict=True)
 
 
 def _detach_and_restore(
@@ -166,6 +187,17 @@ def _detach_and_restore(
         stream.seek(original_position)
 
 
+def _typed_csv_error(error: csv.Error) -> EdaCsvReadError:
+    if "field larger than field limit" in str(error):
+        return EdaCsvReadError(
+            f"CSV 셀은 최대 {MAX_EDA_CSV_FIELD_CHARS:,}자까지 지원합니다. "
+            "내용을 줄이거나 파일을 나누어 주세요. 데이터는 줄이지 않고 분석을 중단했습니다."
+        )
+    return EdaCsvReadError(
+        "CSV 형식을 읽을 수 없습니다. 따옴표와 열 구분자를 확인해 주세요."
+    )
+
+
 def scan_csv_stream(stream: BinaryIO) -> CsvScan:
     """전체 행 수는 세되 초기 메모리 보유량은 1,001행으로 제한한다."""
 
@@ -177,6 +209,8 @@ def scan_csv_stream(stream: BinaryIO) -> CsvScan:
         for row_count, row in enumerate(reader, start=1):
             if len(retained) < MAX_EDA_ROWS + 1:
                 retained.append(dict(row))
+    except csv.Error as error:
+        raise _typed_csv_error(error) from error
     finally:
         _detach_and_restore(wrapper, stream, original_position)
     exceeded = row_count > MAX_EDA_ROWS
@@ -203,6 +237,8 @@ def read_csv_range(stream: BinaryIO, selected: EdaRange) -> tuple[dict[str, obje
             if row_number > selected.end:
                 break
             rows.append(dict(row))
+    except csv.Error as error:
+        raise _typed_csv_error(error) from error
     finally:
         _detach_and_restore(wrapper, stream, original_position)
     return tuple(rows)

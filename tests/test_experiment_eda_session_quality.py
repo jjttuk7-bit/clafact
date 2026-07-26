@@ -6,6 +6,8 @@ import pytest
 
 from clafact.experiment_eda_session import (
     COMPARISON_INPUT_SIGNATURE_KEY,
+    MAX_EDA_CSV_FIELD_CHARS,
+    EdaCsvReadError,
     EDA_CACHE_KEY,
     EDA_FILTER_STATE_KEYS,
     EDA_REPORT_KEY,
@@ -206,3 +208,44 @@ def test_unchanged_comparison_input_preserves_completed_execution():
     assert invalidate_comparison_for_input(state, "same") is False
     assert state["experiment_lab_result"] is result
     assert state["experiment_lab_saved_run_id"] == "run"
+
+
+def test_csv_body_above_legacy_128k_limit_scans_and_reads_without_crash():
+    body = "가" * 131_073
+    payload = f'title,date,body\n큰 기사,2025-11-04,"{body}"\n'.encode("utf-8")
+    stream = io.BytesIO(payload)
+    stream.seek(11)
+
+    scan = scan_csv_stream(stream)
+    ranged = read_csv_range(io.BytesIO(payload), EdaRange(1, 1))
+
+    assert scan.row_count == 1
+    assert len(scan.rows[0]["body"]) == 131_073
+    assert len(ranged[0]["body"]) == 131_073
+    assert stream.tell() == 11
+
+
+def test_csv_field_above_documented_limit_is_explicit_and_restores_position():
+    body = "x" * (MAX_EDA_CSV_FIELD_CHARS + 1)
+    stream = io.BytesIO(f"title,body\n초과,{body}\n".encode("utf-8"))
+    stream.seek(5)
+
+    with pytest.raises(EdaCsvReadError) as captured:
+        scan_csv_stream(stream)
+
+    assert f"{MAX_EDA_CSV_FIELD_CHARS:,}자" in captured.value.user_message
+    assert "줄이지 않고" in captured.value.user_message
+    assert stream.tell() == 5
+
+
+def test_malformed_csv_is_a_typed_user_safe_error_and_restores_position():
+    stream = io.BytesIO(b'title,body\nbad,"unterminated\n')
+    stream.seek(3)
+
+    with pytest.raises(EdaCsvReadError) as captured:
+        read_csv_range(stream, EdaRange(1, 1))
+
+    assert captured.value.user_message == (
+        "CSV 형식을 읽을 수 없습니다. 따옴표와 열 구분자를 확인해 주세요."
+    )
+    assert stream.tell() == 3

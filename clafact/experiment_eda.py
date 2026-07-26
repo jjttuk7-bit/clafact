@@ -193,7 +193,7 @@ def _quantity_type(quantity: Quantity) -> str:
         return "money"
     if quantity.unit in {"명", "인", "가구", "세대"}:
         return "people_household"
-    if quantity.unit in {"건", "배", "위", "호"}:
+    if quantity.unit in {"건", "개", "배", "위", "호"}:
         return "count_rank"
     return "other"
 

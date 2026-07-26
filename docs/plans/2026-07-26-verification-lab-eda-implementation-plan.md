@@ -4,7 +4,7 @@
 
 **Goal:** Replace the verification lab’s three counters and single oversized body-length bar with a Python-only, session-scoped dashboard covering CSV quality, article structure, numeric-claim characteristics, and selected-article evidence.
 
-**Architecture:** Add a pure `clafact.experiment_eda` analysis module that accepts already-decoded CSV rows and returns typed article, sentence, issue, and aggregate records. Add a small pure `clafact.experiment_eda_view` module for chart decisions, filters, pagination-safe problem rows, and selected-article presentation. Keep Streamlit responsible only for file decoding, range selection, session caching, and native dashboard rendering.
+**Architecture:** Add a pure `clafact.experiment_eda` analysis module that accepts already-decoded CSV rows and returns typed article, sentence, issue, and aggregate records. Add a small pure `clafact.experiment_eda_view` module for chart decisions, filters, pagination-safe problem rows, and selected-article presentation. Route Streamlit through a typed `clafact.experiment_eda_controller` preparation boundary and keep CSV parsing on one documented 5MiB-per-field limit with typed user-safe failures. Keep Streamlit responsible only for file decoding, range selection, session caching, and native dashboard rendering.
 
 **Tech Stack:** Python standard library, existing `clafact.pipeline` rules, Streamlit 1.60 native metrics/charts/dataframes, pytest.
 

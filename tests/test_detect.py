@@ -44,3 +44,9 @@ def test_rejects_live_news_chrome_before_claim_detection() -> None:
 
     assert detect.exclusion_reason(sentence) == "실시간 뉴스·사이트 크롬"
     assert detect.is_candidate(sentence) is False
+
+def test_piece_count_is_a_numeric_unit_candidate():
+    sentence = "판매량은 3개였다."
+
+    assert detect.has_extractable_unit_quantity(sentence)
+    assert is_candidate(sentence)

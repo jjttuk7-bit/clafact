@@ -116,3 +116,13 @@ if __name__ == "__main__":
 
 def test_period_month_range_uses_article_year_and_last_month():
     assert normalize_period("1~8월 출생아 수는 16만8671명이다.", "2025-10-29") == "2025-08"
+
+
+def test_extract_piece_count_unit_preserves_raw_and_composed_unit():
+    quantities = extract_quantities("판매량은 3개였다.")
+
+    assert len(quantities) == 1
+    assert quantities[0].raw == "3개"
+    assert quantities[0].unit == "개"
+    assert quantities[0].composed_unit == "개"
+    assert quantities[0].normalized_value == 3

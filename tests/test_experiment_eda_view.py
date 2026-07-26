@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from clafact.experiment_eda import analyze_rows
+from clafact.experiment_eda_session import EdaRange, analysis_scope_caption
 from clafact.experiment_eda_view import (
     BODY_BIN_LIMIT,
     PROBLEM_ROW_LIMIT,
@@ -248,3 +249,17 @@ def test_empty_view_has_zero_kpis_and_known_zero_categories():
     assert all(row.value == 0 for row in view.claim_type_rows)
     assert view.problem_rows.total == 0
     assert filter_articles(analyze_rows([])) == ()
+
+
+def test_quality_population_distinguishes_selected_analysis_rows_from_upload_total():
+    report = replace(_report(), source_row_count=1_000)
+    view = build_eda_view(report)
+    source_card = next(card for card in view.quality_kpis if card.key == "source_rows")
+
+    assert source_card.label == "분석 행"
+    assert source_card.value == 1_000
+    assert "선택" in source_card.note
+    assert analysis_scope_caption(5_000, EdaRange(1, 1_000)) == (
+        "전체 5,000행 중 1–1,000행 분석"
+    )
+    assert "전체 행" not in source_card.label

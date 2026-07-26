@@ -67,7 +67,7 @@ def test_eda_range_selection_is_explicit_and_large_files_do_not_auto_analyze():
     assert "read_csv_range(lab_csv, selected_eda_range)" in eda
     assert "prepare_eda(" in eda
     assert "row_number_start=selected_eda_range.start" in eda
-    assert "분석 구간" in eda
+    assert "analysis_scope_caption(" in eda
     assert "전체" in eda
 
 
@@ -287,3 +287,26 @@ def test_history_uses_exact_sql_pagination_and_lazy_bounded_export():
     assert "list_all_runs(" not in history
     assert "export_runs_csv(" not in history
     assert 'scope="history"' in history
+
+
+def test_streamlit_displays_upload_total_and_selected_analysis_interval_separately():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[
+        source.index('if view == "검증 실험실":'):source.index("lab_date =")
+    ]
+
+    assert "analysis_scope_caption(" in section
+    assert "lab_source_row_count" in section
+    assert "selected_eda_range" in section
+    assert 'st.caption(analysis_scope_caption(' in section
+    assert 'f"분석 구간 ' not in section
+
+def test_streamlit_converts_typed_csv_parser_failures_to_user_messages():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[
+        source.index('if view == "검증 실험실":'):source.index("lab_date =")
+    ]
+
+    assert "EdaCsvReadError" in source
+    assert section.count("except EdaCsvReadError as error:") >= 2
+    assert section.count("st.error(error.user_message)") >= 2
