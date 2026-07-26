@@ -50,31 +50,11 @@ def test_full_comparison_exposes_disagreement_research_controls():
     assert "filtered_disagreement_rows" in section
     assert "Python 판단 근거" in section
     assert "HCX 판단 근거" in section
-    assert 'button("연구 이력 저장"' in section
-    assert "save_experiment_research_run(" in section
-    assert source.index('button("연구 이력 저장"') < source.index(
-        "save_experiment_research_run(", source.index('button("연구 이력 저장"')
-    )
+    assert '"연구 이력 저장"' in section
+    assert "save_comparison_run(" in section
+    assert section.index('"연구 이력 저장"') < section.index("save_comparison_run(")
     assert 'ROOT / "data/research/verification_lab.db"' in source
     assert "ExperimentStore(" not in section
-
-
-def test_research_history_metadata_matches_the_independent_hcx_comparison():
-    source = Path("streamlit_app.py").read_text(encoding="utf-8")
-    helper = source[source.index("def save_experiment_research_run"):source.index("SAMPLES =")]
-
-    assert '"article_hash": _sha256_text(context["article_text"])' in helper
-    assert '"sentence_hash": _sha256_text(row.sentence)' in helper
-    assert '"provider": "HCX"' in helper
-    assert '"model": "HCX-005"' in helper
-    assert '"prompt_version":' in helper
-    assert '"python_ms": python_result.elapsed_ms' in helper
-    assert '"hcx_ms": hcx_result.elapsed_ms' in helper
-    assert '"hcx_calls": hcx_result.llm_calls' in helper
-    assert '"hcx_status": row.hcx_status' in helper
-    assert '"hcx_candidate": hcx_candidate' in helper
-    assert '"evidence_status": row.hcx_evidence_status' in helper
-    assert '"disagreement_class": row.disagreement_class' in helper
 
 
 def _load_hcx_candidate_display():
@@ -114,3 +94,18 @@ def test_filtered_detail_uses_actual_python_reason_and_explicit_hcx_status():
     assert "**HCX 실행 상태:** {row.hcx_status}" in detail
     assert "**HCX 후보 판단 근거:**" in detail
     assert "**HCX 근거 판단:**" in detail
+
+
+def test_full_comparison_reuses_execution_identity_and_guards_changed_input():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert section.count("build_run_context(") == 1
+    assert "run_context.input_fingerprint" in section
+    assert "input_matches_context(comparison_text, comparison_date, run_context)" in section
+    assert "현재 입력이 이 전체 비교 실행의 입력과 달라 저장할 수 없습니다" in section
+    assert "semantic_disagreement_count(result)" in section
+    assert "의미 불일치 문장" in section
+    assert "save_comparison_run(" in section
+    assert 'st.session_state.get("experiment_lab_saved_run_id") == run_context.run_id' in section
+    assert "disabled=save_disabled" in section
