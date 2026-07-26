@@ -33,6 +33,28 @@ from clafact.service.batch import process_pending
 from clafact.service.store import Store, stable_article_id
 from clafact.pipeline import detect
 from clafact.experiment_lab import run_comparison, run_mode
+from clafact.experiment_eda import analyze_rows
+from clafact.experiment_eda_session import (
+    EDA_CACHE_KEY,
+    EDA_FILTER_STATE_KEYS,
+    EDA_RANGE_END_KEY,
+    EDA_RANGE_KEY,
+    EDA_RANGE_START_KEY,
+    EDA_REPORT_KEY,
+    EDA_SELECTED_ARTICLE_KEY,
+    EDA_VIEW_KEY,
+    MAX_EDA_ROWS,
+    EdaRange,
+    cache_key as eda_cache_key,
+    invalidate_for_payload,
+    payload_signature,
+    resolve_eda_range,
+)
+from clafact.experiment_eda_view import (
+    build_eda_view,
+    filter_articles,
+    selected_article_rows,
+)
 from clafact.experiment_input import clean_uploaded_article_body
 from clafact.experiment_export import (
     MAX_FILTERED_EXPORT_ROWS,
@@ -765,43 +787,305 @@ if view == "검증 실험실":
     selected_lab_article = None
     lab_source_row_count = 1
     if lab_csv is not None:
+        lab_payload = lab_csv.getvalue()
+        lab_signature = payload_signature(lab_payload)
+        invalidate_for_payload(st.session_state, lab_signature)
         try:
-            csv_rows = list(csv.DictReader(io.StringIO(lab_csv.getvalue().decode("utf-8-sig"))))
+            csv_rows = list(csv.DictReader(io.StringIO(lab_payload.decode("utf-8-sig"))))
         except UnicodeDecodeError:
             st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
             csv_rows = []
         lab_source_row_count = len(csv_rows)
+        selected_eda_range = None
+        range_submitted = False
 
-        csv_articles = []
-        csv_excluded_rows = 0
-        for row_number, row in enumerate(csv_rows, start=1):
-            raw_body = next((str(row.get(column) or "").strip() for column in ("body", "본문", "기사 본문 전체", "content", "text") if row.get(column)), "")
-            body = clean_uploaded_article_body(raw_body)
-            if not body:
-                if raw_body:
-                    csv_excluded_rows += 1
-                continue
-            title = next((str(row.get(column) or "").strip() for column in ("title", "제목", "기사 제목", "기사제목") if row.get(column)), "")
-            article_date = next((str(row.get(column) or "").strip() for column in ("date", "작성일", "게시일", "published_at") if row.get(column)), "")
-            csv_articles.append({"row_number": row_number, "title": title, "date": article_date, "body": body})
-
-        if csv_articles:
-            st.caption(f"CSV 유효 기사 {len(csv_articles):,}건 · 본문 경계 제외 {csv_excluded_rows}건 · 자동 일괄 실행하지 않습니다. 비교할 기사 한 건을 선택하세요.")
-            selected_article_index = st.selectbox(
-                "기사 선택", options=range(len(csv_articles)), key="experiment_lab_article",
-                format_func=lambda index: f"{csv_articles[index]['title'] or '제목 없음'} · {csv_articles[index]['date'] or '날짜 없음'} (행 {csv_articles[index]['row_number']})",
+        if lab_source_row_count > MAX_EDA_ROWS:
+            st.info(
+                f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
+                f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."
             )
-            selected_lab_article = csv_articles[selected_article_index]
-            with st.expander("CSV 전처리·EDA", expanded=False):
-                e1, e2, e3 = st.columns(3)
-                e1.metric("원본 행", len(csv_rows))
-                e2.metric("유효 기사", len(csv_articles))
-                e3.metric("본문 경계 제외", csv_excluded_rows)
-                st.caption("유효 기사별 정제 후 본문 길이 분포")
-                st.bar_chart([len(article["body"]) for article in csv_articles])
+            with st.form("experiment_eda_range_form"):
+                range_start = st.number_input(
+                    "분석 시작 행",
+                    min_value=1,
+                    max_value=lab_source_row_count,
+                    value=1,
+                    step=1,
+                    key=EDA_RANGE_START_KEY,
+                )
+                range_end = st.number_input(
+                    "분석 종료 행",
+                    min_value=1,
+                    max_value=lab_source_row_count,
+                    value=min(MAX_EDA_ROWS, lab_source_row_count),
+                    step=1,
+                    key=EDA_RANGE_END_KEY,
+                )
+                range_submitted = st.form_submit_button("분석 범위 확정", width="stretch")
+            if range_submitted:
+                try:
+                    st.session_state[EDA_RANGE_KEY] = resolve_eda_range(
+                        lab_source_row_count,
+                        EdaRange(int(range_start), int(range_end)),
+                        confirmed=range_submitted,
+                    )
+                except ValueError as error:
+                    st.session_state.pop(EDA_RANGE_KEY, None)
+                    st.error(str(error))
+            selected_eda_range = st.session_state.get(EDA_RANGE_KEY)
         else:
-            st.warning("본문 열(body, 본문, content, text)이 있는 기사를 찾지 못했습니다.")
+            selected_eda_range = resolve_eda_range(lab_source_row_count)
 
+        eda_report = None
+        eda_view = None
+        if selected_eda_range is not None:
+            current_cache_key = eda_cache_key(lab_signature, selected_eda_range)
+            if st.session_state.get(EDA_CACHE_KEY) != current_cache_key:
+                slice_start, slice_end = selected_eda_range.slice_bounds
+                selected_rows = csv_rows[slice_start:slice_end]
+                eda_report = analyze_rows(
+                    selected_rows,
+                    row_number_start=selected_eda_range.start,
+                )
+                eda_view = build_eda_view(eda_report)
+                st.session_state[EDA_CACHE_KEY] = current_cache_key
+                st.session_state[EDA_REPORT_KEY] = eda_report
+                st.session_state[EDA_VIEW_KEY] = eda_view
+            else:
+                eda_report = st.session_state.get(EDA_REPORT_KEY)
+                eda_view = st.session_state.get(EDA_VIEW_KEY)
+
+        if eda_report is not None and eda_view is not None:
+            csv_articles = [
+                {
+                    "row_number": article.row_number,
+                    "title": article.title,
+                    "date": article.article_date,
+                    "body": article.cleaned_body,
+                }
+                for article in eda_report.articles
+            ]
+            st.caption(
+                f"CSV 유효 기사 {eda_report.valid_article_count:,}건 · "
+                f"제외 {eda_report.excluded_article_count:,}건 · 자동 일괄 실행하지 않습니다. "
+                "비교할 기사 한 건을 선택하세요."
+            )
+            st.caption(
+                f"분석 구간 {selected_eda_range.start:,}~{selected_eda_range.end:,}행 / "
+                f"전체 {lab_source_row_count:,}행"
+            )
+            with st.expander("CSV 통합 EDA", expanded=True):
+                st.caption(
+                    "EDA는 Python 규칙만 사용하며 HCX를 자동 호출하지 않습니다. "
+                    "body, 본문, 기사 본문 전체, content, text 열에서 읽은 업로드 데이터만 분석합니다."
+                )
+
+                st.markdown("##### 1. 데이터 품질")
+                quality_columns = st.columns(len(eda_view.quality_kpis))
+                for column, card in zip(quality_columns, eda_view.quality_kpis):
+                    column.metric(card.label, f"{card.value:,}")
+                    column.caption(card.note)
+                if eda_view.issue_reason_rows:
+                    st.caption("제외·경고 사유")
+                    st.bar_chart(
+                        [
+                            {"사유": row.label, "건수": row.value}
+                            for row in eda_view.issue_reason_rows
+                        ],
+                        x="사유",
+                        y="건수",
+                        horizontal=True,
+                        width="stretch",
+                    )
+                if eda_view.problem_rows.rows:
+                    st.dataframe(
+                        [
+                            {
+                                "원본 행": row.row_number,
+                                "제목": row.title or "제목 없음",
+                                "문제": row.issue,
+                            }
+                            for row in eda_view.problem_rows.rows
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                    )
+                    if eda_view.problem_rows.truncated:
+                        st.caption(
+                            f"문제 {eda_view.problem_rows.total:,}건 중 "
+                            f"앞 {eda_view.problem_rows.limit:,}건만 표시합니다."
+                        )
+
+                st.markdown("##### 2. 기사 구조")
+                body_stats = eda_view.structure_stats.body_length
+                sentence_stats = eda_view.structure_stats.sentence_count
+                structure_columns = st.columns(4)
+                structure_columns[0].metric("본문 길이 중앙값", f"{body_stats.median:,.0f}자")
+                structure_columns[1].metric("본문 길이 평균", f"{body_stats.mean:,.1f}자")
+                structure_columns[2].metric("문장 수 중앙값", f"{sentence_stats.median:,.0f}개")
+                structure_columns[3].metric("문장 수 평균", f"{sentence_stats.mean:,.1f}개")
+                st.caption(
+                    f"본문 Q1~Q3 {body_stats.q1:,.0f}~{body_stats.q3:,.0f}자 · "
+                    f"문장 Q1~Q3 {sentence_stats.q1:,.0f}~{sentence_stats.q3:,.0f}개"
+                )
+                if eda_view.structure_chart_mode == "single" and eda_report.articles:
+                    only_article = eda_report.articles[0]
+                    single_columns = st.columns(4)
+                    single_columns[0].metric("정제 전", f"{only_article.raw_length:,}자")
+                    single_columns[1].metric("정제 후", f"{only_article.clean_length:,}자")
+                    single_columns[2].metric("제거 문자", f"{only_article.removed_length:,}자")
+                    single_columns[3].metric("문장", f"{len(only_article.sentences):,}개")
+                    st.caption("기사 1건은 의미 없는 분포 차트 대신 실제 정제·문장 지표를 표시합니다.")
+                elif eda_view.structure_chart_mode == "distribution":
+                    body_chart, sentence_chart = st.columns(2)
+                    body_chart.caption("정제 후 본문 길이 분포")
+                    body_chart.bar_chart(
+                        [{"구간": row.label, "기사": row.value} for row in eda_view.body_length_bins],
+                        x="구간",
+                        y="기사",
+                        width="stretch",
+                    )
+                    sentence_chart.caption("기사별 문장 수 분포")
+                    sentence_chart.bar_chart(
+                        [{"구간": row.label, "기사": row.value} for row in eda_view.sentence_count_bins],
+                        x="구간",
+                        y="기사",
+                        width="stretch",
+                    )
+
+                st.markdown("##### 3. 수치 주장 특성")
+                for offset in range(0, len(eda_view.claim_kpis), 3):
+                    claim_columns = st.columns(3)
+                    for column, card in zip(claim_columns, eda_view.claim_kpis[offset:offset + 3]):
+                        column.metric(card.label, f"{card.value:,}")
+                st.caption("서로 겹칠 수 있는 독립 집계이며 단계별 퍼널이 아닙니다.")
+                category_specs = (
+                    ("수치 유형", eda_view.quantity_rows),
+                    ("해석 시점", eda_view.period_rows),
+                    ("주장 유형", eda_view.claim_type_rows),
+                    ("라우팅", eda_view.route_rows),
+                )
+                category_columns = st.columns(2)
+                for index, (label, rows) in enumerate(category_specs):
+                    category_columns[index % 2].caption(label)
+                    category_columns[index % 2].bar_chart(
+                        [{"유형": row.label, "건수": row.value} for row in rows],
+                        x="유형",
+                        y="건수",
+                        horizontal=True,
+                        width="stretch",
+                    )
+
+                st.markdown("##### 4. 기사 탐색·상세")
+                candidate_ceiling = max(
+                    (sum(sentence.python_candidate for sentence in article.sentences) for article in eda_report.articles),
+                    default=0,
+                )
+                with st.form("experiment_eda_article_filters"):
+                    filter_columns = st.columns(4)
+                    quality_filter = filter_columns[0].selectbox(
+                        "품질",
+                        options=("all", "warnings", "outliers", "clean"),
+                        format_func=lambda value: {
+                            "all": "전체",
+                            "warnings": "품질 경고",
+                            "outliers": "구조 이상치",
+                            "clean": "문제 없음",
+                        }[value],
+                        key=EDA_FILTER_STATE_KEYS[0],
+                    )
+                    body_filter = filter_columns[1].selectbox(
+                        "본문 길이",
+                        options=("all", "short", "typical", "long"),
+                        format_func=lambda value: {
+                            "all": "전체",
+                            "short": "짧음",
+                            "typical": "보통",
+                            "long": "김",
+                        }[value],
+                        key=EDA_FILTER_STATE_KEYS[1],
+                    )
+                    min_candidates = filter_columns[2].number_input(
+                        "최소 Python 후보",
+                        min_value=0,
+                        max_value=candidate_ceiling,
+                        value=0,
+                        key=EDA_FILTER_STATE_KEYS[2],
+                    )
+                    max_candidates = filter_columns[3].number_input(
+                        "최대 Python 후보",
+                        min_value=0,
+                        max_value=candidate_ceiling,
+                        value=candidate_ceiling,
+                        key=EDA_FILTER_STATE_KEYS[3],
+                    )
+                    st.form_submit_button("기사 필터 적용", width="stretch")
+
+                if int(max_candidates) < int(min_candidates):
+                    st.warning("최대 Python 후보 수는 최소값 이상이어야 합니다.")
+                    filtered_articles = ()
+                else:
+                    filtered_articles = filter_articles(
+                        eda_report,
+                        quality=quality_filter,
+                        body_band=body_filter,
+                        min_candidates=int(min_candidates),
+                        max_candidates=int(max_candidates),
+                    )
+                if not filtered_articles:
+                    st.warning("현재 필터에 맞는 기사가 없습니다.")
+                    st.session_state.pop(EDA_SELECTED_ARTICLE_KEY, None)
+                else:
+                    article_by_row = {article.row_number: article for article in filtered_articles}
+                    selected_row_numbers = tuple(article_by_row)
+                    if st.session_state.get(EDA_SELECTED_ARTICLE_KEY) not in selected_row_numbers:
+                        st.session_state[EDA_SELECTED_ARTICLE_KEY] = selected_row_numbers[0]
+                    selected_row_number = st.selectbox(
+                        "기사 선택",
+                        options=selected_row_numbers,
+                        format_func=lambda row_number: (
+                            f"{article_by_row[row_number].title or '제목 없음'} · "
+                            f"{article_by_row[row_number].article_date or '날짜 없음'} "
+                            f"(행 {row_number})"
+                        ),
+                        key=EDA_SELECTED_ARTICLE_KEY,
+                    )
+                    selected_article = article_by_row[selected_row_number]
+                    selected_lab_article = {
+                        "row_number": selected_article.row_number,
+                        "title": selected_article.title,
+                        "date": selected_article.article_date,
+                        "body": selected_article.cleaned_body,
+                    }
+                    article_metrics = st.columns(4)
+                    article_metrics[0].metric("정제 전", f"{selected_article.raw_length:,}자")
+                    article_metrics[1].metric("정제 후", f"{selected_article.clean_length:,}자")
+                    article_metrics[2].metric("문장", f"{len(selected_article.sentences):,}개")
+                    article_metrics[3].metric(
+                        "Python 후보",
+                        f"{sum(sentence.python_candidate for sentence in selected_article.sentences):,}개",
+                    )
+                    evidence_rows = selected_article_rows(selected_article)
+                    st.dataframe(
+                        [
+                            {
+                                "문장": row.sentence,
+                                "추출 수치": " · ".join(row.quantities),
+                                "수치 포함": row.numeric,
+                                "시점": row.period or row.period_class,
+                                "주장 유형": row.claim_type,
+                                "라우팅": row.route,
+                                "Python 후보": row.python_candidate,
+                                "적용 규칙": row.python_rule,
+                                "Python 근거": row.python_reason,
+                            }
+                            for row in evidence_rows
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                    )
+        elif lab_source_row_count and lab_source_row_count <= MAX_EDA_ROWS:
+            st.warning("본문 열(body, 본문, 기사 본문 전체, content, text)이 있는 기사를 찾지 못했습니다.")
     lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
     lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
                             placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")

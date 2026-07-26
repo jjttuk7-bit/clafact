@@ -341,7 +341,11 @@ def _structure_stats(values: list[int], row_numbers: list[int]) -> StructureStat
         outlier_row_numbers=outliers,
     )
 
-def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
+def analyze_rows(
+    rows: Iterable[Mapping[str, object]],
+    *,
+    row_number_start: int = 1,
+) -> EdaReport:
     """행별 오류를 격리해 CSV 품질과 정제된 유효 기사만 반환한다."""
 
     articles: list[EdaArticle] = []
@@ -351,8 +355,8 @@ def analyze_rows(rows: Iterable[Mapping[str, object]]) -> EdaReport:
     seen_keys: set[tuple[str, str]] = set()
     source_row_count = 0
 
-    for row_number, row in enumerate(rows, start=1):
-        source_row_count = row_number
+    for row_number, row in enumerate(rows, start=row_number_start):
+        source_row_count += 1
         try:
             title = _pick(row, "title")
             article_date = _pick(row, "date")

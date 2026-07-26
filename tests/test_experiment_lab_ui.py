@@ -15,8 +15,8 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert 'st.file_uploader("검증 실험실 CSV 파일"' in section
     assert 'key="experiment_lab_csv"' in section
     assert 'csv.DictReader' in section
-    assert '"기사 본문 전체"' in section
-    assert 'clean_uploaded_article_body' in section
+    assert "기사 본문 전체" in section
+    assert 'analyze_rows' in section
     assert '기사 선택' in section
     assert '자동 일괄 실행하지 않습니다' in section
     assert '전체 비교 실행' in section
@@ -29,13 +29,63 @@ def test_streamlit_exposes_a_separate_verification_lab_without_store_writes():
     assert '검색 필요' in section
     assert "미실행" in section
     assert "format_elapsed_ms" in source
+    assert "CSV 통합 EDA" in section
+    assert "데이터 품질" in section
+    assert "기사 구조" in section
+    assert "수치 주장 특성" in section
+    assert "기사 탐색·상세" in section
+    assert "EDA는 Python 규칙만 사용하며 HCX를 자동 호출하지 않습니다" in section
     assert "원본 행" in section
-    assert "st.bar_chart" in section
+    assert '"CSV 전처리·EDA"' not in section
+    assert 'st.bar_chart([len(article["body"]) for article in csv_articles])' not in section
+    assert "MAX_EDA_ROWS" in section
+    assert "resolve_eda_range" in section
+    assert "invalidate_for_payload" in section
+    assert "build_eda_view" in section
+    assert "filter_articles" in section
+    assert "selected_article_rows" in section
+    assert 'width="stretch"' in section
+    assert "use_container_width=True" not in section[
+        section.index('"CSV 통합 EDA"'):section.index("lab_date =")
+    ]
     assert "Python 1차" in section
     assert '방식별 판단 근거' in section
     assert '전체 비교 경과시간' in section
     assert 'Store(ROOT / "data/service/clafact.db")' not in section
     assert "process_pending(" not in section
+
+
+def test_eda_range_selection_is_explicit_and_large_files_do_not_auto_analyze():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index("# ═════════════ 탭 2: 검증자 리뷰")]
+    eda = section[section.index("selected_lab_article = None"):section.index("lab_date =")]
+
+    assert '"분석 범위 확정"' in eda
+    assert "if lab_source_row_count > MAX_EDA_ROWS:" in eda
+    assert "confirmed=range_submitted" in eda
+    assert "if selected_eda_range is not None:" in eda
+    assert "selected_eda_range.slice_bounds" in eda
+    assert "analyze_rows(" in eda
+    assert "row_number_start=selected_eda_range.start" in eda
+    assert "분석 구간" in eda
+    assert "전체" in eda
+
+
+def test_eda_uses_session_scoped_cache_and_resets_selection_outside_range():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index("# ═════════════ 탭 2: 검증자 리뷰")]
+    eda = section[section.index("selected_lab_article = None"):section.index("lab_date =")]
+
+    assert "cache_key(" in eda
+    assert "EDA_CACHE_KEY" in eda
+    assert "EDA_REPORT_KEY" in eda
+    assert "EDA_VIEW_KEY" in eda
+    assert "st.cache_data" not in eda
+    assert "EDA_SELECTED_ARTICLE_KEY" in eda
+    assert "selected_row_numbers" in eda
+    assert "selected_lab_article" in eda
+    assert "HcxClient" not in eda
+    assert "process_pending(" not in eda
 
 
 def test_full_comparison_exposes_disagreement_research_controls():

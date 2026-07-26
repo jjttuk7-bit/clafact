@@ -211,6 +211,20 @@ def test_original_row_numbers_are_preserved_after_exclusions():
     assert report.issues[0].row_number == 1
 
 
+def test_analyze_rows_can_preserve_source_labels_for_a_selected_csv_range():
+    report = analyze_rows(
+        [
+            {"title": "첫째", "date": "2025-01-01", "body": "첫 본문"},
+            {"title": "둘째", "date": "2025-01-02", "body": ""},
+        ],
+        row_number_start=1001,
+    )
+
+    assert report.source_row_count == 2
+    assert report.articles[0].row_number == 1001
+    assert report.issues[0].row_number == 1002
+
+
 def test_issue_records_do_not_expose_raw_or_cleaned_bodies():
     raw_secret = "외부에 노출하면 안 되는 전체 원문"
     report = analyze_rows(
