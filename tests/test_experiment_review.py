@@ -4,6 +4,7 @@ import pytest
 
 from clafact import experiment_review
 from clafact.experiment_review import (
+    build_reviewed_evaluation,
     pop_review_feedback,
     promote_reviewed_sentence,
     reviewable_sentences,
@@ -88,3 +89,84 @@ def test_promotion_handler_keeps_backend_eligibility_guard(tmp_path):
     assert promoted["disagreement_class"] == "P+/H-"
     with pytest.raises(ValueError, match="P\\+/H- 또는 P-/H\\+"):
         promote_reviewed_sentence(database_path, "review-run", 2, golden_path)
+
+def test_reviewed_evaluation_is_hidden_until_ground_truth_exists():
+    assert build_reviewed_evaluation(
+        [
+            {
+                "human_label": "hold",
+                "python_candidate": True,
+                "hcx_status": "success",
+                "hcx_candidate": False,
+            },
+            {
+                "human_label": None,
+                "python_candidate": False,
+                "hcx_status": "timeout",
+                "hcx_candidate": None,
+            },
+        ],
+        run_metadata={
+            "provider": "HCX",
+            "model": "HCX-005",
+            "prompt_version": "candidate-v2",
+        },
+    ) is None
+
+
+def test_reviewed_evaluation_exposes_samples_metrics_response_and_error_policy():
+    display = build_reviewed_evaluation(
+        [
+            {
+                "human_label": "true_candidate",
+                "python_candidate": True,
+                "hcx_status": "success",
+                "hcx_candidate": False,
+            },
+            {
+                "human_label": "true_candidate",
+                "python_candidate": False,
+                "hcx_status": "parse_error",
+                "hcx_candidate": None,
+            },
+            {
+                "human_label": "false_positive",
+                "python_candidate": True,
+                "hcx_status": "success",
+                "hcx_candidate": False,
+            },
+        ],
+        run_metadata={
+            "provider": "HCX",
+            "model": "HCX-005",
+            "prompt_version": "candidate-v2",
+        },
+    )
+
+    assert display is not None
+    assert display.reviewed_count == 3
+    assert display.metric_scope_label == "불일치 검토 표본 조건부 지표"
+    assert display.run_label == "HCX · HCX-005 · candidate-v2"
+    assert display.rows == (
+        {
+            "방식": "Python",
+            "평가 표본": "3건",
+            "정밀도": "50.0%",
+            "재현율": "50.0%",
+        },
+        {
+            "방식": "HCX",
+            "평가 표본": "2건",
+            "정밀도": "0.0%",
+            "재현율": "0.0%",
+        },
+        {
+            "방식": "Python OR HCX",
+            "평가 표본": "3건",
+            "정밀도": "50.0%",
+            "재현율": "50.0%",
+        },
+    )
+    assert display.independent_hcx_response_success == 2
+    assert display.independent_hcx_response_total == 3
+    assert display.independent_hcx_response_rate == "66.7%"

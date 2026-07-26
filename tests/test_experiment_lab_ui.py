@@ -134,4 +134,15 @@ def test_saved_research_run_exposes_review_csv_and_explicit_golden_controls():
     assert 'ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl"' in section
     assert section.index('"승인 사례를 골든셋으로 승격"') < section.index("promote_reviewed_sentence(")
     assert "정확도" not in section
-    assert "재현율" not in section
+    assert "build_reviewed_evaluation(saved_sentences, saved_run)" in section
+    assert '"사람 검토 기반 평가"' in section
+    assert "evaluation_display.reviewed_count" in section
+    assert "evaluation_display.rows" in section
+    assert "독립 HCX 문장 판정 응답률" in section
+    assert "evaluation_display.independent_hcx_response_success" in section
+    assert "evaluation_display.independent_hcx_response_total" in section
+    assert "evaluation_display.metric_scope_label" in section
+    assert "전체 기사 문장 성능이 아닙니다" in section
+    assert "evaluation_display.run_label" in section
+    assert "HCX 오류 행은 HCX 정밀도·재현율 표본에서 제외" in section
+    assert "Python OR HCX는 HCX 오류 시 Python 결과를 유지" in section

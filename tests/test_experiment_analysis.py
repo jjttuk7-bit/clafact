@@ -131,6 +131,7 @@ def test_reviewed_metrics_exclude_unreviewed_and_hold_rows() -> None:
     result = compute_reviewed_metrics(rows)
 
     assert result.reviewed_count == 4
+    assert result.metric_scope_label == "불일치 검토 표본 조건부 지표"
     assert result.python.as_dict() == {
         "tp": 1,
         "fp": 1,
@@ -158,9 +159,9 @@ def test_reviewed_metrics_exclude_unreviewed_and_hold_rows() -> None:
         "precision": pytest.approx(2 / 3),
         "recall": 1.0,
     }
-    assert result.hcx_response_success == 5
-    assert result.hcx_response_total == 6
-    assert result.hcx_response_rate == pytest.approx(5 / 6)
+    assert result.independent_hcx_response_success == 5
+    assert result.independent_hcx_response_total == 6
+    assert result.independent_hcx_response_rate == pytest.approx(5 / 6)
 
 
 def test_hcx_error_is_excluded_from_hcx_metrics_and_or_fails_open_to_python() -> None:
@@ -185,9 +186,9 @@ def test_hcx_error_is_excluded_from_hcx_metrics_and_or_fails_open_to_python() ->
     assert result.python_or_hcx.tp == 1
     assert result.python_or_hcx.fn == 1
     assert result.python_or_hcx.evaluated_count == 2
-    assert result.hcx_response_success == 0
-    assert result.hcx_response_total == 2
-    assert result.hcx_response_rate == 0.0
+    assert result.independent_hcx_response_success == 0
+    assert result.independent_hcx_response_total == 2
+    assert result.independent_hcx_response_rate == 0.0
 
 
 def test_reviewed_metrics_use_zero_for_empty_precision_and_recall_denominators() -> None:
@@ -216,6 +217,6 @@ def test_empty_input_has_explicit_zero_sample_sizes() -> None:
     assert result.python.evaluated_count == 0
     assert result.hcx.evaluated_count == 0
     assert result.python_or_hcx.evaluated_count == 0
-    assert result.hcx_response_success == 0
-    assert result.hcx_response_total == 0
-    assert result.hcx_response_rate == 0.0
+    assert result.independent_hcx_response_success == 0
+    assert result.independent_hcx_response_total == 0
+    assert result.independent_hcx_response_rate == 0.0

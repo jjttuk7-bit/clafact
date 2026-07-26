@@ -36,6 +36,7 @@ from clafact.experiment_lab import run_comparison, run_mode
 from clafact.experiment_input import clean_uploaded_article_body
 from clafact.experiment_export import export_run_csv
 from clafact.experiment_review import (
+    build_reviewed_evaluation,
     pop_review_feedback,
     promote_reviewed_sentence,
     reviewable_sentences,
@@ -981,11 +982,42 @@ if view == "검증 실험실":
             research_database = ROOT / "data/research/verification_lab.db"
             try:
                 with ExperimentStore(research_database) as research_store:
+                    saved_run = research_store.get_run(saved_run_id)
+                    if saved_run is None:
+                        raise KeyError(saved_run_id)
                     saved_sentences = research_store.get_sentences(saved_run_id)
                     csv_payload = export_run_csv(research_store, saved_run_id)
             except Exception as error:
                 st.error(f"저장된 연구 이력을 불러오지 못했습니다: {error}")
             else:
+                evaluation_display = build_reviewed_evaluation(saved_sentences, saved_run)
+                if evaluation_display is not None:
+                    st.subheader("사람 검토 기반 평가")
+                    st.caption(
+                        f"{evaluation_display.metric_scope_label} · "
+                        f"{evaluation_display.run_label} · "
+                        "전체 기사 문장 성능이 아닙니다."
+                    )
+                    st.caption(
+                        f"사람 검토 완료 정답 표본: {evaluation_display.reviewed_count}건 · "
+                        "방식별 평가 표본은 아래 표에 별도 표시합니다."
+                    )
+                    st.dataframe(
+                        list(evaluation_display.rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    st.caption(
+                        "독립 HCX 문장 판정 응답률: "
+                        f"{evaluation_display.independent_hcx_response_success} / "
+                        f"{evaluation_display.independent_hcx_response_total} "
+                        f"({evaluation_display.independent_hcx_response_rate})"
+                    )
+                    st.caption(
+                        "HCX 오류 행은 HCX 정밀도·재현율 표본에서 제외합니다. "
+                        "Python OR HCX는 HCX 오류 시 Python 결과를 유지합니다."
+                    )
+
                 st.markdown("##### 저장된 실행 검토·내보내기")
                 st.download_button(
                     "현재 실행 CSV 다운로드",

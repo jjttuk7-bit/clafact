@@ -9,6 +9,7 @@ P_PLUS_H_MINUS: Final[Literal["P+/H-"]] = "P+/H-"
 P_MINUS_H_PLUS: Final[Literal["P-/H+"]] = "P-/H+"
 P_MINUS_H_MINUS: Final[Literal["P-/H-"]] = "P-/H-"
 HCX_ERROR: Final[Literal["HCX_ERROR"]] = "HCX_ERROR"
+REVIEWED_METRIC_SCOPE_LABEL: Final[str] = "불일치 검토 표본 조건부 지표"
 
 
 def classify_disagreement(
@@ -55,9 +56,10 @@ class ReviewedMetrics:
     hcx: ConfusionMetrics
     python_or_hcx: ConfusionMetrics
     reviewed_count: int
-    hcx_response_success: int
-    hcx_response_total: int
-    hcx_response_rate: float
+    metric_scope_label: str
+    independent_hcx_response_success: int
+    independent_hcx_response_total: int
+    independent_hcx_response_rate: float
 
 
 def _confusion_metrics(observations: Iterable[tuple[bool, bool]]) -> ConfusionMetrics:
@@ -94,7 +96,11 @@ def compute_reviewed_metrics(
     ``true_candidate`` and ``false_positive`` are the only ground-truth labels.
     HCX failures are excluded from HCX precision/recall, while the OR detector
     fails open to the Python result. HCX response coverage is measured across
-    every supplied row so that a small HCX evaluation sample remains visible.
+    every supplied sentence row so that a small HCX evaluation sample remains
+    visible. Callers must supply rows from one experiment run; sentence rows do
+    not carry provider/model/prompt metadata, so this pure function cannot verify
+    that precondition. The current review workflow labels semantic disagreements,
+    therefore these are conditional metrics, not whole-corpus performance.
     """
 
     supplied_rows = list(rows)
@@ -136,7 +142,10 @@ def compute_reviewed_metrics(
         hcx=_confusion_metrics(hcx_observations),
         python_or_hcx=_confusion_metrics(or_observations),
         reviewed_count=len(reviewed_rows),
-        hcx_response_success=response_success,
-        hcx_response_total=response_total,
-        hcx_response_rate=(response_success / response_total if response_total else 0.0),
+        metric_scope_label=REVIEWED_METRIC_SCOPE_LABEL,
+        independent_hcx_response_success=response_success,
+        independent_hcx_response_total=response_total,
+        independent_hcx_response_rate=(
+            response_success / response_total if response_total else 0.0
+        ),
     )
