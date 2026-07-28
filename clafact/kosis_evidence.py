@@ -19,6 +19,7 @@ class KosisEvidenceObject:
     source_selection: Mapping[str, str]
     retrieved_at: str
     structure_type: str = ""
+    snapshot_id: str = ""
 
     def __post_init__(self) -> None:
         for field in ("table_id", "url", "title", "organization", "indicator", "retrieved_at"):
@@ -39,4 +40,5 @@ class KosisEvidenceObject:
             "source_selection": dict(self.source_selection),
             "retrieved_at": self.retrieved_at,
             "structure_type": self.structure_type,
+            "snapshot_id": self.snapshot_id,
         }

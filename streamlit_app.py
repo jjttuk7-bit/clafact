@@ -30,6 +30,8 @@ from clafact.kosis import HttpKosisClient
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_evidence_autofill import autofill_from_rows, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
+from clafact.kosis_evidence_snapshot import build_evidence_snapshot
+from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
@@ -1850,6 +1852,14 @@ if view == "검증 실험실":
                         st.session_state.get("kosis_evidence_url", ""),
                     )
                     rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, recent_n=1)
+                    snapshot_retrieved_at = datetime.now().astimezone().isoformat()
+                    st.session_state["kosis_evidence_snapshot_context"] = {
+                        "org_id": identity.org_id,
+                        "table_id": identity.table_id,
+                        "query_params": {"recent_n": 1},
+                        "retrieved_at": snapshot_retrieved_at,
+                        "rows": rows,
+                    }
                     fields = autofill_from_rows(table_id=identity.table_id, rows=rows)
                     structure = classify_table_structure(rows)
                     st.session_state['kosis_evidence_structure_type'] = structure.structure_type
@@ -1893,10 +1903,27 @@ if view == "검증 실험실":
                 st.caption(f"자동 판정 근거: {structure_reason}")
             if st.button("KOSIS 근거 저장", key="kosis_evidence_save"):
                 try:
-                    evidence = build_manual_evidence(table_id=table_id, url=table_url, title=title, organization=organization, indicator=indicator, dimensions=dimensions, time_dimension=time_dimension, unit=unit, definition=definition, source_selection=selection, retrieved_at=datetime.now().astimezone().isoformat(), structure_type=structure_type)
+                    snapshot_context = st.session_state.get("kosis_evidence_snapshot_context")
+                    snapshot_id = ""
+                    retrieved_at = datetime.now().astimezone().isoformat()
+                    if snapshot_context and snapshot_context["table_id"] == table_id:
+                        retrieved_at = snapshot_context["retrieved_at"]
+                        snapshot = build_evidence_snapshot(**snapshot_context)
+                        with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                            snapshot_store.append(snapshot)
+                        snapshot_id = snapshot.snapshot_id
+                    evidence = build_manual_evidence(
+                        table_id=table_id, url=table_url, title=title, organization=organization,
+                        indicator=indicator, dimensions=dimensions, time_dimension=time_dimension,
+                        unit=unit, definition=definition, source_selection=selection,
+                        retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,
+                    )
                     with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
                         evidence_store.append(evidence)
-                    st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
+                    if snapshot_id:
+                        st.success(f"KOSIS 근거 객체와 조회 스냅샷을 저장했습니다: {evidence.table_id} · {snapshot_id}")
+                    else:
+                        st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
                 except ValueError as error:
                     st.error(f"KOSIS 근거 저장 실패: {error}")
         shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
