@@ -29,6 +29,7 @@ from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
+from clafact.kosis_candidate_run_store import KosisCandidateRunStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
@@ -2244,9 +2245,22 @@ if view == "검증 실험실":
                     try:
                         search_index, _ = load_engine()
                         candidate_sentence = sentence_options[candidate_sentence_label]["sentence"]
-                        st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = suggest_kosis_candidates(
-                            candidate_sentence, search_index
-                        )
+                        candidates = suggest_kosis_candidates(candidate_sentence, search_index)
+                        st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
+                        candidate_rows = [
+                            {"rank": rank, "table_id": candidate.hit.tbl_id, "title": candidate.hit.tbl_name,
+                             "score": candidate.score, "reasons": list(candidate.reasons),
+                             "penalties": list(candidate.penalties)}
+                            for rank, candidate in enumerate(candidates, start=1)
+                        ]
+                        with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
+                            candidate_store.append(
+                                shadow_run_id=shadow_run_id,
+                                row_index=sentence_options[candidate_sentence_label]["row_index"],
+                                sentence=candidate_sentence, query=search_index.last_query,
+                                candidates=candidate_rows,
+                                created_at=datetime.now().astimezone().isoformat(),
+                            )
                     except KeyError:
                         st.warning("KOSIS_API_KEY가 설정되지 않아 후보를 검색할 수 없습니다. 수동 근거 입력은 계속 사용할 수 있습니다.")
                     except Exception as error:
@@ -2258,6 +2272,19 @@ if view == "검증 실험실":
                     st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점")
                     st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))
                     st.link_button("KOSIS 표 열기", f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", key=f"kosis_candidate_open_{shadow_run_id}_{rank}")
+
+                with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
+                    candidate_history_rows = candidate_store.list_csv_rows()
+                if candidate_history_rows:
+                    with st.expander("KOSIS 후보 탐색 이력", expanded=False):
+                        st.dataframe(candidate_history_rows, hide_index=True, use_container_width=True)
+                        candidate_csv = io.StringIO()
+                        writer = csv.DictWriter(candidate_csv, fieldnames=candidate_history_rows[0].keys())
+                        writer.writeheader()
+                        writer.writerows(candidate_history_rows)
+                        st.download_button("후보 탐색 이력 CSV 다운로드", candidate_csv.getvalue().encode("utf-8-sig"),
+                            file_name="kosis_candidate_search_history.csv", mime="text/csv; charset=utf-8",
+                            key=f"kosis_candidate_history_csv_{shadow_run_id}")
 
                 st.markdown("##### KOSIS 근거 연결")
                 with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
