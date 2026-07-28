@@ -27,6 +27,10 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
+from clafact.kosis_evidence_input import build_manual_evidence
+from clafact.kosis_evidence_store import KosisEvidenceStore
+from clafact.kosis_shadow_mapping import KosisShadowMapping
+from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
@@ -1833,6 +1837,27 @@ if view == "검증 실험실":
                 "본문과 발행일을 Shadow 입력에 반영했습니다. 필요하면 수정할 수 있습니다."
             )
 
+        st.markdown("##### KOSIS 통계표 근거 입력")
+        with st.expander("통계표 근거 객체 저장", expanded=False):
+            k1, k2 = st.columns(2)
+            table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
+            table_url = k2.text_input("원본 URL", key="kosis_evidence_url")
+            title = st.text_input("표 제목", key="kosis_evidence_title")
+            organization = st.text_input("작성 기관", value="통계청", key="kosis_evidence_org")
+            indicator = st.text_input("핵심 지표", key="kosis_evidence_indicator")
+            dimensions = st.text_input("분류 차원 (쉼표)", placeholder="시도, 성별", key="kosis_evidence_dimensions")
+            time_dimension = st.text_input("시간 차원", placeholder="연", key="kosis_evidence_time")
+            unit = st.text_input("단위", placeholder="명", key="kosis_evidence_unit")
+            definition = st.text_area("통계 정의", key="kosis_evidence_definition")
+            selection = st.text_input("선택 항목 (키=값;...)", placeholder="시도=전국;성별=계", key="kosis_evidence_selection")
+            if st.button("KOSIS 근거 저장", key="kosis_evidence_save"):
+                try:
+                    evidence = build_manual_evidence(table_id=table_id, url=table_url, title=title, organization=organization, indicator=indicator, dimensions=dimensions, time_dimension=time_dimension, unit=unit, definition=definition, source_selection=selection, retrieved_at=datetime.now().astimezone().isoformat())
+                    with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
+                        evidence_store.append(evidence)
+                    st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
+                except ValueError as error:
+                    st.error(f"KOSIS 근거 저장 실패: {error}")
         shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
         shadow_text = st.text_area(
             "Shadow 분석 기사 본문",
@@ -1885,6 +1910,59 @@ if view == "검증 실험실":
                     st.error(execution_message)
                 st.dataframe(shadow_result_rows(shadow_run), width="stretch", hide_index=True)
 
+                st.markdown("##### KOSIS 근거 연결")
+                with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
+                    evidence_objects = evidence_store.list_all()
+                if evidence_objects:
+                    sentence_options = {
+                        f"#{row['row_index']} · {row['sentence'][:70]}": row
+                        for row in shadow_run["rows"]
+                    }
+                    evidence_options = {
+                        f"{evidence['table_id']} · {evidence['title']}": evidence
+                        for evidence in evidence_objects
+                    }
+                    selected_sentence_label = st.selectbox(
+                        "연결할 Shadow 문장", list(sentence_options),
+                        key=f"kosis_mapping_sentence_{shadow_run_id}",
+                    )
+                    selected_evidence_label = st.selectbox(
+                        "KOSIS 통계표 근거", list(evidence_options),
+                        key=f"kosis_mapping_evidence_{shadow_run_id}",
+                    )
+                    mapping_status = st.selectbox(
+                        "연결 상태", ("candidate", "reviewed", "rejected"),
+                        format_func=lambda status: {
+                            "candidate": "후보", "reviewed": "검토 완료", "rejected": "제외",
+                        }[status],
+                        key=f"kosis_mapping_status_{shadow_run_id}",
+                    )
+                    mapping_note = st.text_area(
+                        "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
+                        key=f"kosis_mapping_note_{shadow_run_id}",
+                    )
+                    if st.button("KOSIS 근거 연결 저장", key=f"kosis_mapping_save_{shadow_run_id}"):
+                        selected_sentence = sentence_options[selected_sentence_label]
+                        selected_evidence = evidence_options[selected_evidence_label]
+                        try:
+                            mapping = KosisShadowMapping(
+                                shadow_run_id=shadow_run_id,
+                                row_index=selected_sentence["row_index"],
+                                table_id=selected_evidence["table_id"],
+                                source_selection=selected_evidence["source_selection"],
+                                note=mapping_note,
+                                status=mapping_status,
+                            )
+                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                                inserted = mapping_store.append(mapping)
+                            if inserted:
+                                st.success("KOSIS 근거 연결을 연구 전용 저장소에 기록했습니다.")
+                            else:
+                                st.info("동일한 KOSIS 근거 연결이 이미 기록되어 있습니다.")
+                        except ValueError as error:
+                            st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
+                else:
+                    st.info("먼저 위의 ‘통계표 근거 객체 저장’에서 KOSIS 통계표를 한 건 이상 저장해 주세요.")
                 reviewable_rows = [
                     row for row in shadow_run["rows"]
                     if row["review_state"] == "needs_review"
