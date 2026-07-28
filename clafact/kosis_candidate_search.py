@@ -14,6 +14,7 @@ class KosisCandidate:
     score: int
     reasons: tuple[str, ...]
     penalties: tuple[str, ...]
+    selected_item: str = ""
 
 
 def _compact(text: str) -> str:
@@ -55,6 +56,7 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
     elif expects_year_over_year:
         penalties.append("전년동월비 표현 없음")
 
+    selected_item = next((item for item in item_names if "전년" in item), "")
     official_items = " ".join(item_names)
     if expects_year_over_year and "전월비" in official_items and "전년" not in official_items:
         score = max(0, score - 40)
@@ -62,7 +64,7 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
     elif expects_year_over_year and ("전년비" in official_items or "전년동월비" in official_items):
         score += 20
         reasons.append("공식 항목 전년동월비 일치")
-    return KosisCandidate(hit, score, tuple(reasons), tuple(penalties))
+    return KosisCandidate(hit, score, tuple(reasons), tuple(penalties), selected_item)
 
 
 def suggest_kosis_candidates(sentence: str, search_index: object, *, top_k: int = 3, metadata_client: object | None = None) -> list[KosisCandidate]:

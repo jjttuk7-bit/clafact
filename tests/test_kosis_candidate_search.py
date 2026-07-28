@@ -49,3 +49,12 @@ def test_official_item_metadata_penalizes_month_over_month_for_year_over_year_cl
 
     assert "공식 항목 전월비 불일치" in result.penalties
     assert result.score < 90
+
+
+def test_candidate_selects_year_over_year_item_within_same_table():
+    result = evaluate_kosis_candidate(
+        "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다.",
+        TableHit("DT_MONTH", "101", "월별 소비자물가 등락률", "소비자물가조사", 1.0),
+        item_names=("전월비", "전년비"),
+    )
+    assert result.selected_item == "전년비"
