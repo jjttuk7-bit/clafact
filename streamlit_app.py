@@ -27,6 +27,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
+from clafact.kosis_evidence_autofill import autofill_from_rows, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
@@ -1839,6 +1840,29 @@ if view == "검증 실험실":
 
         st.markdown("##### KOSIS 통계표 근거 입력")
         with st.expander("통계표 근거 객체 저장", expanded=False):
+            st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
+            if st.button("KOSIS 메타데이터 자동 채우기", key="kosis_evidence_autofill"):
+                try:
+                    identity = parse_kosis_table_identity(
+                        st.session_state.get("kosis_evidence_table_id", ""),
+                        st.session_state.get("kosis_evidence_url", ""),
+                    )
+                    rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, recent_n=1)
+                    fields = autofill_from_rows(table_id=identity.table_id, rows=rows)
+                    for state_key, value in {
+                        "kosis_evidence_title": fields.title,
+                        "kosis_evidence_org": fields.organization,
+                        "kosis_evidence_indicator": fields.indicator,
+                        "kosis_evidence_dimensions": fields.dimensions,
+                        "kosis_evidence_time": fields.time_dimension,
+                        "kosis_evidence_unit": fields.unit,
+                        "kosis_evidence_selection": fields.source_selection,
+                    }.items():
+                        if value:
+                            st.session_state[state_key] = value
+                    st.success("공식 KOSIS API 응답을 바탕으로 입력 초안을 채웠습니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
+                except (RuntimeError, ValueError) as error:
+                    st.error(f"KOSIS 자동 채우기를 실행하지 못했습니다: {error}")
             k1, k2 = st.columns(2)
             table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
             table_url = k2.text_input("원본 URL", key="kosis_evidence_url")

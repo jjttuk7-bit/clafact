@@ -119,3 +119,11 @@
 - 영향: `data/research/kosis_evidence.db`와 `data/research/kosis_shadow_mapping.db`만 사용한다. 운영 Claim, 리뷰 큐, 판정 이력, 기존 비교 실험 저장소는 변경하지 않는다.
 - 검증: KOSIS 근거 객체·입력·저장·목록·Shadow 매핑 테스트 7건과 `python -m py_compile`을 통과했다. Streamlit AppTest에서 검증 실험실의 `KOSIS 통계표 ID` 입력 렌더링을 확인했다.
 - 다음 단계: KOSIS API/원본 표에서 메타데이터를 반자동 수집하고, 한 문장에 대한 복수 근거의 적합성 평가를 축적한다.
+## CHG-SHADOW-012 — KOSIS 메타데이터 반자동 채우기
+
+- 일시: 2026-07-28
+- 변경: 원본 KOSIS URL의 `orgId`·`tblId`를 검증한 뒤, KOSIS API 응답의 표 제목·작성 기관·지표·분류 차원·선택 항목·주기·단위를 근거 객체 입력 초안으로 자동 채운다.
+- 안전 기준: API 응답에 없는 통계 정의·대상 범위·잠정/확정 여부는 추정하지 않고 비워 둔다. `KOSIS_API_KEY` 또는 URL의 `orgId`가 없으면 호출하지 않고 화면에 원인을 안내한다.
+- 영향: 사용자 입력 초안만 갱신하며, 근거 객체를 저장하거나 운영 Claim·리뷰·판정 이력을 바꾸지 않는다.
+- 검증: 자동 변환 테스트 2건을 포함한 KOSIS 근거·Shadow 매핑 테스트 9건, Python 문법 검사, Streamlit AppTest의 자동 채우기 버튼 렌더링을 통과했다.
+- 다음 단계: 원본 표의 정의·조사 기준 문구를 별도 추출 후보로 제안하고, 사람이 승인한 값만 근거 객체에 반영한다.
