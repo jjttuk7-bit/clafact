@@ -16,6 +16,14 @@ class KosisCandidate:
     penalties: tuple[str, ...]
     selected_item: str = ""
     score_breakdown: tuple[str, ...] = ()
+    max_score: int = 0
+
+    @property
+    def fit_score(self) -> int:
+        """Return the candidate suitability normalized to a 100-point scale."""
+        if self.max_score <= 0:
+            return 0
+        return max(0, min(100, round(self.score / self.max_score * 100)))
 
 
 def _compact(text: str) -> str:
@@ -30,7 +38,10 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
     reasons: list[str] = []
     penalties: list[str] = []
     score_breakdown: list[str] = []
+    max_score = 0
 
+    if "소비자물가" in claim:
+        max_score += 50
     if "소비자물가" in claim and "소비자물가" in title:
         score += 50
         reasons.append("지표 일치")
@@ -38,6 +49,8 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
 
     expects_month = "지난달" in claim or "이번달" in claim or "전년동월" in claim
     monthly_title = any(token in title for token in ("월별", "월간", "전년동월비", "전월비"))
+    if expects_month:
+        max_score += 20
     if expects_month and monthly_title:
         score += 20
         reasons.append("월 단위 일치")
@@ -47,6 +60,8 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
 
     expects_rate = "%" in sentence or "퍼센트" in sentence
     rate_title = any(token in title for token in ("등락률", "증감률", "상승률", "전년동월비", "전월비"))
+    if expects_rate:
+        max_score += 20
     if expects_rate and rate_title:
         score += 20
         reasons.append("등락률/증감률 단위 일치")
@@ -55,6 +70,8 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
         penalties.append("등락률/증감률 표현 없음")
 
     expects_year_over_year = any(token in claim for token in ("지난해같은달", "전년동월", "전년동월비"))
+    if expects_year_over_year:
+        max_score += 30
     if expects_year_over_year and "전년동월비" in title:
         score += 10
         reasons.append("전년동월비 일치")
@@ -80,6 +97,7 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
         penalties=tuple(penalties),
         selected_item=selected_item,
         score_breakdown=tuple(score_breakdown),
+        max_score=max_score,
     )
 
 

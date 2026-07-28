@@ -2274,7 +2274,7 @@ if view == "검증 실험실":
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
                         candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
-                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item} for rank, c in enumerate(candidates, start=1)]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                             candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
@@ -2283,7 +2283,7 @@ if view == "검증 실험실":
                         st.warning(f"KOSIS 후보 탐색을 완료하지 못했습니다: {error}")
                 candidate_results = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", [])
                 if candidate_results:
-                    candidate_labels = {f"{rank}위 · {c.hit.tbl_name} ({c.score}점)": c for rank, c in enumerate(candidate_results, start=1)}
+                    candidate_labels = {f"{rank}위 · {c.hit.tbl_name} (적합도 {getattr(c, 'fit_score', c.score)}점)": c for rank, c in enumerate(candidate_results, start=1)}
                     selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")
                     if st.button("선택 후보를 근거 입력에 적용", key=f"kosis_candidate_apply_button_{shadow_run_id}"):
                         hit = candidate_labels[selected_candidate_label].hit
@@ -2294,7 +2294,11 @@ if view == "검증 실험실":
                     reasons = ", ".join(candidate.reasons) or "제목 기반 일치 신호 없음"
                     penalties = ", ".join(candidate.penalties)
                     selected_item = getattr(candidate, "selected_item", "")
-                    st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점" + (f" · 선택 항목: {selected_item}" if selected_item else ""))
+                    fit_score = getattr(candidate, "fit_score", candidate.score)
+                    max_score = getattr(candidate, "max_score", 0)
+                    st.markdown(f"**{rank}위 · {hit.tbl_name}** — 적합도 {fit_score}점" + (f" · 선택 항목: {selected_item}" if selected_item else ""))
+                    if max_score:
+                        st.caption(f"원점수: {candidate.score} / {max_score} (100점 환산)")
                     score_breakdown = " · ".join(getattr(candidate, "score_breakdown", ())) or "산정 내역 없음 (이전 기록)"
                     st.caption(f"점수 산정: {score_breakdown}")
                     st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))

@@ -69,3 +69,14 @@ def test_candidate_exposes_point_by_point_score_breakdown():
 
     assert "+50 지표 일치" in result.score_breakdown
     assert "+20 공식 항목 전년동월비 일치" in result.score_breakdown
+
+def test_candidate_normalizes_raw_ranking_to_hundred_point_fit():
+    result = evaluate_kosis_candidate(
+        "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다.",
+        TableHit("DT_MONTH", "101", "월별 소비자물가 등락률", "소비자물가조사", 1.0),
+        item_names=("전년동월비(%)",),
+    )
+
+    assert result.score == 110
+    assert result.max_score == 120
+    assert result.fit_score == 92
