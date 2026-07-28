@@ -34,6 +34,7 @@ from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_registry import build_evidence_registry_rows
+from clafact.kosis_evidence_case_status import build_evidence_case_status
 from clafact.kosis_snapshot_compare import compare_snapshots
 from clafact.kosis_revision_impact import find_revision_impacts
 from clafact.kosis_revision_review_store import KosisRevisionReviewStore
@@ -2020,6 +2021,25 @@ if view == "검증 실험실":
                     "상세 확인할 근거 객체", list(evidence_options), key="kosis_evidence_registry_selected",
                 )
                 selected_registered_evidence = evidence_options[selected_evidence_label]
+                selected_table_id = selected_registered_evidence["table_id"]
+                with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                    selected_reviews = review_store.list_for_table(selected_table_id)
+                case_status = build_evidence_case_status(
+                    evidence=selected_registered_evidence,
+                    snapshot_count=snapshot_counts[selected_table_id],
+                    mapping_count=mapping_counts[selected_table_id],
+                    pending_review_count=sum(review["status"] == "pending" for review in selected_reviews),
+                )
+                st.markdown("##### 실제 근거 객체 사례 진행도")
+                st.progress(
+                    case_status.completed_steps / case_status.total_steps,
+                    text=f"{case_status.completed_steps} / {case_status.total_steps} 단계 완료",
+                )
+                st.caption(case_status.next_action)
+                st.dataframe([{
+                    "단계": step,
+                    "상태": "완료" if done else "대기",
+                } for step, done in case_status.steps], width="stretch", hide_index=True)
                 st.json(selected_registered_evidence)
                 st.download_button(
                     "근거 객체 JSON 다운로드",
