@@ -34,6 +34,8 @@ from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_snapshot_compare import compare_snapshots
 from clafact.kosis_revision_impact import find_revision_impacts
+from clafact.kosis_revision_review_store import KosisRevisionReviewStore
+from clafact.kosis_revision_review_store import KosisRevisionReviewStore
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
@@ -2001,12 +2003,63 @@ if view == "검증 실험실":
                                     "연결 점수": impact.match_score if impact.match_score is not None else "-",
                                     "연결 메모": impact.note,
                                 } for impact in impacts], width="stretch", hide_index=True)
+                                if st.button("개정 재검토 대상 기록", key=f"kosis_revision_enqueue_{latest_snapshot['snapshot_id']}"):
+                                    with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                                        reviews = [review_store.enqueue(
+                                            impact,
+                                            before_snapshot_id=previous_snapshot["snapshot_id"],
+                                            after_snapshot_id=latest_snapshot["snapshot_id"],
+                                            detected_at=datetime.now().astimezone().isoformat(),
+                                        ) for impact in impacts]
+                                    st.success(f"개정 검토 큐에 {len(reviews)}건을 기록했습니다. 기존 동일 대상은 중복 생성하지 않습니다.")
                             elif mapped_sentences:
                                 st.success("이 표에 연결된 Shadow 문장 중, 변경된 선택 조건과 일치하는 재검토 대상은 없습니다.")
                         else:
                             st.success("최신 두 스냅샷에서 값과 최종수정일 차이가 없습니다.")
             else:
                 st.caption("통계표 ID를 입력하면 해당 표의 저장된 조회 스냅샷과 개정 이력을 볼 수 있습니다.")
+
+        if snapshot_table_id:
+            st.markdown("##### KOSIS 개정 검토 큐")
+            with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                revision_reviews = review_store.list_for_table(snapshot_table_id)
+            if revision_reviews:
+                st.dataframe([{
+                    "상태": {"pending": "대기", "approved": "승인", "hold": "보류", "ignored": "무시"}.get(review["status"], review["status"]),
+                    "Shadow 실행": review["shadow_run_id"],
+                    "문장 번호": review["row_index"],
+                    "감지 시각": review["detected_at"],
+                    "결정 시각": review["decided_at"] or "-",
+                    "사유": review["note"] or "-",
+                } for review in revision_reviews], width="stretch", hide_index=True)
+                review_options = {
+                    f"{review['review_id']} · #{review['row_index']} · {review['status']}": review
+                    for review in revision_reviews
+                }
+                selected_review_label = st.selectbox(
+                    "결정할 개정 검토 대상", list(review_options),
+                    key=f"kosis_revision_review_target_{snapshot_table_id}",
+                )
+                selected_revision_review = review_options[selected_review_label]
+                review_action = st.selectbox(
+                    "개정 검토 결정", ("approved", "hold", "ignored"),
+                    format_func=lambda action: {"approved": "승인", "hold": "보류", "ignored": "무시"}[action],
+                    key=f"kosis_revision_review_action_{snapshot_table_id}",
+                )
+                review_note = st.text_area(
+                    "개정 검토 사유", placeholder="예: 개정 값 확인 후 문장 판단에 영향 없음",
+                    key=f"kosis_revision_review_note_{snapshot_table_id}",
+                )
+                if st.button("개정 검토 결정 저장", key=f"kosis_revision_review_save_{snapshot_table_id}"):
+                    with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                        review_store.decide(
+                            selected_revision_review["review_id"], action=review_action,
+                            note=review_note, decided_at=datetime.now().astimezone().isoformat(),
+                        )
+                    st.success("개정 검토 결정을 연구 전용 이력에 저장했습니다.")
+                    st.rerun()
+            else:
+                st.caption("기록된 개정 검토 대상이 없습니다. 스냅샷 비교에서 재검토 대상을 기록하면 이곳에 표시됩니다.")
 
         shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
         shadow_text = st.text_area(
