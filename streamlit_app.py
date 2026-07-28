@@ -2252,9 +2252,9 @@ if view == "검증 실험실":
                 )
                 if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
                     try:
-                        search_index, _ = load_engine()
+                        search_index, metadata_client = load_engine()
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
-                        candidates = suggest_kosis_candidates(candidate_sentence, search_index)
+                        candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties)} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:

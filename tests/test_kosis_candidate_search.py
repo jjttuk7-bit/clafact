@@ -38,3 +38,14 @@ def test_search_results_are_ranked_and_limited_to_top_three():
     )
 
     assert [candidate.hit.tbl_id for candidate in candidates] == ["MONTHLY", "SECOND", "ANNUAL"]
+
+def test_official_item_metadata_penalizes_month_over_month_for_year_over_year_claim():
+    sentence = "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다."
+    result = evaluate_kosis_candidate(
+        sentence,
+        TableHit("DT_MONTH", "101", "월별 소비자물가 등락률", "소비자물가조사", 1.0),
+        item_names=("전월비",),
+    )
+
+    assert "공식 항목 전월비 불일치" in result.penalties
+    assert result.score < 90
