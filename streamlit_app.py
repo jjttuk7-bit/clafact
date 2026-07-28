@@ -99,6 +99,12 @@ from clafact.pipeline.detect_llm import SYSTEM as HCX_CANDIDATE_SYSTEM
 from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
+from clafact.shadow_export import export_shadow_run_csv, export_shadow_run_json
+from clafact.shadow_policy import ShadowPolicy
+from clafact.shadow_service import ShadowLabService
+from clafact.shadow_ui import (
+    download_filenames, shadow_database_path, shadow_result_rows, summary_metrics, validate_shadow_input,
+)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -789,1008 +795,1108 @@ if view == "검증":
 # ═════════════ 검증 실험실: 운영과 분리된 엔진 비교 ═════════════
 if view == "검증 실험실":
     st.markdown("#### 검증 실험실")
-    st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, HCX-005만, 하이브리드 방식으로 비교합니다.")
-    st.caption("최종 KOSIS 판정 화면이 아니라 수치 주장 탐지·문맥 판별의 연구용 비교 화면입니다.")
+    st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않는 연구 전용 공간입니다.")
+    existing_lab_tab, shadow_lab_tab = st.tabs(("기존 비교 실험", "Shadow Mode"))
 
-    lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
-    selected_lab_article = None
-    lab_source_row_count = 1
-    lab_signature = ""
-    upload_identity = None
-    selected_eda_range = None
-    if lab_csv is not None:
-        upload_identity = UploadIdentity(
-            file_id=str(getattr(lab_csv, "file_id", "")),
-            name=str(lab_csv.name),
-            size=int(lab_csv.size),
-        )
-        upload_metadata = cached_upload_metadata(st.session_state, upload_identity)
-        scan = None
-        if upload_metadata is None:
-            try:
-                lab_signature = hash_seekable_stream(lab_csv)
-                scan = scan_csv_stream(lab_csv)
-            except UnicodeDecodeError:
-                st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
-            except EdaCsvReadError as error:
-                st.error(error.user_message)
-            else:
-                upload_metadata = UploadMetadata(
-                    identity=upload_identity,
-                    signature=lab_signature,
-                    row_count=scan.row_count,
-                )
-                store_upload_metadata(st.session_state, upload_metadata)
-        else:
-            lab_signature = upload_metadata.signature
+    with existing_lab_tab:
+        st.markdown("#### 검증 실험실")
+        st.info("이 화면은 운영 Claim·리뷰 큐·판정 이력을 변경하지 않습니다. 동일한 문장을 Python 규칙만, HCX-005만, 하이브리드 방식으로 비교합니다.")
+        st.caption("최종 KOSIS 판정 화면이 아니라 수치 주장 탐지·문맥 판별의 연구용 비교 화면입니다.")
 
-        lab_source_row_count = upload_metadata.row_count if upload_metadata else 0
+        lab_csv = st.file_uploader("검증 실험실 CSV 파일", type=["csv"], key="experiment_lab_csv", help="기존 기사 CSV의 body/본문/content/text 열을 사용하며 운영 데이터에는 저장하지 않습니다.")
+        selected_lab_article = None
+        lab_source_row_count = 1
+        lab_signature = ""
+        upload_identity = None
         selected_eda_range = None
-        range_submitted = False
-
-        if upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
-            st.info(
-                f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
-                f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."
+        if lab_csv is not None:
+            upload_identity = UploadIdentity(
+                file_id=str(getattr(lab_csv, "file_id", "")),
+                name=str(lab_csv.name),
+                size=int(lab_csv.size),
             )
-            with st.form("experiment_eda_range_form"):
-                range_start = st.number_input(
-                    "분석 시작 행",
-                    min_value=1,
-                    max_value=lab_source_row_count,
-                    value=1,
-                    step=1,
-                    key=EDA_RANGE_START_KEY,
-                )
-                range_end = st.number_input(
-                    "분석 종료 행",
-                    min_value=1,
-                    max_value=lab_source_row_count,
-                    value=min(MAX_EDA_ROWS, lab_source_row_count),
-                    step=1,
-                    key=EDA_RANGE_END_KEY,
-                )
-                range_submitted = st.form_submit_button("분석 범위 확정", width="stretch")
-            if range_submitted:
+            upload_metadata = cached_upload_metadata(st.session_state, upload_identity)
+            scan = None
+            if upload_metadata is None:
                 try:
-                    st.session_state[EDA_RANGE_KEY] = resolve_eda_range(
-                        lab_source_row_count,
-                        EdaRange(int(range_start), int(range_end)),
-                        confirmed=range_submitted,
-                    )
-                except ValueError as error:
-                    st.session_state.pop(EDA_RANGE_KEY, None)
-                    st.error(str(error))
-            selected_eda_range = st.session_state.get(EDA_RANGE_KEY)
-        elif upload_metadata:
-            selected_eda_range = resolve_eda_range(lab_source_row_count)
-
-        eda_report = None
-        eda_view = None
-        if upload_metadata and lab_source_row_count == 0:
-            empty_preparation = prepare_eda(())
-            if empty_preparation.status == "empty":
-                st.warning(empty_preparation.user_message)
-        elif selected_eda_range is not None:
-            current_cache_key = eda_cache_key(lab_signature, selected_eda_range)
-            same_cache_scope = st.session_state.get(EDA_CACHE_KEY) == current_cache_key
-            if not same_cache_scope:
-                prepare_cache_scope(st.session_state, current_cache_key)
-                selected_rows = None
-                try:
-                    if lab_source_row_count > MAX_EDA_ROWS:
-                        selected_rows = read_csv_range(lab_csv, selected_eda_range)
-                    else:
-                        small_scan = scan if scan is not None else scan_csv_stream(lab_csv)
-                        selected_rows = small_scan.rows
+                    lab_signature = hash_seekable_stream(lab_csv)
+                    scan = scan_csv_stream(lab_csv)
                 except UnicodeDecodeError:
                     st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
-                    st.session_state.pop(EDA_CACHE_KEY, None)
                 except EdaCsvReadError as error:
                     st.error(error.user_message)
-                    st.session_state.pop(EDA_CACHE_KEY, None)
-                if selected_rows is not None:
-                    prepared = prepare_eda(
-                        selected_rows,
-                        row_number_start=selected_eda_range.start,
+                else:
+                    upload_metadata = UploadMetadata(
+                        identity=upload_identity,
+                        signature=lab_signature,
+                        row_count=scan.row_count,
                     )
-                    if prepared.status == "empty":
-                        st.warning(prepared.user_message)
-                    else:
-                        eda_report = prepared.report
-                        eda_view = prepared.view
-                        st.session_state[EDA_REPORT_KEY] = eda_report
-                        st.session_state[EDA_VIEW_KEY] = eda_view
+                    store_upload_metadata(st.session_state, upload_metadata)
             else:
-                eda_report = st.session_state.get(EDA_REPORT_KEY)
-                eda_view = st.session_state.get(EDA_VIEW_KEY)
-        if eda_report is not None and eda_view is not None:
-            csv_articles = [
-                {
-                    "row_number": article.row_number,
-                    "title": article.title,
-                    "date": article.article_date,
-                    "body": article.cleaned_body,
-                }
-                for article in eda_report.articles
-            ]
-            st.caption(
-                f"CSV 유효 기사 {eda_report.valid_article_count:,}건 · "
-                f"제외 {eda_report.excluded_article_count:,}건 · 자동 일괄 실행하지 않습니다. "
-                "비교할 기사 한 건을 선택하세요."
-            )
-            st.caption(analysis_scope_caption(
-                lab_source_row_count,
-                selected_eda_range,
-            ))
-            with st.expander("CSV 통합 EDA", expanded=True):
-                st.caption(
-                    "EDA는 Python 규칙만 사용하며 HCX를 자동 호출하지 않습니다. "
-                    "body, 본문, 기사 본문 전체, content, text 열에서 읽은 업로드 데이터만 분석합니다."
-                )
+                lab_signature = upload_metadata.signature
 
-                st.markdown("##### 1. 데이터 품질")
-                quality_columns = st.columns(len(eda_view.quality_kpis))
-                for column, card in zip(quality_columns, eda_view.quality_kpis):
-                    column.metric(card.label, f"{card.value:,}")
-                    column.caption(card.note)
-                if eda_view.issue_reason_rows:
-                    st.caption("제외·경고 사유")
-                    st.bar_chart(
-                        [
-                            {"사유": row.label, "건수": row.value}
-                            for row in eda_view.issue_reason_rows
-                        ],
-                        x="사유",
-                        y="건수",
-                        horizontal=True,
-                        width="stretch",
+            lab_source_row_count = upload_metadata.row_count if upload_metadata else 0
+            selected_eda_range = None
+            range_submitted = False
+
+            if upload_metadata and lab_source_row_count > MAX_EDA_ROWS:
+                st.info(
+                    f"CSV가 {MAX_EDA_ROWS:,}행을 초과합니다. 자동 분석하지 않으며 "
+                    f"한 번에 최대 {MAX_EDA_ROWS:,}행의 범위를 확정해 분석합니다."
+                )
+                with st.form("experiment_eda_range_form"):
+                    range_start = st.number_input(
+                        "분석 시작 행",
+                        min_value=1,
+                        max_value=lab_source_row_count,
+                        value=1,
+                        step=1,
+                        key=EDA_RANGE_START_KEY,
                     )
-                if eda_view.problem_rows.rows:
-                    st.dataframe(
-                        [
-                            {
-                                "원본 행": row.row_number,
-                                "제목": row.title or "제목 없음",
-                                "문제": row.issue,
-                            }
-                            for row in eda_view.problem_rows.rows
-                        ],
-                        hide_index=True,
-                        width="stretch",
+                    range_end = st.number_input(
+                        "분석 종료 행",
+                        min_value=1,
+                        max_value=lab_source_row_count,
+                        value=min(MAX_EDA_ROWS, lab_source_row_count),
+                        step=1,
+                        key=EDA_RANGE_END_KEY,
                     )
-                    if eda_view.problem_rows.truncated:
-                        st.caption(
-                            f"문제 {eda_view.problem_rows.total:,}건 중 "
-                            f"앞 {eda_view.problem_rows.limit:,}건만 표시합니다."
+                    range_submitted = st.form_submit_button("분석 범위 확정", width="stretch")
+                if range_submitted:
+                    try:
+                        st.session_state[EDA_RANGE_KEY] = resolve_eda_range(
+                            lab_source_row_count,
+                            EdaRange(int(range_start), int(range_end)),
+                            confirmed=range_submitted,
+                        )
+                    except ValueError as error:
+                        st.session_state.pop(EDA_RANGE_KEY, None)
+                        st.error(str(error))
+                selected_eda_range = st.session_state.get(EDA_RANGE_KEY)
+            elif upload_metadata:
+                selected_eda_range = resolve_eda_range(lab_source_row_count)
+
+            eda_report = None
+            eda_view = None
+            if upload_metadata and lab_source_row_count == 0:
+                empty_preparation = prepare_eda(())
+                if empty_preparation.status == "empty":
+                    st.warning(empty_preparation.user_message)
+            elif selected_eda_range is not None:
+                current_cache_key = eda_cache_key(lab_signature, selected_eda_range)
+                same_cache_scope = st.session_state.get(EDA_CACHE_KEY) == current_cache_key
+                if not same_cache_scope:
+                    prepare_cache_scope(st.session_state, current_cache_key)
+                    selected_rows = None
+                    try:
+                        if lab_source_row_count > MAX_EDA_ROWS:
+                            selected_rows = read_csv_range(lab_csv, selected_eda_range)
+                        else:
+                            small_scan = scan if scan is not None else scan_csv_stream(lab_csv)
+                            selected_rows = small_scan.rows
+                    except UnicodeDecodeError:
+                        st.error("CSV 파일은 UTF-8 또는 UTF-8 BOM 인코딩이어야 합니다.")
+                        st.session_state.pop(EDA_CACHE_KEY, None)
+                    except EdaCsvReadError as error:
+                        st.error(error.user_message)
+                        st.session_state.pop(EDA_CACHE_KEY, None)
+                    if selected_rows is not None:
+                        prepared = prepare_eda(
+                            selected_rows,
+                            row_number_start=selected_eda_range.start,
+                        )
+                        if prepared.status == "empty":
+                            st.warning(prepared.user_message)
+                        else:
+                            eda_report = prepared.report
+                            eda_view = prepared.view
+                            st.session_state[EDA_REPORT_KEY] = eda_report
+                            st.session_state[EDA_VIEW_KEY] = eda_view
+                else:
+                    eda_report = st.session_state.get(EDA_REPORT_KEY)
+                    eda_view = st.session_state.get(EDA_VIEW_KEY)
+            if eda_report is not None and eda_view is not None:
+                csv_articles = [
+                    {
+                        "row_number": article.row_number,
+                        "title": article.title,
+                        "date": article.article_date,
+                        "body": article.cleaned_body,
+                    }
+                    for article in eda_report.articles
+                ]
+                st.caption(
+                    f"CSV 유효 기사 {eda_report.valid_article_count:,}건 · "
+                    f"제외 {eda_report.excluded_article_count:,}건 · 자동 일괄 실행하지 않습니다. "
+                    "비교할 기사 한 건을 선택하세요."
+                )
+                st.caption(analysis_scope_caption(
+                    lab_source_row_count,
+                    selected_eda_range,
+                ))
+                with st.expander("CSV 통합 EDA", expanded=True):
+                    st.caption(
+                        "EDA는 Python 규칙만 사용하며 HCX를 자동 호출하지 않습니다. "
+                        "body, 본문, 기사 본문 전체, content, text 열에서 읽은 업로드 데이터만 분석합니다."
+                    )
+
+                    st.markdown("##### 1. 데이터 품질")
+                    quality_columns = st.columns(len(eda_view.quality_kpis))
+                    for column, card in zip(quality_columns, eda_view.quality_kpis):
+                        column.metric(card.label, f"{card.value:,}")
+                        column.caption(card.note)
+                    if eda_view.issue_reason_rows:
+                        st.caption("제외·경고 사유")
+                        st.bar_chart(
+                            [
+                                {"사유": row.label, "건수": row.value}
+                                for row in eda_view.issue_reason_rows
+                            ],
+                            x="사유",
+                            y="건수",
+                            horizontal=True,
+                            width="stretch",
+                        )
+                    if eda_view.problem_rows.rows:
+                        st.dataframe(
+                            [
+                                {
+                                    "원본 행": row.row_number,
+                                    "제목": row.title or "제목 없음",
+                                    "문제": row.issue,
+                                }
+                                for row in eda_view.problem_rows.rows
+                            ],
+                            hide_index=True,
+                            width="stretch",
+                        )
+                        if eda_view.problem_rows.truncated:
+                            st.caption(
+                                f"문제 {eda_view.problem_rows.total:,}건 중 "
+                                f"앞 {eda_view.problem_rows.limit:,}건만 표시합니다."
+                            )
+
+                    st.markdown("##### 2. 기사 구조")
+                    body_stats = eda_view.structure_stats.body_length
+                    sentence_stats = eda_view.structure_stats.sentence_count
+                    structure_columns = st.columns(4)
+                    structure_columns[0].metric("본문 길이 중앙값", f"{body_stats.median:,.0f}자")
+                    structure_columns[1].metric("본문 길이 평균", f"{body_stats.mean:,.1f}자")
+                    structure_columns[2].metric("문장 수 중앙값", f"{sentence_stats.median:,.0f}개")
+                    structure_columns[3].metric("문장 수 평균", f"{sentence_stats.mean:,.1f}개")
+                    st.caption(
+                        f"본문 Q1~Q3 {body_stats.q1:,.0f}~{body_stats.q3:,.0f}자 · "
+                        f"문장 Q1~Q3 {sentence_stats.q1:,.0f}~{sentence_stats.q3:,.0f}개"
+                    )
+                    if eda_view.structure_chart_mode == "single" and eda_report.articles:
+                        only_article = eda_report.articles[0]
+                        single_columns = st.columns(4)
+                        single_columns[0].metric("정제 전", f"{only_article.raw_length:,}자")
+                        single_columns[1].metric("정제 후", f"{only_article.clean_length:,}자")
+                        single_columns[2].metric("제거 문자", f"{only_article.removed_length:,}자")
+                        single_columns[3].metric("문장", f"{len(only_article.sentences):,}개")
+                        st.caption("기사 1건은 의미 없는 분포 차트 대신 실제 정제·문장 지표를 표시합니다.")
+                    elif eda_view.structure_chart_mode == "distribution":
+                        body_chart, sentence_chart = st.columns(2)
+                        body_chart.caption("정제 후 본문 길이 분포")
+                        body_chart.bar_chart(
+                            [{"구간": row.label, "기사": row.value} for row in eda_view.body_length_bins],
+                            x="구간",
+                            y="기사",
+                            width="stretch",
+                        )
+                        sentence_chart.caption("기사별 문장 수 분포")
+                        sentence_chart.bar_chart(
+                            [{"구간": row.label, "기사": row.value} for row in eda_view.sentence_count_bins],
+                            x="구간",
+                            y="기사",
+                            width="stretch",
                         )
 
-                st.markdown("##### 2. 기사 구조")
-                body_stats = eda_view.structure_stats.body_length
-                sentence_stats = eda_view.structure_stats.sentence_count
-                structure_columns = st.columns(4)
-                structure_columns[0].metric("본문 길이 중앙값", f"{body_stats.median:,.0f}자")
-                structure_columns[1].metric("본문 길이 평균", f"{body_stats.mean:,.1f}자")
-                structure_columns[2].metric("문장 수 중앙값", f"{sentence_stats.median:,.0f}개")
-                structure_columns[3].metric("문장 수 평균", f"{sentence_stats.mean:,.1f}개")
-                st.caption(
-                    f"본문 Q1~Q3 {body_stats.q1:,.0f}~{body_stats.q3:,.0f}자 · "
-                    f"문장 Q1~Q3 {sentence_stats.q1:,.0f}~{sentence_stats.q3:,.0f}개"
-                )
-                if eda_view.structure_chart_mode == "single" and eda_report.articles:
-                    only_article = eda_report.articles[0]
-                    single_columns = st.columns(4)
-                    single_columns[0].metric("정제 전", f"{only_article.raw_length:,}자")
-                    single_columns[1].metric("정제 후", f"{only_article.clean_length:,}자")
-                    single_columns[2].metric("제거 문자", f"{only_article.removed_length:,}자")
-                    single_columns[3].metric("문장", f"{len(only_article.sentences):,}개")
-                    st.caption("기사 1건은 의미 없는 분포 차트 대신 실제 정제·문장 지표를 표시합니다.")
-                elif eda_view.structure_chart_mode == "distribution":
-                    body_chart, sentence_chart = st.columns(2)
-                    body_chart.caption("정제 후 본문 길이 분포")
-                    body_chart.bar_chart(
-                        [{"구간": row.label, "기사": row.value} for row in eda_view.body_length_bins],
-                        x="구간",
-                        y="기사",
-                        width="stretch",
+                    st.markdown("##### 3. 수치 주장 특성")
+                    for offset in range(0, len(eda_view.claim_kpis), 3):
+                        claim_columns = st.columns(3)
+                        for column, card in zip(claim_columns, eda_view.claim_kpis[offset:offset + 3]):
+                            column.metric(card.label, f"{card.value:,}")
+                    st.caption("서로 겹칠 수 있는 독립 집계이며 단계별 퍼널이 아닙니다.")
+                    category_specs = (
+                        ("수치 유형", eda_view.quantity_rows),
+                        ("해석 시점", eda_view.period_rows),
+                        ("주장 유형", eda_view.claim_type_rows),
+                        ("라우팅", eda_view.route_rows),
                     )
-                    sentence_chart.caption("기사별 문장 수 분포")
-                    sentence_chart.bar_chart(
-                        [{"구간": row.label, "기사": row.value} for row in eda_view.sentence_count_bins],
-                        x="구간",
-                        y="기사",
-                        width="stretch",
+                    category_columns = st.columns(2)
+                    for index, (label, rows) in enumerate(category_specs):
+                        category_columns[index % 2].caption(label)
+                        category_columns[index % 2].bar_chart(
+                            [{"유형": row.label, "건수": row.value} for row in rows],
+                            x="유형",
+                            y="건수",
+                            horizontal=True,
+                            width="stretch",
+                        )
+
+                    st.markdown("##### 4. 기사 탐색·상세")
+                    candidate_ceiling = max(
+                        (sum(sentence.python_candidate for sentence in article.sentences) for article in eda_report.articles),
+                        default=0,
                     )
+                    with st.form("experiment_eda_article_filters"):
+                        filter_columns = st.columns(4)
+                        quality_filter = filter_columns[0].selectbox(
+                            "품질",
+                            options=("all", "warnings", "outliers", "clean"),
+                            format_func=lambda value: {
+                                "all": "전체",
+                                "warnings": "품질 경고",
+                                "outliers": "구조 이상치",
+                                "clean": "문제 없음",
+                            }[value],
+                            key=EDA_FILTER_STATE_KEYS[0],
+                        )
+                        body_filter = filter_columns[1].selectbox(
+                            "본문 길이",
+                            options=("all", "short", "typical", "long"),
+                            format_func=lambda value: {
+                                "all": "전체",
+                                "short": "짧음",
+                                "typical": "보통",
+                                "long": "김",
+                            }[value],
+                            key=EDA_FILTER_STATE_KEYS[1],
+                        )
+                        min_candidates = filter_columns[2].number_input(
+                            "최소 Python 후보",
+                            min_value=0,
+                            max_value=candidate_ceiling,
+                            value=0,
+                            key=EDA_FILTER_STATE_KEYS[2],
+                        )
+                        max_candidates = filter_columns[3].number_input(
+                            "최대 Python 후보",
+                            min_value=0,
+                            max_value=candidate_ceiling,
+                            value=candidate_ceiling,
+                            key=EDA_FILTER_STATE_KEYS[3],
+                        )
+                        st.form_submit_button("기사 필터 적용", width="stretch")
 
-                st.markdown("##### 3. 수치 주장 특성")
-                for offset in range(0, len(eda_view.claim_kpis), 3):
-                    claim_columns = st.columns(3)
-                    for column, card in zip(claim_columns, eda_view.claim_kpis[offset:offset + 3]):
-                        column.metric(card.label, f"{card.value:,}")
-                st.caption("서로 겹칠 수 있는 독립 집계이며 단계별 퍼널이 아닙니다.")
-                category_specs = (
-                    ("수치 유형", eda_view.quantity_rows),
-                    ("해석 시점", eda_view.period_rows),
-                    ("주장 유형", eda_view.claim_type_rows),
-                    ("라우팅", eda_view.route_rows),
-                )
-                category_columns = st.columns(2)
-                for index, (label, rows) in enumerate(category_specs):
-                    category_columns[index % 2].caption(label)
-                    category_columns[index % 2].bar_chart(
-                        [{"유형": row.label, "건수": row.value} for row in rows],
-                        x="유형",
-                        y="건수",
-                        horizontal=True,
-                        width="stretch",
-                    )
+                    if int(max_candidates) < int(min_candidates):
+                        st.warning("최대 Python 후보 수는 최소값 이상이어야 합니다.")
+                        filtered_articles = ()
+                    else:
+                        filtered_articles = filter_articles(
+                            eda_report,
+                            quality=quality_filter,
+                            body_band=body_filter,
+                            min_candidates=int(min_candidates),
+                            max_candidates=int(max_candidates),
+                        )
+                    if not filtered_articles:
+                        st.warning("현재 필터에 맞는 기사가 없습니다.")
+                        st.session_state.pop(EDA_SELECTED_ARTICLE_KEY, None)
+                    else:
+                        article_by_row = {article.row_number: article for article in filtered_articles}
+                        selected_row_numbers = tuple(article_by_row)
+                        if st.session_state.get(EDA_SELECTED_ARTICLE_KEY) not in selected_row_numbers:
+                            st.session_state[EDA_SELECTED_ARTICLE_KEY] = selected_row_numbers[0]
+                        selected_row_number = st.selectbox(
+                            "기사 선택",
+                            options=selected_row_numbers,
+                            format_func=lambda row_number: (
+                                f"{article_by_row[row_number].title or '제목 없음'} · "
+                                f"{article_by_row[row_number].article_date or '날짜 없음'} "
+                                f"(행 {row_number})"
+                            ),
+                            key=EDA_SELECTED_ARTICLE_KEY,
+                        )
+                        selected_article = article_by_row[selected_row_number]
+                        selected_lab_article = {
+                            "row_number": selected_article.row_number,
+                            "title": selected_article.title,
+                            "date": selected_article.article_date,
+                            "body": selected_article.cleaned_body,
+                        }
+                        article_metrics = st.columns(4)
+                        article_metrics[0].metric("정제 전", f"{selected_article.raw_length:,}자")
+                        article_metrics[1].metric("정제 후", f"{selected_article.clean_length:,}자")
+                        article_metrics[2].metric("문장", f"{len(selected_article.sentences):,}개")
+                        article_metrics[3].metric(
+                            "Python 후보",
+                            f"{sum(sentence.python_candidate for sentence in selected_article.sentences):,}개",
+                        )
+                        evidence_rows = selected_article_rows(selected_article)
+                        st.dataframe(
+                            [
+                                {
+                                    "문장": row.sentence,
+                                    "추출 수치": " · ".join(row.quantities),
+                                    "수치 포함": row.numeric,
+                                    "시점": row.period or row.period_class,
+                                    "주장 유형": row.claim_type,
+                                    "라우팅": row.route,
+                                    "Python 후보": row.python_candidate,
+                                    "적용 규칙": row.python_rule,
+                                    "Python 근거": row.python_reason,
+                                }
+                                for row in evidence_rows
+                            ],
+                            hide_index=True,
+                            width="stretch",
+                        )
+            elif lab_source_row_count and lab_source_row_count <= MAX_EDA_ROWS:
+                st.warning("본문 열(body, 본문, 기사 본문 전체, content, text)이 있는 기사를 찾지 못했습니다.")
+        lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
+        lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
+                                placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")
+        hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
+        comparison_text = lab_text
+        comparison_date = str(lab_date)
+        comparison_title = "직접 입력"
+        if selected_lab_article:
+            comparison_text = selected_lab_article["body"]
+            comparison_date = selected_lab_article["date"] or comparison_date
+            comparison_title = selected_lab_article["title"] or "제목 없음"
+            st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
 
-                st.markdown("##### 4. 기사 탐색·상세")
-                candidate_ceiling = max(
-                    (sum(sentence.python_candidate for sentence in article.sentences) for article in eda_report.articles),
-                    default=0,
-                )
-                with st.form("experiment_eda_article_filters"):
-                    filter_columns = st.columns(4)
-                    quality_filter = filter_columns[0].selectbox(
-                        "품질",
-                        options=("all", "warnings", "outliers", "clean"),
-                        format_func=lambda value: {
-                            "all": "전체",
-                            "warnings": "품질 경고",
-                            "outliers": "구조 이상치",
-                            "clean": "문제 없음",
-                        }[value],
-                        key=EDA_FILTER_STATE_KEYS[0],
-                    )
-                    body_filter = filter_columns[1].selectbox(
-                        "본문 길이",
-                        options=("all", "short", "typical", "long"),
-                        format_func=lambda value: {
-                            "all": "전체",
-                            "short": "짧음",
-                            "typical": "보통",
-                            "long": "김",
-                        }[value],
-                        key=EDA_FILTER_STATE_KEYS[1],
-                    )
-                    min_candidates = filter_columns[2].number_input(
-                        "최소 Python 후보",
-                        min_value=0,
-                        max_value=candidate_ceiling,
-                        value=0,
-                        key=EDA_FILTER_STATE_KEYS[2],
-                    )
-                    max_candidates = filter_columns[3].number_input(
-                        "최대 Python 후보",
-                        min_value=0,
-                        max_value=candidate_ceiling,
-                        value=candidate_ceiling,
-                        key=EDA_FILTER_STATE_KEYS[3],
-                    )
-                    st.form_submit_button("기사 필터 적용", width="stretch")
-
-                if int(max_candidates) < int(min_candidates):
-                    st.warning("최대 Python 후보 수는 최소값 이상이어야 합니다.")
-                    filtered_articles = ()
-                else:
-                    filtered_articles = filter_articles(
-                        eda_report,
-                        quality=quality_filter,
-                        body_band=body_filter,
-                        min_candidates=int(min_candidates),
-                        max_candidates=int(max_candidates),
-                    )
-                if not filtered_articles:
-                    st.warning("현재 필터에 맞는 기사가 없습니다.")
-                    st.session_state.pop(EDA_SELECTED_ARTICLE_KEY, None)
-                else:
-                    article_by_row = {article.row_number: article for article in filtered_articles}
-                    selected_row_numbers = tuple(article_by_row)
-                    if st.session_state.get(EDA_SELECTED_ARTICLE_KEY) not in selected_row_numbers:
-                        st.session_state[EDA_SELECTED_ARTICLE_KEY] = selected_row_numbers[0]
-                    selected_row_number = st.selectbox(
-                        "기사 선택",
-                        options=selected_row_numbers,
-                        format_func=lambda row_number: (
-                            f"{article_by_row[row_number].title or '제목 없음'} · "
-                            f"{article_by_row[row_number].article_date or '날짜 없음'} "
-                            f"(행 {row_number})"
-                        ),
-                        key=EDA_SELECTED_ARTICLE_KEY,
-                    )
-                    selected_article = article_by_row[selected_row_number]
-                    selected_lab_article = {
-                        "row_number": selected_article.row_number,
-                        "title": selected_article.title,
-                        "date": selected_article.article_date,
-                        "body": selected_article.cleaned_body,
-                    }
-                    article_metrics = st.columns(4)
-                    article_metrics[0].metric("정제 전", f"{selected_article.raw_length:,}자")
-                    article_metrics[1].metric("정제 후", f"{selected_article.clean_length:,}자")
-                    article_metrics[2].metric("문장", f"{len(selected_article.sentences):,}개")
-                    article_metrics[3].metric(
-                        "Python 후보",
-                        f"{sum(sentence.python_candidate for sentence in selected_article.sentences):,}개",
-                    )
-                    evidence_rows = selected_article_rows(selected_article)
-                    st.dataframe(
-                        [
-                            {
-                                "문장": row.sentence,
-                                "추출 수치": " · ".join(row.quantities),
-                                "수치 포함": row.numeric,
-                                "시점": row.period or row.period_class,
-                                "주장 유형": row.claim_type,
-                                "라우팅": row.route,
-                                "Python 후보": row.python_candidate,
-                                "적용 규칙": row.python_rule,
-                                "Python 근거": row.python_reason,
-                            }
-                            for row in evidence_rows
-                        ],
-                        hide_index=True,
-                        width="stretch",
-                    )
-        elif lab_source_row_count and lab_source_row_count <= MAX_EDA_ROWS:
-            st.warning("본문 열(body, 본문, 기사 본문 전체, content, text)이 있는 기사를 찾지 못했습니다.")
-    lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
-    lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
-                            placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")
-    hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
-    comparison_text = lab_text
-    comparison_date = str(lab_date)
-    comparison_title = "직접 입력"
-    if selected_lab_article:
-        comparison_text = selected_lab_article["body"]
-        comparison_date = selected_lab_article["date"] or comparison_date
-        comparison_title = selected_lab_article["title"] or "제목 없음"
-        st.caption(f"CSV 선택 기사: {selected_lab_article['title'] or '제목 없음'} · 본문 직접 입력보다 우선해 비교합니다.")
-
-    current_comparison_signature = comparison_input_signature(
-        text=comparison_text,
-        article_date=comparison_date,
-        title=comparison_title,
-        source_row=selected_lab_article["row_number"] if selected_lab_article else None,
-        file_signature=lab_signature,
-        upload_identity=upload_identity,
-        analysis_range=selected_eda_range,
-    )
-    invalidate_comparison_for_input(st.session_state, current_comparison_signature)
-    if hcx_available:
-        st.caption("HCX 모드: HCX-005 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
-    else:
-        st.warning("HCX 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 HCX 열은 ‘미사용’으로 표시됩니다.")
-
-    all_button, python_button, llm_button, hybrid_button = st.columns(4)
-    run_all = all_button.button("전체 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run_all")
-    run_python = python_button.button("Python만 실행", use_container_width=True, key="experiment_lab_run_python")
-    run_llm = llm_button.button("HCX만 실행", use_container_width=True, key="experiment_lab_run_llm")
-    run_hybrid = hybrid_button.button("하이브리드만 실행", use_container_width=True, key="experiment_lab_run_hybrid")
-    requested_mode = "all" if run_all else ("python" if run_python else ("llm" if run_llm else ("hybrid" if run_hybrid else None)))
-    if requested_mode:
-        if not comparison_text.strip():
-            st.error("비교할 기사 본문을 입력해 주세요.")
-        else:
-            if hcx_available:
-                client = HcxClient()
-                judge_fn = lambda sentence: hcx_judge(sentence, client)
-            else:
-                def judge_fn(_sentence):
-                    raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
-            with st.spinner("선택한 방식을 독립 실행 중…"):
-                if requested_mode == "all":
-                    st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
-                    prompt_hash = hashlib.sha256(HCX_CANDIDATE_SYSTEM.encode("utf-8")).hexdigest()[:12]
-                    st.session_state["experiment_lab_run_context"] = build_run_context(
-                        article_text=comparison_text,
-                        article_title=comparison_title,
-                        article_date=comparison_date,
-                        source_row_count=lab_source_row_count,
-                        prompt_version=f"candidate-evidence-v2:{prompt_hash}",
-                    )
-                    st.session_state.pop("experiment_lab_saved_run_id", None)
-                    st.session_state.pop("experiment_lab_mode_result", None)
-                else:
-                    st.session_state["experiment_lab_mode_result"] = (requested_mode, run_mode(comparison_text, comparison_date, requested_mode, judge_fn=judge_fn))
-                    st.session_state.pop("experiment_lab_result", None)
-                    st.session_state.pop("experiment_lab_run_context", None)
-
-    hcx_evidence_labels = {
-        "sufficient": "기사 내부 근거 충분",
-        "needs_retrieval": "검색 필요",
-        "not_applicable": "해당 없음",
-        "unknown": "확인 불가",
-    }
-    def hcx_evidence_label(status: str) -> str:
-        return hcx_evidence_labels.get(status, "확인 불가")
-
-    result = st.session_state.get("experiment_lab_result")
-    mode_execution = st.session_state.get("experiment_lab_mode_result")
-    if mode_execution:
-        mode_name, mode_result = mode_execution
-        candidate_count = sum(row.candidate is True for row in mode_result.rows)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Python 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "python" else "미실행")
-        c2.metric("HCX 후보 문장", (f"{candidate_count} / {len(mode_result.rows)}" if hcx_available else "미사용") if mode_name == "llm" else "미실행")
-        c3.metric("하이브리드 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "hybrid" else "미실행")
-        c4.metric(f"{'HCX' if mode_name == 'llm' else mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
-        st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {'HCX' if mode_name == 'llm' else mode_name.upper()} 방식만 실행했습니다.")
-        st.markdown("##### 방식별 판단 근거")
-        for number, row in enumerate(mode_result.rows, start=1):
-            with st.expander(f"{number}. {row.sentence}", expanded=False):
-                evidence_label = "Python 규칙 근거" if mode_name == "python" else ("HCX 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
-                st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
-                if mode_name != "python":
-                    st.write(f"**HCX 근거 상태:** {hcx_evidence_label(row.evidence_status)} · {row.evidence_reason}")
-                    if row.quoted_spans:
-                        st.caption(f"HCX 원문 인용: {' · '.join(row.quoted_spans)}")
-                st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
-
-    if result:
-        python_count = sum(row.python_candidate for row in result.rows)
-        llm_count = sum(row.llm_verifiable is True for row in result.rows)
-        hybrid_count = sum(row.hybrid_candidate for row in result.rows)
-        semantic_differing_count = semantic_disagreement_count(result)
-        mode_results = getattr(result, "mode_results", {})
-        run_context = st.session_state.get("experiment_lab_run_context")
-        if run_context:
-            st.caption(f"실행 입력 지문: `{run_context.input_fingerprint}` · 실행 ID: `{run_context.run_id}`")
-        if mode_results:
-            st.markdown("##### 방식별 실행 시간")
-            t1, t2, t3, t4 = st.columns(4)
-            t1.metric("Python만", format_elapsed_ms(mode_results['python'].elapsed_ms))
-            t2.metric("HCX-005만", format_elapsed_ms(mode_results['llm'].elapsed_ms))
-            t3.metric("하이브리드만", format_elapsed_ms(mode_results['hybrid'].elapsed_ms))
-            t4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Python 후보 문장", f"{python_count} / {len(result.rows)}")
-        c2.metric("HCX 후보 문장", f"{llm_count} / {len(result.rows)}" if hcx_available else "미사용")
-        c3.metric("하이브리드 후보 문장", f"{hybrid_count} / {len(result.rows)}")
-        c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
-        st.caption(f"문장 {len(result.rows)}개 · HCX 호출 {result.llm_calls}회 · 의미 불일치 문장 {semantic_differing_count}개")
-
-        st.markdown("##### Python × HCX 결과 매트릭스")
-        disagreement_order = ("P+/H+", "P+/H-", "P-/H+", "P-/H-", "HCX_ERROR")
-        disagreement_labels = {
-            "P+/H+": "둘 다 탐지",
-            "P+/H-": "Python만 탐지",
-            "P-/H+": "HCX만 탐지",
-            "P-/H-": "둘 다 미탐지",
-            "HCX_ERROR": "HCX 오류",
-        }
-        outcome_columns = st.columns(5)
-        outcome_total = len(result.rows)
-        for column, outcome in zip(outcome_columns, disagreement_order):
-            count = result.disagreement_counts.get(outcome, 0)
-            percentage = (count / outcome_total * 100) if outcome_total else 0.0
-            column.metric(f"{outcome} · {disagreement_labels[outcome]}", f"{count}건 · {percentage:.1f}%")
-        st.caption("HCX_ERROR는 의미적 미탐지(H-)에서 제외합니다. 호출·파싱 실패를 P+/H- 또는 P-/H-로 해석하지 않습니다.")
-
-        selected_outcome = st.selectbox("유형 필터", ["전체", *disagreement_order], key="experiment_lab_disagreement_filter")
-        filtered_disagreement_rows = [
-            (number, row) for number, row in enumerate(result.rows, start=1)
-            if selected_outcome == "전체" or row.disagreement_class == selected_outcome
-        ]
-        display_rows = []
-        for number, row in filtered_disagreement_rows:
-            display_rows.append({
-                "#": number,
-                "유형": row.disagreement_class,
-                "문장": row.sentence,
-                "Python": "탐지" if row.python_candidate else "미탐지",
-                "Python 판단 근거": getattr(mode_results["python"].rows[number - 1], "reason", ""),
-                "HCX": _hcx_candidate_display(row.llm_verifiable, row.hcx_status),
-                "HCX 상태": row.hcx_status,
-                "HCX 판단 근거": row.llm_reason,
-                "HCX 근거 상태": hcx_evidence_label(row.hcx_evidence_status),
-            })
-        st.dataframe(display_rows, use_container_width=True, hide_index=True)
-
-        st.markdown("##### 방식별 판단 근거")
-        for number, row in filtered_disagreement_rows:
-            with st.expander(f"{number}. {row.sentence}", expanded=False):
-                python_reason = mode_results["python"].rows[number - 1].reason
-                hcx_candidate_display = _hcx_candidate_display(row.llm_verifiable, row.hcx_status)
-                st.write(f"**Python 판단 근거:** {'탐지' if row.python_candidate else '미탐지'} · {python_reason}")
-                st.write(f"**HCX-005만:** {hcx_candidate_display}")
-                st.write(f"**HCX 실행 상태:** {row.hcx_status}")
-                st.write(f"**HCX 후보 판단 근거:** {row.llm_reason}")
-                st.write(f"**HCX 근거 판단:** {hcx_evidence_label(row.hcx_evidence_status)} · {row.hcx_evidence_reason}")
-                if row.hcx_quoted_spans:
-                    st.caption(f"HCX 원문 인용: {' · '.join(row.hcx_quoted_spans)}")
-                st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
-                st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
-
-        input_matches_run = bool(run_context) and input_matches_context(comparison_text, comparison_date, run_context)
-        already_saved = bool(run_context) and st.session_state.get("experiment_lab_saved_run_id") == run_context.run_id
-        save_disabled = not input_matches_run or already_saved
-        if run_context and not input_matches_run:
-            st.warning("현재 입력이 이 전체 비교 실행의 입력과 달라 저장할 수 없습니다. 전체 비교를 다시 실행해 주세요.")
-        if already_saved:
-            st.info(f"이 실행은 이미 연구 이력에 저장되었습니다. 실행 ID: {run_context.run_id}")
-        save_research = st.button(
-            "연구 이력 저장",
-            key="experiment_lab_save_research",
-            disabled=save_disabled,
+        current_comparison_signature = comparison_input_signature(
+            text=comparison_text,
+            article_date=comparison_date,
+            title=comparison_title,
+            source_row=selected_lab_article["row_number"] if selected_lab_article else None,
+            file_signature=lab_signature,
+            upload_identity=upload_identity,
+            analysis_range=selected_eda_range,
         )
-        if save_research:
-            try:
-                save_outcome = save_comparison_run(
-                    ROOT / "data/research/verification_lab.db", result, run_context
-                )
-            except Exception as error:
-                st.error(f"연구 이력 저장 실패: {error}")
+        invalidate_comparison_for_input(st.session_state, current_comparison_signature)
+        if hcx_available:
+            st.caption("HCX 모드: HCX-005 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
+        else:
+            st.warning("HCX 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 HCX 열은 ‘미사용’으로 표시됩니다.")
+
+        all_button, python_button, llm_button, hybrid_button = st.columns(4)
+        run_all = all_button.button("전체 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run_all")
+        run_python = python_button.button("Python만 실행", use_container_width=True, key="experiment_lab_run_python")
+        run_llm = llm_button.button("HCX만 실행", use_container_width=True, key="experiment_lab_run_llm")
+        run_hybrid = hybrid_button.button("하이브리드만 실행", use_container_width=True, key="experiment_lab_run_hybrid")
+        requested_mode = "all" if run_all else ("python" if run_python else ("llm" if run_llm else ("hybrid" if run_hybrid else None)))
+        if requested_mode:
+            if not comparison_text.strip():
+                st.error("비교할 기사 본문을 입력해 주세요.")
             else:
-                st.session_state["experiment_lab_saved_run_id"] = save_outcome.run_id
-                if save_outcome.created:
-                    st.success(f"연구 전용 이력에 저장했습니다. 실행 ID: {save_outcome.run_id}")
+                if hcx_available:
+                    client = HcxClient()
+                    judge_fn = lambda sentence: hcx_judge(sentence, client)
                 else:
-                    st.info(f"이미 저장된 실행입니다. 실행 ID: {save_outcome.run_id}")
-        saved_run_id = st.session_state.get("experiment_lab_saved_run_id")
-        saved_current_run = bool(run_context) and saved_run_id == run_context.run_id
-        if saved_current_run:
-            research_feedback = pop_review_feedback(st.session_state)
-            if research_feedback:
-                st.success(research_feedback)
-            research_database = ROOT / "data/research/verification_lab.db"
-            try:
-                with ExperimentStore(research_database) as research_store:
-                    saved_run = research_store.get_run(saved_run_id)
-                    if saved_run is None:
-                        raise KeyError(saved_run_id)
-                    saved_sentences = research_store.get_sentences(saved_run_id)
-                    csv_payload = export_run_csv(research_store, saved_run_id)
-            except Exception as error:
-                st.error(f"저장된 연구 이력을 불러오지 못했습니다: {error}")
-            else:
-                evaluation_display = build_reviewed_evaluation(saved_sentences, saved_run)
-                if evaluation_display is not None:
-                    st.subheader("사람 검토 기반 평가")
-                    st.caption(
-                        f"{evaluation_display.metric_scope_label} · "
-                        f"{evaluation_display.run_label} · "
-                        "전체 기사 문장 성능이 아닙니다."
+                    def judge_fn(_sentence):
+                        raise RuntimeError("HCX 실 API가 설정되지 않았습니다")
+                with st.spinner("선택한 방식을 독립 실행 중…"):
+                    if requested_mode == "all":
+                        st.session_state["experiment_lab_result"] = run_comparison(comparison_text, comparison_date, judge_fn=judge_fn)
+                        prompt_hash = hashlib.sha256(HCX_CANDIDATE_SYSTEM.encode("utf-8")).hexdigest()[:12]
+                        st.session_state["experiment_lab_run_context"] = build_run_context(
+                            article_text=comparison_text,
+                            article_title=comparison_title,
+                            article_date=comparison_date,
+                            source_row_count=lab_source_row_count,
+                            prompt_version=f"candidate-evidence-v2:{prompt_hash}",
+                        )
+                        st.session_state.pop("experiment_lab_saved_run_id", None)
+                        st.session_state.pop("experiment_lab_mode_result", None)
+                    else:
+                        st.session_state["experiment_lab_mode_result"] = (requested_mode, run_mode(comparison_text, comparison_date, requested_mode, judge_fn=judge_fn))
+                        st.session_state.pop("experiment_lab_result", None)
+                        st.session_state.pop("experiment_lab_run_context", None)
+
+        hcx_evidence_labels = {
+            "sufficient": "기사 내부 근거 충분",
+            "needs_retrieval": "검색 필요",
+            "not_applicable": "해당 없음",
+            "unknown": "확인 불가",
+        }
+        def hcx_evidence_label(status: str) -> str:
+            return hcx_evidence_labels.get(status, "확인 불가")
+
+        result = st.session_state.get("experiment_lab_result")
+        mode_execution = st.session_state.get("experiment_lab_mode_result")
+        if mode_execution:
+            mode_name, mode_result = mode_execution
+            candidate_count = sum(row.candidate is True for row in mode_result.rows)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Python 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "python" else "미실행")
+            c2.metric("HCX 후보 문장", (f"{candidate_count} / {len(mode_result.rows)}" if hcx_available else "미사용") if mode_name == "llm" else "미실행")
+            c3.metric("하이브리드 후보 문장", f"{candidate_count} / {len(mode_result.rows)}" if mode_name == "hybrid" else "미실행")
+            c4.metric(f"{'HCX' if mode_name == 'llm' else mode_name.upper()} 처리 시간", format_elapsed_ms(mode_result.elapsed_ms))
+            st.caption(f"문장 {len(mode_result.rows)}개 · 선택한 {'HCX' if mode_name == 'llm' else mode_name.upper()} 방식만 실행했습니다.")
+            st.markdown("##### 방식별 판단 근거")
+            for number, row in enumerate(mode_result.rows, start=1):
+                with st.expander(f"{number}. {row.sentence}", expanded=False):
+                    evidence_label = "Python 규칙 근거" if mode_name == "python" else ("HCX 판단 근거" if mode_name == "llm" else "하이브리드 결합 근거 · Python 1차 → LLM 2차")
+                    st.write(f"**{evidence_label}:** {'탐지' if row.candidate is True else ('미탐지' if row.candidate is False else '미사용')} · {row.reason}")
+                    if mode_name != "python":
+                        st.write(f"**HCX 근거 상태:** {hcx_evidence_label(row.evidence_status)} · {row.evidence_reason}")
+                        if row.quoted_spans:
+                            st.caption(f"HCX 원문 인용: {' · '.join(row.quoted_spans)}")
+                    st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
+
+        if result:
+            python_count = sum(row.python_candidate for row in result.rows)
+            llm_count = sum(row.llm_verifiable is True for row in result.rows)
+            hybrid_count = sum(row.hybrid_candidate for row in result.rows)
+            semantic_differing_count = semantic_disagreement_count(result)
+            mode_results = getattr(result, "mode_results", {})
+            run_context = st.session_state.get("experiment_lab_run_context")
+            if run_context:
+                st.caption(f"실행 입력 지문: `{run_context.input_fingerprint}` · 실행 ID: `{run_context.run_id}`")
+            if mode_results:
+                st.markdown("##### 방식별 실행 시간")
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Python만", format_elapsed_ms(mode_results['python'].elapsed_ms))
+                t2.metric("HCX-005만", format_elapsed_ms(mode_results['llm'].elapsed_ms))
+                t3.metric("하이브리드만", format_elapsed_ms(mode_results['hybrid'].elapsed_ms))
+                t4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Python 후보 문장", f"{python_count} / {len(result.rows)}")
+            c2.metric("HCX 후보 문장", f"{llm_count} / {len(result.rows)}" if hcx_available else "미사용")
+            c3.metric("하이브리드 후보 문장", f"{hybrid_count} / {len(result.rows)}")
+            c4.metric("전체 비교 경과시간", format_elapsed_ms(result.elapsed_ms))
+            st.caption(f"문장 {len(result.rows)}개 · HCX 호출 {result.llm_calls}회 · 의미 불일치 문장 {semantic_differing_count}개")
+
+            st.markdown("##### Python × HCX 결과 매트릭스")
+            disagreement_order = ("P+/H+", "P+/H-", "P-/H+", "P-/H-", "HCX_ERROR")
+            disagreement_labels = {
+                "P+/H+": "둘 다 탐지",
+                "P+/H-": "Python만 탐지",
+                "P-/H+": "HCX만 탐지",
+                "P-/H-": "둘 다 미탐지",
+                "HCX_ERROR": "HCX 오류",
+            }
+            outcome_columns = st.columns(5)
+            outcome_total = len(result.rows)
+            for column, outcome in zip(outcome_columns, disagreement_order):
+                count = result.disagreement_counts.get(outcome, 0)
+                percentage = (count / outcome_total * 100) if outcome_total else 0.0
+                column.metric(f"{outcome} · {disagreement_labels[outcome]}", f"{count}건 · {percentage:.1f}%")
+            st.caption("HCX_ERROR는 의미적 미탐지(H-)에서 제외합니다. 호출·파싱 실패를 P+/H- 또는 P-/H-로 해석하지 않습니다.")
+
+            selected_outcome = st.selectbox("유형 필터", ["전체", *disagreement_order], key="experiment_lab_disagreement_filter")
+            filtered_disagreement_rows = [
+                (number, row) for number, row in enumerate(result.rows, start=1)
+                if selected_outcome == "전체" or row.disagreement_class == selected_outcome
+            ]
+            display_rows = []
+            for number, row in filtered_disagreement_rows:
+                display_rows.append({
+                    "#": number,
+                    "유형": row.disagreement_class,
+                    "문장": row.sentence,
+                    "Python": "탐지" if row.python_candidate else "미탐지",
+                    "Python 판단 근거": getattr(mode_results["python"].rows[number - 1], "reason", ""),
+                    "HCX": _hcx_candidate_display(row.llm_verifiable, row.hcx_status),
+                    "HCX 상태": row.hcx_status,
+                    "HCX 판단 근거": row.llm_reason,
+                    "HCX 근거 상태": hcx_evidence_label(row.hcx_evidence_status),
+                })
+            st.dataframe(display_rows, use_container_width=True, hide_index=True)
+
+            st.markdown("##### 방식별 판단 근거")
+            for number, row in filtered_disagreement_rows:
+                with st.expander(f"{number}. {row.sentence}", expanded=False):
+                    python_reason = mode_results["python"].rows[number - 1].reason
+                    hcx_candidate_display = _hcx_candidate_display(row.llm_verifiable, row.hcx_status)
+                    st.write(f"**Python 판단 근거:** {'탐지' if row.python_candidate else '미탐지'} · {python_reason}")
+                    st.write(f"**HCX-005만:** {hcx_candidate_display}")
+                    st.write(f"**HCX 실행 상태:** {row.hcx_status}")
+                    st.write(f"**HCX 후보 판단 근거:** {row.llm_reason}")
+                    st.write(f"**HCX 근거 판단:** {hcx_evidence_label(row.hcx_evidence_status)} · {row.hcx_evidence_reason}")
+                    if row.hcx_quoted_spans:
+                        st.caption(f"HCX 원문 인용: {' · '.join(row.hcx_quoted_spans)}")
+                    st.write(f"**하이브리드:** {'탐지' if row.hybrid_candidate else '미탐지'} · {row.hybrid_reason}")
+                    st.caption(f"원문 수치: {' · '.join(row.quantities) or '-'} | 해석 시점: {row.parsed_period or '-'} | 주장 유형: {row.claim_type} | 후속 라우팅 (사실 검증 아님): {row.route}")
+
+            input_matches_run = bool(run_context) and input_matches_context(comparison_text, comparison_date, run_context)
+            already_saved = bool(run_context) and st.session_state.get("experiment_lab_saved_run_id") == run_context.run_id
+            save_disabled = not input_matches_run or already_saved
+            if run_context and not input_matches_run:
+                st.warning("현재 입력이 이 전체 비교 실행의 입력과 달라 저장할 수 없습니다. 전체 비교를 다시 실행해 주세요.")
+            if already_saved:
+                st.info(f"이 실행은 이미 연구 이력에 저장되었습니다. 실행 ID: {run_context.run_id}")
+            save_research = st.button(
+                "연구 이력 저장",
+                key="experiment_lab_save_research",
+                disabled=save_disabled,
+            )
+            if save_research:
+                try:
+                    save_outcome = save_comparison_run(
+                        ROOT / "data/research/verification_lab.db", result, run_context
                     )
+                except Exception as error:
+                    st.error(f"연구 이력 저장 실패: {error}")
+                else:
+                    st.session_state["experiment_lab_saved_run_id"] = save_outcome.run_id
+                    if save_outcome.created:
+                        st.success(f"연구 전용 이력에 저장했습니다. 실행 ID: {save_outcome.run_id}")
+                    else:
+                        st.info(f"이미 저장된 실행입니다. 실행 ID: {save_outcome.run_id}")
+            saved_run_id = st.session_state.get("experiment_lab_saved_run_id")
+            saved_current_run = bool(run_context) and saved_run_id == run_context.run_id
+            if saved_current_run:
+                research_feedback = pop_review_feedback(st.session_state)
+                if research_feedback:
+                    st.success(research_feedback)
+                research_database = ROOT / "data/research/verification_lab.db"
+                try:
+                    with ExperimentStore(research_database) as research_store:
+                        saved_run = research_store.get_run(saved_run_id)
+                        if saved_run is None:
+                            raise KeyError(saved_run_id)
+                        saved_sentences = research_store.get_sentences(saved_run_id)
+                        csv_payload = export_run_csv(research_store, saved_run_id)
+                except Exception as error:
+                    st.error(f"저장된 연구 이력을 불러오지 못했습니다: {error}")
+                else:
+                    evaluation_display = build_reviewed_evaluation(saved_sentences, saved_run)
+                    if evaluation_display is not None:
+                        st.subheader("사람 검토 기반 평가")
+                        st.caption(
+                            f"{evaluation_display.metric_scope_label} · "
+                            f"{evaluation_display.run_label} · "
+                            "전체 기사 문장 성능이 아닙니다."
+                        )
+                        st.caption(
+                            f"사람 검토 완료 정답 표본: {evaluation_display.reviewed_count}건 · "
+                            "방식별 평가 표본은 아래 표에 별도 표시합니다."
+                        )
+                        st.dataframe(
+                            list(evaluation_display.rows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(
+                            "TP·FP·FN·TN을 함께 표시합니다. 정밀도 또는 재현율의 "
+                            "분모가 0이면 0%가 아니라 ‘산출 불가’입니다."
+                        )
+                        st.caption(
+                            "독립 HCX 문장 판정 응답률: "
+                            f"{evaluation_display.independent_hcx_response_success} / "
+                            f"{evaluation_display.independent_hcx_response_total} "
+                            f"({evaluation_display.independent_hcx_response_rate})"
+                        )
+                        st.caption(
+                            "HCX 오류 행은 HCX 정밀도·재현율 표본에서 제외합니다. "
+                            "Python OR HCX는 HCX 오류 시 Python 결과를 유지합니다."
+                        )
+
+                    st.markdown("##### 저장된 실행 검토·내보내기")
+                    st.download_button(
+                        "현재 실행 CSV 다운로드",
+                        data=csv_payload,
+                        file_name=f"verification_lab_{saved_run_id}.csv",
+                        mime="text/csv; charset=utf-8",
+                        key="experiment_lab_download_saved_csv",
+                    )
+                    review_sentences = reviewable_sentences(saved_sentences)
+                    review_choices = {
+                        f"{row['sentence_index']}. {row['sentence_text'][:90]}": row["sentence_index"]
+                        for row in review_sentences
+                    }
+                    if not review_choices:
+                        st.info("사람 검토 대상 P+/H- 또는 P-/H+ 문장이 없습니다.")
+                    else:
+                        selected_review_text = st.selectbox(
+                            "사람 검토 문장",
+                            list(review_choices),
+                            key="experiment_lab_review_sentence",
+                        )
+                        selected_review_index = review_choices[selected_review_text]
+                        selected_saved_sentence = next(
+                            row for row in saved_sentences
+                            if row["sentence_index"] == selected_review_index
+                        )
+                        review_labels = ["true_candidate", "false_positive", "hold"]
+                        current_label = selected_saved_sentence.get("human_label")
+                        review_label = st.selectbox(
+                            "사람 검토 라벨",
+                            review_labels,
+                            index=review_labels.index(current_label) if current_label in review_labels else 2,
+                            format_func=lambda value: {
+                                "true_candidate": "실제 검증 후보",
+                                "false_positive": "오탐",
+                                "hold": "보류",
+                            }[value],
+                            key=f"experiment_lab_review_label_{selected_review_index}",
+                        )
+                        review_note = st.text_area(
+                            "검토 메모",
+                            value=selected_saved_sentence.get("review_note") or "",
+                            key=f"experiment_lab_review_note_{selected_review_index}",
+                        )
+                        save_human_review_clicked = st.button(
+                            "사람 검토 저장",
+                            key=f"experiment_lab_save_review_{selected_review_index}",
+                        )
+                        if save_human_review_clicked:
+                            try:
+                                review_message = save_human_review(
+                                    research_database,
+                                    saved_run_id,
+                                    selected_review_index,
+                                    human_label=review_label,
+                                    review_note=review_note,
+                                    reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                                )
+                            except Exception as error:
+                                st.error(f"사람 검토 저장 실패: {error}")
+                            else:
+                                store_review_feedback(st.session_state, review_message)
+                                st.rerun()
+
+                        promotable = selected_saved_sentence.get("human_label") in {
+                            "true_candidate", "false_positive"
+                        }
+                        promote_golden = st.button(
+                            "승인 사례를 골든셋으로 승격",
+                            key=f"experiment_lab_promote_golden_{selected_review_index}",
+                            disabled=not promotable,
+                        )
+                        if not promotable:
+                            st.caption("실제 검증 후보 또는 오탐으로 저장된 문장만 골든셋에 승격할 수 있습니다.")
+                        if promote_golden:
+                            try:
+                                promote_reviewed_sentence(
+                                    research_database,
+                                    saved_run_id,
+                                    selected_review_index,
+                                    ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
+                                )
+                            except Exception as error:
+                                st.error(f"골든셋 승격 실패: {error}")
+                            else:
+                                st.success("사람이 승인한 사례를 하이브리드 불일치 골든셋에 추가했습니다.")
+        st.subheader("누적 연구 이력")
+        history_feedback = pop_review_feedback(st.session_state, scope="history")
+        if history_feedback:
+            st.success(history_feedback)
+        st.caption(
+            "현재 업로드 입력은 재사용하지 않으며 연구 DB에 저장된 문장만 조회합니다."
+        )
+        history_database = ROOT / "data/research/verification_lab.db"
+        try:
+            with ExperimentStore(history_database) as history_store:
+                history_facets = history_store.get_history_filter_facets()
+                history_revision = history_store.get_revision()
+        except Exception as error:
+            st.error(f"누적 연구 이력 필터를 불러오지 못했습니다: {error}")
+            history_facets = {"date_min": None, "date_max": None}
+            history_revision = 0
+
+        if history_facets.get("date_min") is None:
+            st.info("저장된 연구 실행이 없습니다. 전체 비교 후 ‘연구 이력 저장’을 눌러 주세요.")
+        else:
+            with st.form("experiment_lab_history_filters"):
+                date_column, provider_column, model_column, prompt_column = st.columns(4)
+                history_date_range = date_column.date_input(
+                    "실행 기간",
+                    value=(
+                        datetime.fromisoformat(history_facets["date_min"]).date(),
+                        datetime.fromisoformat(history_facets["date_max"]).date(),
+                    ),
+                    key="experiment_lab_history_dates",
+                )
+                history_provider = provider_column.selectbox(
+                    "제공자",
+                    ["전체", *history_facets["providers"]],
+                    key="experiment_lab_history_provider",
+                )
+                history_model = model_column.selectbox(
+                    "모델",
+                    ["전체", *history_facets["models"]],
+                    key="experiment_lab_history_model",
+                )
+                history_prompt = prompt_column.selectbox(
+                    "프롬프트",
+                    ["전체", *history_facets["prompt_versions"]],
+                    key="experiment_lab_history_prompt",
+                )
+                st.form_submit_button("누적 이력 필터 적용", width="stretch")
+
+            if isinstance(history_date_range, tuple) and len(history_date_range) == 2:
+                history_date_from, history_date_to = map(str, history_date_range)
+            else:
+                history_date_from = history_date_to = str(history_date_range)
+            history_filter_values = HistoryFilters(
+                date_from=history_date_from,
+                date_to=history_date_to,
+                provider=None if history_provider == "전체" else history_provider,
+                model=None if history_model == "전체" else history_model,
+                prompt_version=None if history_prompt == "전체" else history_prompt,
+                revision=history_revision,
+            )
+            history_filters = history_filter_values.as_kwargs()
+            history_filter_signature = filter_signature(history_filter_values)
+            try:
+                with ExperimentStore(history_database) as history_store:
+                    exact_history_summary = history_store.get_history_summary(
+                        **history_filters
+                    )
+            except Exception as error:
+                st.error(f"누적 연구 이력 집계에 실패했습니다: {error}")
+                exact_history_summary = {
+                    "run_count": 0,
+                    "sentence_count": 0,
+                    "counts": {outcome: 0 for outcome in DISAGREEMENT_ORDER},
+                }
+
+            st.caption(
+                f"필터 결과: 실행 {exact_history_summary['run_count']:,}건 · "
+                f"문장 {exact_history_summary['sentence_count']:,}건"
+            )
+            history_count_columns = st.columns(5)
+            for count_column, outcome in zip(history_count_columns, DISAGREEMENT_ORDER):
+                count_column.metric(outcome, f"{exact_history_summary['counts'][outcome]:,}건")
+            st.caption(
+                "누적 화면은 모델·프롬프트 버전이 섞일 수 있어 5유형 건수만 표시합니다. "
+                "정밀도·재현율은 선택한 단일 실행의 사람 검토 표본에만 표시합니다."
+            )
+
+            prepared_export_key = "experiment_lab_history_prepared_export"
+            prepared_export = prepared_export_for_filters(
+                st.session_state.get(prepared_export_key), history_filter_values
+            )
+            if prepared_export is None:
+                st.session_state.pop(prepared_export_key, None)
+            if st.button(
+                "필터 CSV 준비",
+                key=f"experiment_lab_history_prepare_csv_{history_filter_signature[:12]}",
+            ):
+                if exact_history_summary["sentence_count"] > MAX_FILTERED_EXPORT_ROWS:
+                    st.error(
+                        f"CSV는 최대 {MAX_FILTERED_EXPORT_ROWS:,}문장까지 준비할 수 있습니다. "
+                        "필터를 좁혀 주세요."
+                    )
+                else:
+                    try:
+                        with ExperimentStore(history_database) as history_store:
+                            filtered_export = export_filtered_csv(
+                                history_store, history_filters
+                            )
+                    except Exception as error:
+                        st.error(f"필터 CSV 준비 실패: {error}")
+                    else:
+                        prepared_export = PreparedHistoryExport(
+                            signature=history_filter_signature,
+                            payload=filtered_export.payload,
+                            row_count=filtered_export.row_count,
+                        )
+                        st.session_state[prepared_export_key] = prepared_export
+                        st.success(
+                            f"CSV {prepared_export.row_count:,}문장을 준비했습니다."
+                        )
+            if prepared_export is not None:
+                st.download_button(
+                    "준비된 필터 CSV 다운로드",
+                    data=prepared_export.payload,
+                    file_name=(
+                        f"verification_lab_history_"
+                        f"{history_date_from}_{history_date_to}.csv"
+                    ),
+                    mime="text/csv; charset=utf-8",
+                    key=f"experiment_lab_history_download_{history_filter_signature[:12]}",
+                    width="stretch",
+                )
+
+            base_page = build_history_page(
+                total_runs=exact_history_summary["run_count"],
+                requested_page=1,
+                page_size=50,
+            )
+            selected_history_page = st.number_input(
+                "이력 페이지 (페이지당 50개 실행)",
+                min_value=1,
+                max_value=base_page["page_count"],
+                value=1,
+                step=1,
+                key=f"experiment_lab_history_page_{history_filter_signature[:12]}",
+            )
+            history_page = build_history_page(
+                total_runs=exact_history_summary["run_count"],
+                requested_page=selected_history_page,
+                page_size=50,
+            )
+            try:
+                with ExperimentStore(history_database) as history_store:
+                    filtered_history_runs = history_store.list_runs(
+                        **history_filters,
+                        limit=50,
+                        offset=history_page["offset"],
+                    )
+                    filtered_history_sentences = history_store.get_sentences_for_runs(
+                        [run["run_id"] for run in filtered_history_runs]
+                    )
+            except Exception as error:
+                st.error(f"과거 실행 페이지를 불러오지 못했습니다: {error}")
+                filtered_history_runs = []
+                filtered_history_sentences = []
+
+            st.caption(
+                f"{history_page['page']} / {history_page['page_count']}페이지"
+            )
+            if filtered_history_runs:
+                historical_run_by_label = {
+                    (
+                        f"{run['created_at']} · {run['provider']}/{run['model']} · "
+                        f"{run['prompt_version']} · {run['run_id']}"
+                    ): run["run_id"]
+                    for run in filtered_history_runs
+                }
+                selected_historical_label = st.selectbox(
+                    "과거 실행 선택",
+                    list(historical_run_by_label),
+                    key=(
+                        f"experiment_lab_historical_run_"
+                        f"{history_filter_signature[:12]}_{history_page['page']}"
+                    ),
+                )
+                selected_historical_run_id = historical_run_by_label[
+                    selected_historical_label
+                ]
+                selected_historical_run = next(
+                    run for run in filtered_history_runs
+                    if run["run_id"] == selected_historical_run_id
+                )
+                selected_historical_sentences = [
+                    sentence for sentence in filtered_history_sentences
+                    if sentence["run_id"] == selected_historical_run_id
+                ]
+                historical_evaluation = build_reviewed_evaluation(
+                    selected_historical_sentences, selected_historical_run
+                )
+                if historical_evaluation is not None:
+                    st.markdown("###### 선택 실행의 사람 검토 기반 평가")
                     st.caption(
-                        f"사람 검토 완료 정답 표본: {evaluation_display.reviewed_count}건 · "
-                        "방식별 평가 표본은 아래 표에 별도 표시합니다."
+                        f"{historical_evaluation.metric_scope_label} · "
+                        f"{historical_evaluation.run_label} · 단일 실행 조건부 지표"
                     )
                     st.dataframe(
-                        list(evaluation_display.rows),
-                        use_container_width=True,
+                        list(historical_evaluation.rows),
+                        width="stretch",
                         hide_index=True,
                     )
-                    st.caption(
-                        "TP·FP·FN·TN을 함께 표시합니다. 정밀도 또는 재현율의 "
-                        "분모가 0이면 0%가 아니라 ‘산출 불가’입니다."
-                    )
-                    st.caption(
-                        "독립 HCX 문장 판정 응답률: "
-                        f"{evaluation_display.independent_hcx_response_success} / "
-                        f"{evaluation_display.independent_hcx_response_total} "
-                        f"({evaluation_display.independent_hcx_response_rate})"
-                    )
-                    st.caption(
-                        "HCX 오류 행은 HCX 정밀도·재현율 표본에서 제외합니다. "
-                        "Python OR HCX는 HCX 오류 시 Python 결과를 유지합니다."
-                    )
-
-                st.markdown("##### 저장된 실행 검토·내보내기")
-                st.download_button(
-                    "현재 실행 CSV 다운로드",
-                    data=csv_payload,
-                    file_name=f"verification_lab_{saved_run_id}.csv",
-                    mime="text/csv; charset=utf-8",
-                    key="experiment_lab_download_saved_csv",
+                st.dataframe(
+                    [
+                        {
+                            "문장 번호": sentence["sentence_index"],
+                            "유형": sentence["disagreement_class"],
+                            "문장": sentence["sentence_text"],
+                            "HCX 상태": sentence["hcx_status"],
+                            "사람 검토": sentence.get("human_label") or "미검토",
+                        }
+                        for sentence in selected_historical_sentences
+                    ],
+                    width="stretch",
+                    hide_index=True,
                 )
-                review_sentences = reviewable_sentences(saved_sentences)
-                review_choices = {
-                    f"{row['sentence_index']}. {row['sentence_text'][:90]}": row["sentence_index"]
-                    for row in review_sentences
-                }
-                if not review_choices:
-                    st.info("사람 검토 대상 P+/H- 또는 P-/H+ 문장이 없습니다.")
-                else:
-                    selected_review_text = st.selectbox(
-                        "사람 검토 문장",
-                        list(review_choices),
-                        key="experiment_lab_review_sentence",
+                historical_review_rows = reviewable_sentences(
+                    selected_historical_sentences
+                )
+                if historical_review_rows:
+                    historical_review_by_label = {
+                        f"{row['sentence_index']}. {row['sentence_text'][:90]}": row
+                        for row in historical_review_rows
+                    }
+                    historical_review_label = st.selectbox(
+                        "과거 실행 검토 문장",
+                        list(historical_review_by_label),
+                        key=(
+                            f"experiment_lab_history_review_sentence_"
+                            f"{selected_historical_run_id}"
+                        ),
                     )
-                    selected_review_index = review_choices[selected_review_text]
-                    selected_saved_sentence = next(
-                        row for row in saved_sentences
-                        if row["sentence_index"] == selected_review_index
+                    historical_sentence = historical_review_by_label[
+                        historical_review_label
+                    ]
+                    history_action_target = build_history_action_target(
+                        selected_historical_run_id,
+                        historical_sentence["sentence_index"],
                     )
-                    review_labels = ["true_candidate", "false_positive", "hold"]
-                    current_label = selected_saved_sentence.get("human_label")
-                    review_label = st.selectbox(
-                        "사람 검토 라벨",
-                        review_labels,
-                        index=review_labels.index(current_label) if current_label in review_labels else 2,
+                    historical_labels = ["true_candidate", "false_positive", "hold"]
+                    historical_current_label = historical_sentence.get("human_label")
+                    historical_human_label = st.selectbox(
+                        "과거 실행 사람 검토 라벨",
+                        historical_labels,
+                        index=(
+                            historical_labels.index(historical_current_label)
+                            if historical_current_label in historical_labels else 2
+                        ),
                         format_func=lambda value: {
                             "true_candidate": "실제 검증 후보",
                             "false_positive": "오탐",
                             "hold": "보류",
                         }[value],
-                        key=f"experiment_lab_review_label_{selected_review_index}",
+                        key=(
+                            f"experiment_lab_history_review_label_"
+                            f"{history_action_target.run_id}_"
+                            f"{history_action_target.sentence_index}"
+                        ),
                     )
-                    review_note = st.text_area(
-                        "검토 메모",
-                        value=selected_saved_sentence.get("review_note") or "",
-                        key=f"experiment_lab_review_note_{selected_review_index}",
+                    historical_review_note = st.text_area(
+                        "과거 실행 검토 메모",
+                        value=historical_sentence.get("review_note") or "",
+                        key=(
+                            f"experiment_lab_history_review_note_"
+                            f"{history_action_target.run_id}_"
+                            f"{history_action_target.sentence_index}"
+                        ),
                     )
-                    save_human_review_clicked = st.button(
-                        "사람 검토 저장",
-                        key=f"experiment_lab_save_review_{selected_review_index}",
-                    )
-                    if save_human_review_clicked:
+                    if st.button(
+                        "과거 실행 사람 검토 저장",
+                        key=(
+                            f"experiment_lab_history_save_review_"
+                            f"{history_action_target.run_id}_"
+                            f"{history_action_target.sentence_index}"
+                        ),
+                    ):
                         try:
-                            review_message = save_human_review(
-                                research_database,
-                                saved_run_id,
-                                selected_review_index,
-                                human_label=review_label,
-                                review_note=review_note,
-                                reviewed_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                            history_review_message = save_human_review(
+                                history_database,
+                                history_action_target.run_id,
+                                history_action_target.sentence_index,
+                                human_label=historical_human_label,
+                                review_note=historical_review_note,
+                                reviewed_at=datetime.now().astimezone().isoformat(
+                                    timespec="milliseconds"
+                                ),
                             )
                         except Exception as error:
-                            st.error(f"사람 검토 저장 실패: {error}")
+                            st.error(f"과거 실행 사람 검토 저장 실패: {error}")
                         else:
-                            store_review_feedback(st.session_state, review_message)
+                            store_review_feedback(
+                                st.session_state,
+                                history_review_message,
+                                scope="history",
+                            )
                             st.rerun()
 
-                    promotable = selected_saved_sentence.get("human_label") in {
+                    historical_promotable = historical_sentence.get("human_label") in {
                         "true_candidate", "false_positive"
                     }
-                    promote_golden = st.button(
-                        "승인 사례를 골든셋으로 승격",
-                        key=f"experiment_lab_promote_golden_{selected_review_index}",
-                        disabled=not promotable,
-                    )
-                    if not promotable:
-                        st.caption("실제 검증 후보 또는 오탐으로 저장된 문장만 골든셋에 승격할 수 있습니다.")
-                    if promote_golden:
+                    if st.button(
+                        "과거 실행 승인 사례를 골든셋으로 승격",
+                        disabled=not historical_promotable,
+                        key=(
+                            f"experiment_lab_history_promote_"
+                            f"{history_action_target.run_id}_"
+                            f"{history_action_target.sentence_index}"
+                        ),
+                    ):
                         try:
                             promote_reviewed_sentence(
-                                research_database,
-                                saved_run_id,
-                                selected_review_index,
+                                history_database,
+                                history_action_target.run_id,
+                                history_action_target.sentence_index,
                                 ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
                             )
                         except Exception as error:
-                            st.error(f"골든셋 승격 실패: {error}")
+                            st.error(f"과거 실행 골든셋 승격 실패: {error}")
                         else:
-                            st.success("사람이 승인한 사례를 하이브리드 불일치 골든셋에 추가했습니다.")
-    st.subheader("누적 연구 이력")
-    history_feedback = pop_review_feedback(st.session_state, scope="history")
-    if history_feedback:
-        st.success(history_feedback)
-    st.caption(
-        "현재 업로드 입력은 재사용하지 않으며 연구 DB에 저장된 문장만 조회합니다."
-    )
-    history_database = ROOT / "data/research/verification_lab.db"
-    try:
-        with ExperimentStore(history_database) as history_store:
-            history_facets = history_store.get_history_filter_facets()
-            history_revision = history_store.get_revision()
-    except Exception as error:
-        st.error(f"누적 연구 이력 필터를 불러오지 못했습니다: {error}")
-        history_facets = {"date_min": None, "date_max": None}
-        history_revision = 0
+                            st.success("선택한 과거 사례를 골든셋에 추가했습니다.")
 
-    if history_facets.get("date_min") is None:
-        st.info("저장된 연구 실행이 없습니다. 전체 비교 후 ‘연구 이력 저장’을 눌러 주세요.")
-    else:
-        with st.form("experiment_lab_history_filters"):
-            date_column, provider_column, model_column, prompt_column = st.columns(4)
-            history_date_range = date_column.date_input(
-                "실행 기간",
-                value=(
-                    datetime.fromisoformat(history_facets["date_min"]).date(),
-                    datetime.fromisoformat(history_facets["date_max"]).date(),
-                ),
-                key="experiment_lab_history_dates",
-            )
-            history_provider = provider_column.selectbox(
-                "제공자",
-                ["전체", *history_facets["providers"]],
-                key="experiment_lab_history_provider",
-            )
-            history_model = model_column.selectbox(
-                "모델",
-                ["전체", *history_facets["models"]],
-                key="experiment_lab_history_model",
-            )
-            history_prompt = prompt_column.selectbox(
-                "프롬프트",
-                ["전체", *history_facets["prompt_versions"]],
-                key="experiment_lab_history_prompt",
-            )
-            st.form_submit_button("누적 이력 필터 적용", width="stretch")
 
-        if isinstance(history_date_range, tuple) and len(history_date_range) == 2:
-            history_date_from, history_date_to = map(str, history_date_range)
-        else:
-            history_date_from = history_date_to = str(history_date_range)
-        history_filter_values = HistoryFilters(
-            date_from=history_date_from,
-            date_to=history_date_to,
-            provider=None if history_provider == "전체" else history_provider,
-            model=None if history_model == "전체" else history_model,
-            prompt_version=None if history_prompt == "전체" else history_prompt,
-            revision=history_revision,
+    with shadow_lab_tab:
+        st.markdown("##### Shadow Mode")
+        st.caption("운영 판정을 바꾸지 않고 Python·LLM·Hybrid 비교 결과와 위험 신호를 연구 기록으로 남깁니다.")
+        shadow_date = st.date_input("Shadow 기사 발행일", value=datetime.now().date(), key="shadow_lab_date")
+        shadow_text = st.text_area(
+            "Shadow 분석 기사 본문",
+            key="shadow_lab_text",
+            height=180,
+            placeholder="예: 2025년 인구는 5,000만 명이다.",
         )
-        history_filters = history_filter_values.as_kwargs()
-        history_filter_signature = filter_signature(history_filter_values)
-        try:
-            with ExperimentStore(history_database) as history_store:
-                exact_history_summary = history_store.get_history_summary(
-                    **history_filters
-                )
-        except Exception as error:
-            st.error(f"누적 연구 이력 집계에 실패했습니다: {error}")
-            exact_history_summary = {
-                "run_count": 0,
-                "sentence_count": 0,
-                "counts": {outcome: 0 for outcome in DISAGREEMENT_ORDER},
-            }
-
-        st.caption(
-            f"필터 결과: 실행 {exact_history_summary['run_count']:,}건 · "
-            f"문장 {exact_history_summary['sentence_count']:,}건"
-        )
-        history_count_columns = st.columns(5)
-        for count_column, outcome in zip(history_count_columns, DISAGREEMENT_ORDER):
-            count_column.metric(outcome, f"{exact_history_summary['counts'][outcome]:,}건")
-        st.caption(
-            "누적 화면은 모델·프롬프트 버전이 섞일 수 있어 5유형 건수만 표시합니다. "
-            "정밀도·재현율은 선택한 단일 실행의 사람 검토 표본에만 표시합니다."
-        )
-
-        prepared_export_key = "experiment_lab_history_prepared_export"
-        prepared_export = prepared_export_for_filters(
-            st.session_state.get(prepared_export_key), history_filter_values
-        )
-        if prepared_export is None:
-            st.session_state.pop(prepared_export_key, None)
-        if st.button(
-            "필터 CSV 준비",
-            key=f"experiment_lab_history_prepare_csv_{history_filter_signature[:12]}",
-        ):
-            if exact_history_summary["sentence_count"] > MAX_FILTERED_EXPORT_ROWS:
-                st.error(
-                    f"CSV는 최대 {MAX_FILTERED_EXPORT_ROWS:,}문장까지 준비할 수 있습니다. "
-                    "필터를 좁혀 주세요."
-                )
+        if st.button("Shadow 실행", type="primary", key="shadow_lab_execute"):
+            input_error = validate_shadow_input(shadow_text)
+            if input_error:
+                st.warning(input_error)
             else:
                 try:
-                    with ExperimentStore(history_database) as history_store:
-                        filtered_export = export_filtered_csv(
-                            history_store, history_filters
+                    with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                        response = shadow_service.execute(
+                            shadow_text,
+                            str(shadow_date),
+                            ShadowPolicy.default(),
                         )
+                    st.session_state["shadow_lab_run_id"] = response["run_id"]
+                    st.success("Shadow 실행 결과를 연구 전용 기록으로 저장했습니다.")
                 except Exception as error:
-                    st.error(f"필터 CSV 준비 실패: {error}")
-                else:
-                    prepared_export = PreparedHistoryExport(
-                        signature=history_filter_signature,
-                        payload=filtered_export.payload,
-                        row_count=filtered_export.row_count,
-                    )
-                    st.session_state[prepared_export_key] = prepared_export
-                    st.success(
-                        f"CSV {prepared_export.row_count:,}문장을 준비했습니다."
-                    )
-        if prepared_export is not None:
-            st.download_button(
-                "준비된 필터 CSV 다운로드",
-                data=prepared_export.payload,
-                file_name=(
-                    f"verification_lab_history_"
-                    f"{history_date_from}_{history_date_to}.csv"
-                ),
-                mime="text/csv; charset=utf-8",
-                key=f"experiment_lab_history_download_{history_filter_signature[:12]}",
-                width="stretch",
-            )
+                    st.error(f"Shadow 실행을 저장하지 못했습니다: {error}")
 
-        base_page = build_history_page(
-            total_runs=exact_history_summary["run_count"],
-            requested_page=1,
-            page_size=50,
-        )
-        selected_history_page = st.number_input(
-            "이력 페이지 (페이지당 50개 실행)",
-            min_value=1,
-            max_value=base_page["page_count"],
-            value=1,
-            step=1,
-            key=f"experiment_lab_history_page_{history_filter_signature[:12]}",
-        )
-        history_page = build_history_page(
-            total_runs=exact_history_summary["run_count"],
-            requested_page=selected_history_page,
-            page_size=50,
-        )
-        try:
-            with ExperimentStore(history_database) as history_store:
-                filtered_history_runs = history_store.list_runs(
-                    **history_filters,
-                    limit=50,
-                    offset=history_page["offset"],
-                )
-                filtered_history_sentences = history_store.get_sentences_for_runs(
-                    [run["run_id"] for run in filtered_history_runs]
-                )
-        except Exception as error:
-            st.error(f"과거 실행 페이지를 불러오지 못했습니다: {error}")
-            filtered_history_runs = []
-            filtered_history_sentences = []
+        shadow_run_id = st.session_state.get("shadow_lab_run_id")
+        if shadow_run_id:
+            try:
+                with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                    shadow_run = shadow_service.get_run(shadow_run_id)
+            except Exception as error:
+                shadow_run = None
+                st.error(f"Shadow 실행 결과를 불러오지 못했습니다: {error}")
+            if shadow_run:
+                metrics = summary_metrics(shadow_run["summary"])
+                metric_columns = st.columns(4)
+                metric_columns[0].metric("분석 문장", metrics["row_count"])
+                metric_columns[1].metric("검토 필요", metrics["review_count"])
+                metric_columns[2].metric("LLM 호출", metrics["llm_calls"])
+                metric_columns[3].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
+                st.dataframe(shadow_result_rows(shadow_run), width="stretch", hide_index=True)
 
-        st.caption(
-            f"{history_page['page']} / {history_page['page_count']}페이지"
-        )
-        if filtered_history_runs:
-            historical_run_by_label = {
-                (
-                    f"{run['created_at']} · {run['provider']}/{run['model']} · "
-                    f"{run['prompt_version']} · {run['run_id']}"
-                ): run["run_id"]
-                for run in filtered_history_runs
-            }
-            selected_historical_label = st.selectbox(
-                "과거 실행 선택",
-                list(historical_run_by_label),
-                key=(
-                    f"experiment_lab_historical_run_"
-                    f"{history_filter_signature[:12]}_{history_page['page']}"
-                ),
-            )
-            selected_historical_run_id = historical_run_by_label[
-                selected_historical_label
-            ]
-            selected_historical_run = next(
-                run for run in filtered_history_runs
-                if run["run_id"] == selected_historical_run_id
-            )
-            selected_historical_sentences = [
-                sentence for sentence in filtered_history_sentences
-                if sentence["run_id"] == selected_historical_run_id
-            ]
-            historical_evaluation = build_reviewed_evaluation(
-                selected_historical_sentences, selected_historical_run
-            )
-            if historical_evaluation is not None:
-                st.markdown("###### 선택 실행의 사람 검토 기반 평가")
-                st.caption(
-                    f"{historical_evaluation.metric_scope_label} · "
-                    f"{historical_evaluation.run_label} · 단일 실행 조건부 지표"
-                )
-                st.dataframe(
-                    list(historical_evaluation.rows),
-                    width="stretch",
-                    hide_index=True,
-                )
-            st.dataframe(
-                [
-                    {
-                        "문장 번호": sentence["sentence_index"],
-                        "유형": sentence["disagreement_class"],
-                        "문장": sentence["sentence_text"],
-                        "HCX 상태": sentence["hcx_status"],
-                        "사람 검토": sentence.get("human_label") or "미검토",
-                    }
-                    for sentence in selected_historical_sentences
-                ],
-                width="stretch",
-                hide_index=True,
-            )
-            historical_review_rows = reviewable_sentences(
-                selected_historical_sentences
-            )
-            if historical_review_rows:
-                historical_review_by_label = {
-                    f"{row['sentence_index']}. {row['sentence_text'][:90]}": row
-                    for row in historical_review_rows
-                }
-                historical_review_label = st.selectbox(
-                    "과거 실행 검토 문장",
-                    list(historical_review_by_label),
-                    key=(
-                        f"experiment_lab_history_review_sentence_"
-                        f"{selected_historical_run_id}"
-                    ),
-                )
-                historical_sentence = historical_review_by_label[
-                    historical_review_label
+                reviewable_rows = [
+                    row for row in shadow_run["rows"]
+                    if row["review_state"] == "needs_review"
                 ]
-                history_action_target = build_history_action_target(
-                    selected_historical_run_id,
-                    historical_sentence["sentence_index"],
-                )
-                historical_labels = ["true_candidate", "false_positive", "hold"]
-                historical_current_label = historical_sentence.get("human_label")
-                historical_human_label = st.selectbox(
-                    "과거 실행 사람 검토 라벨",
-                    historical_labels,
-                    index=(
-                        historical_labels.index(historical_current_label)
-                        if historical_current_label in historical_labels else 2
-                    ),
-                    format_func=lambda value: {
-                        "true_candidate": "실제 검증 후보",
-                        "false_positive": "오탐",
-                        "hold": "보류",
-                    }[value],
-                    key=(
-                        f"experiment_lab_history_review_label_"
-                        f"{history_action_target.run_id}_"
-                        f"{history_action_target.sentence_index}"
-                    ),
-                )
-                historical_review_note = st.text_area(
-                    "과거 실행 검토 메모",
-                    value=historical_sentence.get("review_note") or "",
-                    key=(
-                        f"experiment_lab_history_review_note_"
-                        f"{history_action_target.run_id}_"
-                        f"{history_action_target.sentence_index}"
-                    ),
-                )
-                if st.button(
-                    "과거 실행 사람 검토 저장",
-                    key=(
-                        f"experiment_lab_history_save_review_"
-                        f"{history_action_target.run_id}_"
-                        f"{history_action_target.sentence_index}"
-                    ),
-                ):
-                    try:
-                        history_review_message = save_human_review(
-                            history_database,
-                            history_action_target.run_id,
-                            history_action_target.sentence_index,
-                            human_label=historical_human_label,
-                            review_note=historical_review_note,
-                            reviewed_at=datetime.now().astimezone().isoformat(
-                                timespec="milliseconds"
-                            ),
-                        )
-                    except Exception as error:
-                        st.error(f"과거 실행 사람 검토 저장 실패: {error}")
-                    else:
-                        store_review_feedback(
-                            st.session_state,
-                            history_review_message,
-                            scope="history",
-                        )
-                        st.rerun()
+                if reviewable_rows:
+                    st.markdown("##### Shadow 검토")
+                    review_options = {
+                        f"#{row['row_index']} · {row['sentence'][:70]}": row
+                        for row in reviewable_rows
+                    }
+                    selected_review_label = st.selectbox(
+                        "검토할 문장", list(review_options), key=f"shadow_review_row_{shadow_run_id}"
+                    )
+                    selected_review_row = review_options[selected_review_label]
+                    review_action = st.selectbox(
+                        "검토 결정", ("approve", "correct", "hold"),
+                        format_func=lambda action: {"approve": "승인", "correct": "보정", "hold": "보류"}[action],
+                        key=f"shadow_review_action_{shadow_run_id}",
+                    )
+                    review_note = st.text_area(
+                        "검토 메모", key=f"shadow_review_note_{shadow_run_id}",
+                        placeholder="예: 시간 기준 또는 단위 확인 필요",
+                    )
+                    if st.button("Shadow 검토 저장", key=f"shadow_review_save_{shadow_run_id}"):
+                        try:
+                            with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                                shadow_service.review(
+                                    shadow_run_id, selected_review_row["row_index"],
+                                    action=review_action, note=review_note,
+                                    reviewed_at=datetime.now().astimezone().isoformat(),
+                                )
+                            st.success("Shadow 검토 이력을 연구 전용 저장소에 기록했습니다.")
+                            st.rerun()
+                        except Exception as error:
+                            st.error(f"Shadow 검토를 저장하지 못했습니다: {error}")
 
-                historical_promotable = historical_sentence.get("human_label") in {
-                    "true_candidate", "false_positive"
-                }
-                if st.button(
-                    "과거 실행 승인 사례를 골든셋으로 승격",
-                    disabled=not historical_promotable,
-                    key=(
-                        f"experiment_lab_history_promote_"
-                        f"{history_action_target.run_id}_"
-                        f"{history_action_target.sentence_index}"
-                    ),
-                ):
-                    try:
-                        promote_reviewed_sentence(
-                            history_database,
-                            history_action_target.run_id,
-                            history_action_target.sentence_index,
-                            ROOT / "data/goldenset/hybrid_disagreements_v0.jsonl",
-                        )
-                    except Exception as error:
-                        st.error(f"과거 실행 골든셋 승격 실패: {error}")
-                    else:
-                        st.success("선택한 과거 사례를 골든셋에 추가했습니다.")
+                st.markdown("##### 실행 기록 다운로드")
+                json_name, csv_name = download_filenames(shadow_run["run_id"])
+                download_columns = st.columns(2)
+                download_columns[0].download_button(
+                    "JSON 다운로드", data=export_shadow_run_json(shadow_run),
+                    file_name=json_name, mime="application/json", key=f"shadow_json_{shadow_run_id}",
+                    use_container_width=True,
+                )
+                download_columns[1].download_button(
+                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run),
+                    file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
+                    use_container_width=True,
+                )
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")
