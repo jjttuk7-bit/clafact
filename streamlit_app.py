@@ -1873,7 +1873,7 @@ if view == "검증 실험실":
                 metric_columns[1].metric("검토 필요", metrics["review_count"])
                 metric_columns[2].metric("LLM 비교 경로", f"{metrics['llm_calls']}회")
                 metric_columns[3].metric(
-                    "실제 HCX 응답", f"{execution_status['response_rows']} / {execution_status['total_rows']} 문장"
+                    "실제 HCX 응답", f"{execution_status.get('response_rows', 0)} / {execution_status.get('total_rows', metrics['row_count'])} 문장"
                 )
                 metric_columns[4].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
                 execution_message = f"실행 상태: {execution_status['label']} · {execution_status['detail']}"
@@ -1962,7 +1962,7 @@ if view == "검증 실험실":
                                 "분석 문장": history_metrics["row_count"],
                                 "검토 필요": history_metrics["review_count"],
                                 "LLM 비교 경로": history_metrics["llm_calls"],
-                                "실제 HCX 응답": f"{history_status['response_rows']} / {history_status['total_rows']}",
+                                "실제 HCX 응답": f"{history_status.get('response_rows', 0)} / {history_status.get('total_rows', history_metrics['row_count'])}",
                                 "HCX 상태": history_status["label"],
                                 "불일치 유형": " | ".join(f"{key}: {value}" for key, value in history_run["summary"].get("disagreement_counts", {}).items()) or "-",
                             })
