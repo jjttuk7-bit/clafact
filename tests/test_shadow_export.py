@@ -63,6 +63,7 @@ def test_csv_export_merges_multiple_kosis_mappings_per_sentence(tmp_path):
                 "status": "candidate",
                 "match_score": None,
                 "match_reasons": [],
+        "match_score_breakdown": ["+40 지표 의미 일치 (전년동월비)", "+25 단위 일치 (%)"],
                 "source_selection": {},
                 "note": "보조 근거",
             },
@@ -103,6 +104,7 @@ def test_csv_export_uses_exact_kosis_evidence_object_id(tmp_path):
         "status": "reviewed",
         "match_score": 95,
         "match_reasons": [],
+        "match_score_breakdown": ["+40 지표 의미 일치 (전년동월비)", "+25 단위 일치 (%)"],
         "source_selection": {"지수종류": "총지수"},
         "note": "전년동월비",
     }]}
@@ -114,3 +116,4 @@ def test_csv_export_uses_exact_kosis_evidence_object_id(tmp_path):
     row = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))[0]
     assert row["kosis_table_id"] == "DT_1J22042"
     assert row["kosis_evidence_object_id"] == "DT_1J22042:year-over-year"
+    assert row["kosis_score_breakdown"] == "'+40 지표 의미 일치 (전년동월비) ; +25 단위 일치 (%)"

@@ -14,7 +14,7 @@ SHADOW_CSV_COLUMNS = (
     "llm_reason", "hcx_status", "disagreement_class", "claim_type", "route", "quantities",
     "parsed_period", "risk_reasons", "review_state", "review_actions", "review_notes",
     "kosis_table_id", "kosis_evidence_object_id", "kosis_mapping_status",
-    "kosis_match_score", "kosis_match_reasons", "kosis_source_selection", "kosis_mapping_note",
+    "kosis_match_score", "kosis_match_reasons", "kosis_score_breakdown", "kosis_source_selection", "kosis_mapping_note",
 )
 
 
@@ -44,6 +44,9 @@ def _flatten_kosis_mappings(mappings: list[Mapping[str, Any]]) -> dict[str, str]
     def reasons(mapping: Mapping[str, Any]) -> str:
         return " | ".join(str(reason) for reason in mapping.get("match_reasons", ()))
 
+    def score_breakdown(mapping: Mapping[str, Any]) -> str:
+        return " ; ".join(str(item) for item in mapping.get("match_score_breakdown", ()))
+
     def selection(mapping: Mapping[str, Any]) -> str:
         return "; ".join(
             f"{key}={value}" for key, value in mapping.get("source_selection", {}).items()
@@ -57,6 +60,7 @@ def _flatten_kosis_mappings(mappings: list[Mapping[str, Any]]) -> dict[str, str]
         "kosis_mapping_status": " | ".join(values("status")),
         "kosis_match_score": " | ".join(values("match_score")),
         "kosis_match_reasons": " | ".join(reasons(mapping) for mapping in mappings),
+        "kosis_score_breakdown": " | ".join(score_breakdown(mapping) for mapping in mappings),
         "kosis_source_selection": " | ".join(selection(mapping) for mapping in mappings),
         "kosis_mapping_note": " | ".join(values("note")),
     }

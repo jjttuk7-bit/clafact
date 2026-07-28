@@ -2270,7 +2270,7 @@ if view == "검증 실험실":
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
                         candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
-                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties), "selected_item": c.selected_item} for rank, c in enumerate(candidates, start=1)]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                             candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
@@ -2291,6 +2291,8 @@ if view == "검증 실험실":
                     penalties = ", ".join(candidate.penalties)
                     selected_item = getattr(candidate, "selected_item", "")
                     st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점" + (f" · 선택 항목: {selected_item}" if selected_item else ""))
+                    score_breakdown = " · ".join(getattr(candidate, "score_breakdown", ())) or "산정 내역 없음 (이전 기록)"
+                    st.caption(f"점수 산정: {score_breakdown}")
                     st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))
                     st.link_button("KOSIS 표 열기", f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", key=f"kosis_candidate_open_{shadow_run_id}_{rank}")
                 with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
@@ -2352,7 +2354,9 @@ if view == "검증 실험실":
                     match_status_column.metric(
                         "연결 판단", "높음" if match_result.status == "high" else "검토 필요"
                     )
-                    st.caption(" · ".join(match_result.reasons))
+                    score_breakdown = " · ".join(match_result.score_breakdown) or "가점 없음"
+                    st.caption(f"점수 산정: {score_breakdown}")
+                    st.caption("검토 근거: " + " · ".join(match_result.reasons))
 
                     mapping_status = st.selectbox(
                         "연결 상태", ("candidate", "reviewed", "rejected"),
@@ -2379,6 +2383,7 @@ if view == "검증 실험실":
                                 status=mapping_status,
                                 match_score=match_result.score,
                                 match_reasons=match_result.reasons,
+                                match_score_breakdown=match_result.score_breakdown,
                             )
                             with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
                                 inserted = mapping_store.append(mapping)

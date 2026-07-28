@@ -58,3 +58,14 @@ def test_candidate_selects_year_over_year_item_within_same_table():
         item_names=("전월비", "전년비"),
     )
     assert result.selected_item == "전년비"
+
+
+def test_candidate_exposes_point_by_point_score_breakdown():
+    result = evaluate_kosis_candidate(
+        "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다.",
+        TableHit("DT_MONTH", "101", "월별 소비자물가 등락률(전년동월비)", "소비자물가조사", 1.0),
+        item_names=("전년동월비(%)",),
+    )
+
+    assert "+50 지표 일치" in result.score_breakdown
+    assert "+20 공식 항목 전년동월비 일치" in result.score_breakdown

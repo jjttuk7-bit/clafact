@@ -20,6 +20,7 @@ class KosisShadowMapping:
     status: str
     match_score: int | None = None
     match_reasons: tuple[str, ...] = ()
+    match_score_breakdown: tuple[str, ...] = ()
     evidence_id: str = ""
 
     def __post_init__(self) -> None:
@@ -50,4 +51,5 @@ class KosisShadowMapping:
             "status": self.status,
             "match_score": self.match_score,
             "match_reasons": list(self.match_reasons),
+            "match_score_breakdown": list(self.match_score_breakdown),
         }
