@@ -32,6 +32,7 @@ from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
+from clafact.kosis_table_structure import classify_table_structure
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
@@ -1849,6 +1850,9 @@ if view == "검증 실험실":
                     )
                     rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, recent_n=1)
                     fields = autofill_from_rows(table_id=identity.table_id, rows=rows)
+                    structure = classify_table_structure(rows)
+                    st.session_state['kosis_evidence_structure_type'] = structure.structure_type
+                    st.session_state['kosis_evidence_structure_reason'] = structure.reason
                     for state_key, value in {
                         "kosis_evidence_title": fields.title,
                         "kosis_evidence_org": fields.organization,
@@ -1874,9 +1878,21 @@ if view == "검증 실험실":
             unit = st.text_input("단위", placeholder="명", key="kosis_evidence_unit")
             definition = st.text_area("통계 정의", key="kosis_evidence_definition")
             selection = st.text_input("선택 항목 (키=값;...)", placeholder="시도=전국;성별=계", key="kosis_evidence_selection")
+            structure_type = st.selectbox(
+                "통계표 구조 유형",
+                ("unknown", "time_series", "regional_comparison", "crosstab", "indicator_bundle"),
+                format_func=lambda value: {
+                    "unknown": "판정 보류", "time_series": "시계열형", "regional_comparison": "지역 비교형",
+                    "crosstab": "교차표형", "indicator_bundle": "지표 묶음형",
+                }[value],
+                key="kosis_evidence_structure_type",
+            )
+            structure_reason = st.session_state.get("kosis_evidence_structure_reason", "")
+            if structure_reason:
+                st.caption(f"자동 판정 근거: {structure_reason}")
             if st.button("KOSIS 근거 저장", key="kosis_evidence_save"):
                 try:
-                    evidence = build_manual_evidence(table_id=table_id, url=table_url, title=title, organization=organization, indicator=indicator, dimensions=dimensions, time_dimension=time_dimension, unit=unit, definition=definition, source_selection=selection, retrieved_at=datetime.now().astimezone().isoformat())
+                    evidence = build_manual_evidence(table_id=table_id, url=table_url, title=title, organization=organization, indicator=indicator, dimensions=dimensions, time_dimension=time_dimension, unit=unit, definition=definition, source_selection=selection, retrieved_at=datetime.now().astimezone().isoformat(), structure_type=structure_type)
                     with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
                         evidence_store.append(evidence)
                     st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")

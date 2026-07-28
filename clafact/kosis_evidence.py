@@ -1,4 +1,4 @@
-"""KOSIS 통계표를 추적 가능한 연구 근거 객체로 표현한다."""
+"""Traceable research evidence object for a KOSIS table."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +18,7 @@ class KosisEvidenceObject:
     definition: str
     source_selection: Mapping[str, str]
     retrieved_at: str
+    structure_type: str = ""
 
     def __post_init__(self) -> None:
         for field in ("table_id", "url", "title", "organization", "indicator", "retrieved_at"):
@@ -37,4 +38,5 @@ class KosisEvidenceObject:
             "definition": self.definition,
             "source_selection": dict(self.source_selection),
             "retrieved_at": self.retrieved_at,
+            "structure_type": self.structure_type,
         }
