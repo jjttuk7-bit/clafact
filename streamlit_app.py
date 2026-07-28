@@ -2247,7 +2247,7 @@ if view == "검증 실험실":
                 }
                 st.markdown("##### KOSIS 후보 탐색")
                 candidate_sentence_label = st.selectbox(
-                    "후보를 찾을 Shadow 문장", list(sentence_options),
+                    "후보를 찾을 Shadow 문장", list(candidate_sentence_options),
                     key=f"kosis_candidate_sentence_{shadow_run_id}",
                 )
                 if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
