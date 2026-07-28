@@ -75,3 +75,11 @@ def autofill_from_rows(*, table_id: str, rows: Sequence[Mapping[str, object]]) -
         definition="",
         source_selection=";".join(selections),
     )
+
+def autofill_readiness_error(table_id: str, url: str) -> str | None:
+    """Return a user-facing prerequisite message before an API autofill attempt."""
+    if not table_id.strip():
+        return "KOSIS 통계표 ID를 먼저 입력해 주세요."
+    if not url.strip():
+        return "원본 URL을 먼저 입력해 주세요."
+    return None

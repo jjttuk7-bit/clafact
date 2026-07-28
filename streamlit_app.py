@@ -28,7 +28,7 @@ from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
-from clafact.kosis_evidence_autofill import autofill_from_rows, parse_kosis_table_identity
+from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
@@ -1849,7 +1849,16 @@ if view == "검증 실험실":
         st.markdown("##### KOSIS 통계표 근거 입력")
         with st.expander("통계표 근거 객체 저장", expanded=False):
             st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
-            if st.button("KOSIS 메타데이터 자동 채우기", key="kosis_evidence_autofill"):
+            autofill_error = autofill_readiness_error(
+                st.session_state.get("kosis_evidence_table_id", ""),
+                st.session_state.get("kosis_evidence_url", ""),
+            )
+            if autofill_error:
+                st.caption(f"자동 채우기 준비 안내: {autofill_error}")
+            if st.button(
+                "KOSIS 메타데이터 자동 채우기", key="kosis_evidence_autofill",
+                disabled=autofill_error is not None,
+            ):
                 try:
                     identity = parse_kosis_table_identity(
                         st.session_state.get("kosis_evidence_table_id", ""),
