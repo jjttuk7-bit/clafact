@@ -2241,6 +2241,10 @@ if view == "검증 실험실":
                     st.error(execution_message)
                 st.dataframe(shadow_result_rows(shadow_run), width="stretch", hide_index=True)
 
+                candidate_sentence_options = {
+                    f"#{row['row_index']} · {row['sentence'][:70]}": row
+                    for row in shadow_run["rows"]
+                }
                 st.markdown("##### KOSIS 후보 탐색")
                 candidate_sentence_label = st.selectbox(
                     "후보를 찾을 Shadow 문장", list(sentence_options),
@@ -2249,12 +2253,12 @@ if view == "검증 실험실":
                 if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
                     try:
                         search_index, _ = load_engine()
-                        candidate_sentence = sentence_options[candidate_sentence_label]["sentence"]
+                        candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
                         candidates = suggest_kosis_candidates(candidate_sentence, search_index)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties)} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
-                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
+                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
                         st.warning("KOSIS_API_KEY가 설정되지 않아 후보를 검색할 수 없습니다. 수동 근거 입력은 계속 사용할 수 있습니다.")
                     except Exception as error:
