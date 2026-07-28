@@ -101,6 +101,12 @@ class ShadowStore:
             self.conn.rollback()
             raise
 
+    def list_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        return [dict(row) for row in self.conn.execute(
+            "SELECT * FROM shadow_runs ORDER BY created_at DESC, run_id DESC LIMIT ?", (limit,)
+        ).fetchall()]
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT * FROM shadow_runs WHERE run_id = ?", (run_id,)).fetchone()
         return dict(row) if row is not None else None

@@ -51,3 +51,13 @@ def test_store_appends_review_and_marks_row_reviewed(tmp_path):
             "shadow-1", 1, action="hold", note="기간 확인 필요", reviewed_at="2026-07-28T10:01:00+09:00"
         ) is True
         assert store.list_review_rows("shadow-1")[0]["review_state"] == "reviewed"
+
+
+def test_store_lists_runs_newest_first(tmp_path):
+    with ShadowStore(tmp_path / "shadow_lab.db") as store:
+        store.append_run(_run("shadow-old"), [_row()])
+        newest = _run("shadow-new")
+        newest["created_at"] = "2026-07-28T11:00:00+09:00"
+        store.append_run(newest, [_row()])
+
+        assert [row["run_id"] for row in store.list_runs(limit=5)] == ["shadow-new", "shadow-old"]

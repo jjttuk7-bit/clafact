@@ -66,6 +66,17 @@ class ShadowLabService:
         inserted = self.store.append_run(run, stored_rows)
         return {"run_id": resolved_run_id, "inserted": inserted, "summary": summary}
 
+    def list_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return [
+            {
+                "run_id": run["run_id"],
+                "created_at": run["created_at"],
+                "policy": json.loads(run["policy_json"]),
+                "status": run["status"],
+                "summary": json.loads(run["summary_json"]),
+            }
+            for run in self.store.list_runs(limit=limit)
+        ]
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         run = self.store.get_run(run_id)
         if run is None:
