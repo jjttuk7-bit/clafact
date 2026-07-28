@@ -27,6 +27,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
+from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_evidence_autofill import autofill_from_rows, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_store import KosisEvidenceStore
@@ -1970,6 +1971,34 @@ if view == "검증 실험실":
                         "KOSIS 통계표 근거", list(evidence_options),
                         key=f"kosis_mapping_evidence_{shadow_run_id}",
                     )
+                    selected_sentence = sentence_options[selected_sentence_label]
+                    selected_evidence = evidence_options[selected_evidence_label]
+                    match_result = evaluate_claim_evidence_match(
+                        selected_sentence["sentence"],
+                        build_manual_evidence(
+                            table_id=selected_evidence["table_id"],
+                            url=selected_evidence["url"],
+                            title=selected_evidence["title"],
+                            organization=selected_evidence["organization"],
+                            indicator=selected_evidence["indicator"],
+                            dimensions=", ".join(selected_evidence["dimensions"]),
+                            time_dimension=selected_evidence["time_dimension"],
+                            unit=selected_evidence["unit"],
+                            definition=selected_evidence["definition"],
+                            source_selection=";".join(
+                                f"{key}={value}" for key, value in selected_evidence["source_selection"].items()
+                            ),
+                            retrieved_at=selected_evidence["retrieved_at"],
+                            structure_type=selected_evidence.get("structure_type", ""),
+                        ),
+                    )
+                    match_column, match_status_column = st.columns(2)
+                    match_column.metric("근거 적용 가능성", f"{match_result.score}점")
+                    match_status_column.metric(
+                        "연결 판단", "높음" if match_result.status == "high" else "검토 필요"
+                    )
+                    st.caption(" · ".join(match_result.reasons))
+
                     mapping_status = st.selectbox(
                         "연결 상태", ("candidate", "reviewed", "rejected"),
                         format_func=lambda status: {
@@ -1992,6 +2021,8 @@ if view == "검증 실험실":
                                 source_selection=selected_evidence["source_selection"],
                                 note=mapping_note,
                                 status=mapping_status,
+                                match_score=match_result.score,
+                                match_reasons=match_result.reasons,
                             )
                             with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
                                 inserted = mapping_store.append(mapping)
