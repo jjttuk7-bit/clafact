@@ -32,6 +32,7 @@ from clafact.kosis_evidence_autofill import autofill_from_rows, parse_kosis_tabl
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
+from clafact.kosis_snapshot_compare import compare_snapshots
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
@@ -1926,6 +1927,66 @@ if view == "검증 실험실":
                         st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
                 except ValueError as error:
                     st.error(f"KOSIS 근거 저장 실패: {error}")
+        with st.expander("KOSIS 조회 스냅샷 · 개정 이력", expanded=False):
+            snapshot_table_id = st.text_input(
+                "조회할 KOSIS 통계표 ID",
+                value=st.session_state.get("kosis_evidence_table_id", ""),
+                key="kosis_snapshot_table_id",
+            )
+            if snapshot_table_id:
+                with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                    snapshot_history = snapshot_store.list_for_table(snapshot_table_id)
+                if not snapshot_history:
+                    st.info("저장된 조회 스냅샷이 없습니다. KOSIS 메타데이터 자동 채우기 후 근거 객체를 저장하면 생성됩니다.")
+                else:
+                    st.caption(f"저장된 조회 스냅샷 {len(snapshot_history)}건 · 최신순")
+                    snapshot_options = {
+                        f"{item['retrieved_at']} · {item['snapshot_id']}": item
+                        for item in snapshot_history
+                    }
+                    selected_snapshot_label = st.selectbox(
+                        "조회·다운로드할 스냅샷", list(snapshot_options),
+                        key=f"kosis_snapshot_selected_{snapshot_table_id}",
+                    )
+                    selected_snapshot = snapshot_options[selected_snapshot_label]
+                    st.caption(
+                        f"재현 URL: {selected_snapshot['reproducible_url']} · "
+                        f"응답 해시: {selected_snapshot['content_hash']}"
+                    )
+                    st.download_button(
+                        "선택 스냅샷 JSON 다운로드",
+                        data=json.dumps(selected_snapshot, ensure_ascii=False, indent=2),
+                        file_name=f"{selected_snapshot['snapshot_id']}.json",
+                        mime="application/json",
+                        key=f"kosis_snapshot_download_{selected_snapshot['snapshot_id']}",
+                    )
+                    if len(snapshot_history) >= 2:
+                        latest_snapshot = snapshot_history[0]
+                        previous_snapshot = snapshot_history[1]
+                        comparison = compare_snapshots(previous_snapshot, latest_snapshot)
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("새 값", comparison.added_count)
+                        c2.metric("변경·개정", comparison.changed_count)
+                        c3.metric("사라진 값", comparison.removed_count)
+                        if comparison.rows:
+                            comparison_rows = [{
+                                "변화": {"added": "추가", "changed": "변경·개정", "removed": "제거"}[row["change_type"]],
+                                "기간": row["period"],
+                                "지표": row["indicator"],
+                                "선택 조건": "; ".join(
+                                    f"{key}={value}" for key, value in row["selection"].items()
+                                ),
+                                "이전 값": row["value_before"],
+                                "현재 값": row["value_after"],
+                                "이전 수정일": row["last_changed_before"],
+                                "현재 수정일": row["last_changed_after"],
+                            } for row in comparison.rows]
+                            st.dataframe(comparison_rows, width="stretch", hide_index=True)
+                        else:
+                            st.success("최신 두 스냅샷에서 값과 최종수정일 차이가 없습니다.")
+            else:
+                st.caption("통계표 ID를 입력하면 해당 표의 저장된 조회 스냅샷과 개정 이력을 볼 수 있습니다.")
+
         shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
         shadow_text = st.text_area(
             "Shadow 분석 기사 본문",

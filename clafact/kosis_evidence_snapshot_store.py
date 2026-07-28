@@ -44,6 +44,12 @@ class KosisEvidenceSnapshotStore:
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
 
+    def list_for_table(self, table_id: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT payload_json FROM kosis_evidence_snapshot ORDER BY rowid DESC"
+        ).fetchall()
+        snapshots = [json.loads(row["payload_json"]) for row in rows]
+        return [snapshot for snapshot in snapshots if snapshot["table_id"] == table_id]
     def close(self) -> None:
         self.conn.close()
 
