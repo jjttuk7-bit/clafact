@@ -1,4 +1,4 @@
-from clafact.shadow_ui import download_filenames, shadow_database_path, shadow_result_rows, summary_metrics, validate_shadow_input
+from clafact.shadow_ui import download_filenames, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input
 
 
 def test_shadow_database_path_is_research_only(tmp_path):
@@ -43,3 +43,19 @@ def test_shadow_result_rows_flattens_saved_run_for_display():
 
 def test_download_filenames_include_run_id():
     assert download_filenames("shadow-123") == ("shadow-123.json", "shadow-123.csv")
+
+def test_shadow_input_defaults_prefill_selected_csv_article():
+    defaults = shadow_input_defaults(
+        {"body": "CSV에서 고른 기사 본문", "date": "2026-07-20", "title": "선택 기사"},
+        fallback_date="2026-07-28",
+    )
+
+    assert defaults == {
+        "text": "CSV에서 고른 기사 본문",
+        "article_date": "2026-07-20",
+        "title": "선택 기사",
+    }
+
+
+def test_shadow_input_defaults_returns_none_without_selected_article():
+    assert shadow_input_defaults(None, fallback_date="2026-07-28") is None

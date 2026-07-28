@@ -103,7 +103,7 @@ from clafact.shadow_export import export_shadow_run_csv, export_shadow_run_json
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
 from clafact.shadow_ui import (
-    download_filenames, shadow_database_path, shadow_result_rows, summary_metrics, validate_shadow_input,
+    download_filenames, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -1807,7 +1807,33 @@ if view == "검증 실험실":
     with shadow_lab_tab:
         st.markdown("##### Shadow Mode")
         st.caption("운영 판정을 바꾸지 않고 Python·LLM·Hybrid 비교 결과와 위험 신호를 연구 기록으로 남깁니다.")
-        shadow_date = st.date_input("Shadow 기사 발행일", value=datetime.now().date(), key="shadow_lab_date")
+        selected_shadow_source = shadow_input_defaults(
+            selected_lab_article, fallback_date=str(datetime.now().date())
+        )
+        if selected_shadow_source is None:
+            st.session_state.pop("shadow_lab_source_signature", None)
+        else:
+            source_signature = (
+                f"{selected_shadow_source['title']}\n"
+                f"{selected_shadow_source['article_date']}\n"
+                f"{selected_shadow_source['text']}"
+            )
+            if st.session_state.get("shadow_lab_source_signature") != source_signature:
+                st.session_state["shadow_lab_text"] = selected_shadow_source["text"]
+                try:
+                    st.session_state["shadow_lab_date"] = datetime.fromisoformat(
+                        selected_shadow_source["article_date"]
+                    ).date()
+                except ValueError:
+                    st.session_state["shadow_lab_date"] = datetime.now().date()
+                st.session_state["shadow_lab_source_signature"] = source_signature
+                st.session_state.pop("shadow_lab_run_id", None)
+            st.caption(
+                f"CSV 선택 기사: {selected_shadow_source['title']} · "
+                "본문과 발행일을 Shadow 입력에 반영했습니다. 필요하면 수정할 수 있습니다."
+            )
+
+        shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
         shadow_text = st.text_area(
             "Shadow 분석 기사 본문",
             key="shadow_lab_text",
