@@ -1859,6 +1859,7 @@ if view == "검증 실험실":
             st.session_state["kosis_evidence_url"] = pending_candidate["url"]
             if pending_candidate.get("indicator"):
                 st.session_state["kosis_evidence_indicator"] = pending_candidate["indicator"]
+                st.session_state["kosis_evidence_candidate_indicator"] = pending_candidate["indicator"]
             st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. 메타데이터 자동 채우기로 계속하세요.")
         st.markdown("##### KOSIS 통계표 근거 입력")
         with st.expander("통계표 근거 객체 저장", expanded=False):
