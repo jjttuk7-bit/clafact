@@ -1853,6 +1853,11 @@ if view == "검증 실험실":
                 "본문과 발행일을 Shadow 입력에 반영했습니다. 필요하면 수정할 수 있습니다."
             )
 
+        pending_candidate = st.session_state.pop("kosis_evidence_prefill_pending", None)
+        if pending_candidate:
+            st.session_state["kosis_evidence_table_id"] = pending_candidate["table_id"]
+            st.session_state["kosis_evidence_url"] = pending_candidate["url"]
+            st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. 메타데이터 자동 채우기로 계속하세요.")
         st.markdown("##### KOSIS 통계표 근거 입력")
         with st.expander("통계표 근거 객체 저장", expanded=False):
             st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
@@ -2247,32 +2252,28 @@ if view == "검증 실험실":
                         candidate_sentence = sentence_options[candidate_sentence_label]["sentence"]
                         candidates = suggest_kosis_candidates(candidate_sentence, search_index)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
-                        candidate_rows = [
-                            {"rank": rank, "table_id": candidate.hit.tbl_id, "title": candidate.hit.tbl_name,
-                             "score": candidate.score, "reasons": list(candidate.reasons),
-                             "penalties": list(candidate.penalties)}
-                            for rank, candidate in enumerate(candidates, start=1)
-                        ]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": c.score, "reasons": list(c.reasons), "penalties": list(c.penalties)} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
-                            candidate_store.append(
-                                shadow_run_id=shadow_run_id,
-                                row_index=sentence_options[candidate_sentence_label]["row_index"],
-                                sentence=candidate_sentence, query=search_index.last_query,
-                                candidates=candidate_rows,
-                                created_at=datetime.now().astimezone().isoformat(),
-                            )
+                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
                         st.warning("KOSIS_API_KEY가 설정되지 않아 후보를 검색할 수 없습니다. 수동 근거 입력은 계속 사용할 수 있습니다.")
                     except Exception as error:
                         st.warning(f"KOSIS 후보 탐색을 완료하지 못했습니다: {error}")
-                for rank, candidate in enumerate(st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", []), start=1):
+                candidate_results = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", [])
+                if candidate_results:
+                    candidate_labels = {f"{rank}위 · {c.hit.tbl_name} ({c.score}점)": c for rank, c in enumerate(candidate_results, start=1)}
+                    selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")
+                    if st.button("선택 후보를 근거 입력에 적용", key=f"kosis_candidate_apply_button_{shadow_run_id}"):
+                        hit = candidate_labels[selected_candidate_label].hit
+                        st.session_state["kosis_evidence_prefill_pending"] = {"table_id": hit.tbl_id, "url": f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}"}
+                        st.rerun()
+                for rank, candidate in enumerate(candidate_results, start=1):
                     hit = candidate.hit
                     reasons = ", ".join(candidate.reasons) or "제목 기반 일치 신호 없음"
                     penalties = ", ".join(candidate.penalties)
                     st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점")
                     st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))
                     st.link_button("KOSIS 표 열기", f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", key=f"kosis_candidate_open_{shadow_run_id}_{rank}")
-
                 with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                     candidate_history_rows = candidate_store.list_csv_rows()
                 if candidate_history_rows:
