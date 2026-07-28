@@ -45,3 +45,52 @@ def test_csv_export_is_utf8_bom_and_spreadsheet_safe(tmp_path):
     assert rows[0]["run_id"] == "shadow-export-1"
     assert rows[0]["llm_reason"] == "'=제외 사유"
     assert rows[0]["review_actions"] == "hold"
+
+
+def test_csv_export_merges_multiple_kosis_mappings_per_sentence(tmp_path):
+    mappings_by_row = {
+        1: [
+            {
+                "table_id": "DT_CPI_MONTH",
+                "status": "reviewed",
+                "match_score": 92,
+                "match_reasons": ["지표 일치", "단위 일치"],
+                "source_selection": {"시점": "2025.10", "품목": "총지수"},
+                "note": "기사 수치 직접 확인",
+            },
+            {
+                "table_id": "DT_CPI_REFERENCE",
+                "status": "candidate",
+                "match_score": None,
+                "match_reasons": [],
+                "source_selection": {},
+                "note": "보조 근거",
+            },
+        ]
+    }
+    with _saved_run(tmp_path) as service:
+        payload = export_shadow_run_csv(
+            service.get_run("shadow-export-1"), mappings_by_row=mappings_by_row
+        )
+
+    row = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))[0]
+    assert row["kosis_table_id"] == "DT_CPI_MONTH | DT_CPI_REFERENCE"
+    assert row["kosis_evidence_object_id"] == "DT_CPI_MONTH | DT_CPI_REFERENCE"
+    assert row["kosis_mapping_status"] == "reviewed | candidate"
+    assert row["kosis_match_score"] == "92 | "
+    assert row["kosis_match_reasons"] == "지표 일치 | 단위 일치 | "
+    assert row["kosis_source_selection"] == "시점=2025.10; 품목=총지수 | "
+    assert row["kosis_mapping_note"] == "기사 수치 직접 확인 | 보조 근거"
+
+
+def test_group_kosis_mappings_by_row_keeps_all_links_in_sentence_order():
+    from clafact.shadow_export import group_kosis_mappings_by_row
+
+    grouped = group_kosis_mappings_by_row([
+        {"row_index": 2, "table_id": "DT_SECOND"},
+        {"row_index": 1, "table_id": "DT_FIRST"},
+        {"row_index": 2, "table_id": "DT_SUPPORT"},
+    ])
+
+    assert [mapping["table_id"] for mapping in grouped[1]] == ["DT_FIRST"]
+    assert [mapping["table_id"] for mapping in grouped[2]] == ["DT_SECOND", "DT_SUPPORT"]

@@ -115,7 +115,9 @@ from clafact.pipeline.detect_llm import SYSTEM as HCX_CANDIDATE_SYSTEM
 from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
-from clafact.shadow_export import export_shadow_run_csv, export_shadow_run_json
+from clafact.shadow_export import (
+    export_shadow_run_csv, export_shadow_run_json, group_kosis_mappings_by_row,
+)
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
 from clafact.shadow_ui import (
@@ -2352,6 +2354,14 @@ if view == "검증 실험실":
                             st.error(f"Shadow 검토를 저장하지 못했습니다: {error}")
 
                 st.markdown("##### 실행 기록 다운로드")
+                try:
+                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                        kosis_mappings_by_row = group_kosis_mappings_by_row(
+                            mapping_store.list_for_run(shadow_run_id)
+                        )
+                except Exception as error:
+                    kosis_mappings_by_row = {}
+                    st.warning(f"KOSIS 연구 매핑을 CSV에 포함하지 못했습니다: {error}")
                 json_name, csv_name = download_filenames(shadow_run["run_id"])
                 download_columns = st.columns(2)
                 download_columns[0].download_button(
@@ -2360,7 +2370,7 @@ if view == "검증 실험실":
                     use_container_width=True,
                 )
                 download_columns[1].download_button(
-                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run),
+                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row),
                     file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
                     use_container_width=True,
                 )
