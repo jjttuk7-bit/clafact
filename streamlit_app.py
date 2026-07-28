@@ -1867,12 +1867,15 @@ if view == "검증 실험실":
                 st.error(f"Shadow 실행 결과를 불러오지 못했습니다: {error}")
             if shadow_run:
                 metrics = summary_metrics(shadow_run["summary"])
-                metric_columns = st.columns(4)
+                execution_status = execution_status_summary(shadow_run)
+                metric_columns = st.columns(5)
                 metric_columns[0].metric("분석 문장", metrics["row_count"])
                 metric_columns[1].metric("검토 필요", metrics["review_count"])
-                metric_columns[2].metric("LLM 호출", metrics["llm_calls"])
-                metric_columns[3].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
-                execution_status = execution_status_summary(shadow_run)
+                metric_columns[2].metric("LLM 비교 경로", f"{metrics['llm_calls']}회")
+                metric_columns[3].metric(
+                    "실제 HCX 응답", f"{execution_status['response_rows']} / {execution_status['total_rows']} 문장"
+                )
+                metric_columns[4].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
                 execution_message = f"실행 상태: {execution_status['label']} · {execution_status['detail']}"
                 if execution_status["severity"] == "success":
                     st.success(execution_message)

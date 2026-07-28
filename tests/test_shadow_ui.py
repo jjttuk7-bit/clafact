@@ -69,6 +69,8 @@ def test_execution_status_summary_marks_hcx_not_configured():
         "label": "HCX 미설정 · AI 판정 미사용",
         "detail": "HCX 상태: not_configured 1건",
         "severity": "warning",
+        "response_rows": 0,
+        "total_rows": 1,
     }
 
 
@@ -79,3 +81,5 @@ def test_execution_status_summary_marks_successful_hcx_response():
 
     assert summary["label"] == "HCX 응답 완료"
     assert summary["severity"] == "success"
+    assert summary["response_rows"] == 1
+    assert summary["total_rows"] == 1
