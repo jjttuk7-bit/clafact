@@ -6,7 +6,7 @@ from typing import Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
 
-PERIOD_LABELS = {"Y": "연", "M": "월", "Q": "분기", "H": "반기"}
+PERIOD_LABELS = {"A": "연", "Y": "연", "M": "월", "Q": "분기", "H": "반기"}
 
 
 @dataclass(frozen=True)
