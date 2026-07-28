@@ -28,6 +28,7 @@ from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
+from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
@@ -1891,6 +1892,25 @@ if view == "검증 실험실":
                     st.success("공식 KOSIS API 응답을 바탕으로 입력 초안을 채웠습니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
                 except (RuntimeError, ValueError) as error:
                     st.error(f"KOSIS 자동 채우기를 실행하지 못했습니다: {error}")
+            definition_source_url = st.session_state.get("kosis_evidence_url", "")
+            if not definition_source_url:
+                st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")
+            if st.button(
+                "원본 표 설명 후보 가져오기", key="kosis_definition_candidate_fetch",
+                disabled=not bool(definition_source_url),
+            ):
+                try:
+                    candidate = fetch_definition_candidate(definition_source_url)
+                    if candidate is None:
+                        st.info("원본 표 페이지에서 명시적 설명 후보를 찾지 못했습니다. 통계 정의는 직접 입력해 주세요.")
+                    else:
+                        st.session_state["kosis_evidence_definition_candidate_source"] = candidate.source_url
+                        st.session_state["kosis_evidence_definition_candidate_method"] = candidate.method
+                        if not st.session_state.get("kosis_evidence_definition", "").strip():
+                            st.session_state["kosis_evidence_definition"] = candidate.text
+                        st.success("원본 표 설명 후보를 가져왔습니다. 통계 정의 입력란의 내용을 검토·수정한 뒤 저장해 주세요.")
+                except (OSError, ValueError) as error:
+                    st.error(f"원본 표 설명 후보를 가져오지 못했습니다: {error}")
             k1, k2 = st.columns(2)
             table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
             table_url = k2.text_input("원본 URL", key="kosis_evidence_url")
@@ -1901,6 +1921,9 @@ if view == "검증 실험실":
             time_dimension = st.text_input("시간 차원", placeholder="연", key="kosis_evidence_time")
             unit = st.text_input("단위", placeholder="명", key="kosis_evidence_unit")
             definition = st.text_area("통계 정의", key="kosis_evidence_definition")
+            definition_candidate_source = st.session_state.get("kosis_evidence_definition_candidate_source", "")
+            if definition_candidate_source:
+                st.caption(f"설명 후보 출처: {definition_candidate_source} · 저장 전 반드시 검토하세요.")
             selection = st.text_input("선택 항목 (키=값;...)", placeholder="시도=전국;성별=계", key="kosis_evidence_selection")
             structure_type = st.selectbox(
                 "통계표 구조 유형",
