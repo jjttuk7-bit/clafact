@@ -51,3 +51,15 @@ def shadow_result_rows(run: Mapping[str, Any]) -> list[dict[str, Any]]:
 def download_filenames(run_id: str) -> tuple[str, str]:
     """한 Shadow 실행의 JSON·CSV 기록 파일명을 반환한다."""
     return (f"{run_id}.json", f"{run_id}.csv")
+
+def shadow_input_defaults(
+    selected_article: Mapping[str, Any] | None, *, fallback_date: str
+) -> dict[str, str] | None:
+    """기존 비교 실험에서 선택한 CSV 기사를 Shadow 입력 기본값으로 변환한다."""
+    if selected_article is None:
+        return None
+    return {
+        "text": str(selected_article.get("body") or ""),
+        "article_date": str(selected_article.get("date") or fallback_date),
+        "title": str(selected_article.get("title") or "제목 없음"),
+    }

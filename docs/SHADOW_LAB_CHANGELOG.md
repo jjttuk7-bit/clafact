@@ -84,3 +84,11 @@
 - 검증: Shadow·기존 실험실 회귀 테스트 76건 및 Streamlit AppTest로 탭, 실행, 검토 UI, JSON·CSV 다운로드 버튼 렌더링을 확인했다.
 - 수동 확인 참고: Playwright 런타임은 이 환경에 없어 실행하지 못했으나, 임시 Streamlit 서버는 정상 기동했고 Streamlit 내장 AppTest로 동일 화면 흐름을 검증했다.
 - 다음 단계: 과거 Shadow 실행 이력 선택과 실행 간 비교 화면을 추가할 수 있다.
+
+## CHG-SHADOW-007 — CSV 선택 기사 Shadow 입력 연결
+
+- 일시: 2026-07-28
+- 변경: 기존 비교 실험의 CSV에서 선택한 기사의 본문·발행일을 Shadow Mode 입력의 수정 가능한 기본값으로 반영한다.
+- 영향: 선택된 한 기사만 Shadow 실행 대상으로 전달한다. CSV 전체 자동 실행·운영 저장소 쓰기·추가 LLM 호출은 발생하지 않는다.
+- 검증: `tests/test_shadow_ui.py`의 기본값 변환 테스트 및 Streamlit AppTest의 샘플 CSV 업로드→Shadow 본문·발행일 반영 흐름을 확인했다.
+- 다음 단계: 과거 Shadow 실행 이력을 선택하고 실행 간 결과를 비교한다.
