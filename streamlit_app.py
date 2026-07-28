@@ -1934,6 +1934,39 @@ if view == "검증 실험실":
                     file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
                     use_container_width=True,
                 )
+
+                st.markdown("##### 과거 Shadow 실행 비교")
+                with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                    history_runs = shadow_service.list_runs(limit=20)
+                history_options = {
+                    f"{run['created_at']} · {run['run_id'][:12]}": run["run_id"]
+                    for run in history_runs
+                }
+                selected_history_labels = st.multiselect(
+                    "비교할 실행 선택 (최대 5개)", list(history_options), max_selections=5,
+                    key="shadow_history_selected_runs",
+                )
+                if selected_history_labels:
+                    comparison_rows = []
+                    with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                        for label in selected_history_labels:
+                            history_run = shadow_service.get_run(history_options[label])
+                            if history_run is None:
+                                continue
+                            history_metrics = summary_metrics(history_run["summary"])
+                            history_status = execution_status_summary(history_run)
+                            comparison_rows.append({
+                                "실행 시각": history_run["created_at"],
+                                "실행 ID": history_run["run_id"],
+                                "정책": history_run["policy"].get("version", "-"),
+                                "분석 문장": history_metrics["row_count"],
+                                "검토 필요": history_metrics["review_count"],
+                                "LLM 비교 경로": history_metrics["llm_calls"],
+                                "실제 HCX 응답": f"{history_status['response_rows']} / {history_status['total_rows']}",
+                                "HCX 상태": history_status["label"],
+                                "불일치 유형": " | ".join(f"{key}: {value}" for key, value in history_run["summary"].get("disagreement_counts", {}).items()) or "-",
+                            })
+                    st.dataframe(comparison_rows, width="stretch", hide_index=True)
 # ═════════════ 탭 2: 검증자 리뷰 (WF-2) ═════════════
 if view == "검증자 리뷰":
     persisted_store = Store(ROOT / "data/service/clafact.db")
