@@ -94,3 +94,23 @@ def test_group_kosis_mappings_by_row_keeps_all_links_in_sentence_order():
 
     assert [mapping["table_id"] for mapping in grouped[1]] == ["DT_FIRST"]
     assert [mapping["table_id"] for mapping in grouped[2]] == ["DT_SECOND", "DT_SUPPORT"]
+
+
+def test_csv_export_uses_exact_kosis_evidence_object_id(tmp_path):
+    mappings_by_row = {1: [{
+        "table_id": "DT_1J22042",
+        "evidence_id": "DT_1J22042:year-over-year",
+        "status": "reviewed",
+        "match_score": 95,
+        "match_reasons": [],
+        "source_selection": {"지수종류": "총지수"},
+        "note": "전년동월비",
+    }]}
+    with _saved_run(tmp_path) as service:
+        payload = export_shadow_run_csv(
+            service.get_run("shadow-export-1"), mappings_by_row=mappings_by_row
+        )
+
+    row = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))[0]
+    assert row["kosis_table_id"] == "DT_1J22042"
+    assert row["kosis_evidence_object_id"] == "DT_1J22042:year-over-year"

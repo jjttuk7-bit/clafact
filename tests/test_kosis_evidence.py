@@ -29,3 +29,18 @@ def test_kosis_evidence_object_requires_table_identity_and_provenance():
             dimensions=(), time_dimension="", unit="", definition="",
             source_selection={}, retrieved_at="",
         )
+
+
+def test_evidence_id_distinguishes_items_in_the_same_kosis_table():
+    common = dict(
+        table_id="DT_1J22042", url="https://kosis.kr/table", title="월별 소비자물가 등락률",
+        organization="통계청", dimensions=("지수종류",), time_dimension="월", unit="%",
+        definition="", source_selection={"지수종류": "총지수"},
+        retrieved_at="2026-07-29T07:00:00+09:00",
+    )
+
+    month_over_month = KosisEvidenceObject(indicator="전월비(%)", **common)
+    year_over_year = KosisEvidenceObject(indicator="전년동월비(%)", **common)
+
+    assert month_over_month.evidence_id != year_over_year.evidence_id
+    assert year_over_year.as_dict()["evidence_id"] == year_over_year.evidence_id

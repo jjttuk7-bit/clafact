@@ -139,6 +139,14 @@ def _hcx_candidate_display(candidate, status: str) -> str:
     return "탐지" if candidate is True else "미탐지"
 
 
+def format_kosis_evidence_label(evidence: dict) -> str:
+    """Make same-table evidence variants distinct in Streamlit selectors."""
+    selection = evidence.get("source_selection", {})
+    selection_text = "; ".join(f"{key}={value}" for key, value in selection.items())
+    detail = selection_text or evidence.get("title", "")
+    return f"{evidence.get('table_id', '')} · {evidence.get('indicator', '')} · {detail}"
+
+
 GOLDEN = ROOT / "data/goldenset/golden_v0.jsonl"
 RULES_DIR = ROOT / "data/assets/rules"
 FAILURES = ROOT / "data/failures/failures.jsonl"
@@ -1901,6 +1909,8 @@ if view == "검증 실험실":
                         "kosis_evidence_unit": fields.unit,
                         "kosis_evidence_selection": fields.source_selection,
                     }.items():
+                        if state_key == "kosis_evidence_indicator" and st.session_state.get("kosis_evidence_candidate_indicator"):
+                            continue
                         if value:
                             st.session_state[state_key] = value
                     st.success("공식 KOSIS API 응답을 바탕으로 입력 초안을 채웠습니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
@@ -2014,7 +2024,8 @@ if view == "검증 실험실":
                     for registered in registered_evidence:
                         registered_table_id = registered["table_id"]
                         snapshot_counts[registered_table_id] = len(snapshot_store.list_for_table(registered_table_id))
-                        mapping_counts[registered_table_id] = len(mapping_store.list_for_table(registered_table_id))
+                        registered_evidence_id = registered.get("evidence_id", registered_table_id)
+                        mapping_counts[registered_evidence_id] = len(mapping_store.list_for_evidence(registered_evidence_id))
                         review_counts[registered_table_id] = len(review_store.list_for_table(registered_table_id))
                 st.dataframe(
                     build_evidence_registry_rows(
@@ -2026,7 +2037,7 @@ if view == "검증 실험실":
                     width="stretch", hide_index=True,
                 )
                 evidence_options = {
-                    f"{item['table_id']} · {item['title']}": item
+                    format_kosis_evidence_label(item): item
                     for item in registered_evidence
                 }
                 selected_evidence_label = st.selectbox(
@@ -2039,7 +2050,7 @@ if view == "검증 실험실":
                 case_status = build_evidence_case_status(
                     evidence=selected_registered_evidence,
                     snapshot_count=snapshot_counts[selected_table_id],
-                    mapping_count=mapping_counts[selected_table_id],
+                    mapping_count=mapping_counts[selected_registered_evidence.get("evidence_id", selected_table_id)],
                     pending_review_count=sum(review["status"] == "pending" for review in selected_reviews),
                 )
                 st.markdown("##### 실제 근거 객체 사례 진행도")
@@ -2056,9 +2067,9 @@ if view == "검증 실험실":
                 st.download_button(
                     "근거 객체 JSON 다운로드",
                     data=json.dumps(selected_registered_evidence, ensure_ascii=False, indent=2),
-                    file_name=f"{selected_registered_evidence['table_id']}-evidence.json",
+                    file_name=f"{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}-evidence.json",
                     mime="application/json",
-                    key=f"kosis_evidence_registry_download_{selected_registered_evidence['table_id']}",
+                    key=f"kosis_evidence_registry_download_{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}",
                 )
 
         with st.expander("KOSIS 조회 스냅샷 · 개정 이력", expanded=False):
@@ -2304,7 +2315,7 @@ if view == "검증 실험실":
                         for row in shadow_run["rows"]
                     }
                     evidence_options = {
-                        f"{evidence['table_id']} · {evidence['title']}": evidence
+                        format_kosis_evidence_label(evidence): evidence
                         for evidence in evidence_objects
                     }
                     selected_sentence_label = st.selectbox(
@@ -2362,6 +2373,7 @@ if view == "검증 실험실":
                                 shadow_run_id=shadow_run_id,
                                 row_index=selected_sentence["row_index"],
                                 table_id=selected_evidence["table_id"],
+                                evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
                                 source_selection=selected_evidence["source_selection"],
                                 note=mapping_note,
                                 status=mapping_status,

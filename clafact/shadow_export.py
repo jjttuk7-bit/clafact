@@ -50,9 +50,10 @@ def _flatten_kosis_mappings(mappings: list[Mapping[str, Any]]) -> dict[str, str]
         )
 
     table_ids = values("table_id")
+    evidence_ids = [str(mapping.get("evidence_id") or mapping.get("table_id", "")) for mapping in mappings]
     return {
         "kosis_table_id": " | ".join(table_ids),
-        "kosis_evidence_object_id": " | ".join(table_ids),
+        "kosis_evidence_object_id": " | ".join(evidence_ids),
         "kosis_mapping_status": " | ".join(values("status")),
         "kosis_match_score": " | ".join(values("match_score")),
         "kosis_match_reasons": " | ".join(reasons(mapping) for mapping in mappings),

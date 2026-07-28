@@ -24,8 +24,10 @@ def build_evidence_registry_rows(
     rows: list[dict[str, object]] = []
     for evidence in evidence_objects:
         table_id = str(evidence["table_id"])
+        evidence_id = str(evidence.get("evidence_id") or table_id)
         provenance = evidence.get("definition_provenance", {})
         rows.append({
+            "근거 객체 ID": evidence_id,
             "통계표 ID": table_id,
             "표 제목": str(evidence.get("title", "")),
             "핵심 지표": str(evidence.get("indicator", "")),
@@ -34,7 +36,7 @@ def build_evidence_registry_rows(
             ),
             "정의 승인": str(provenance.get("method", "-")),
             "스냅샷": snapshot_counts.get(table_id, 0),
-            "Shadow 연결": mapping_counts.get(table_id, 0),
+            "Shadow 연결": mapping_counts.get(evidence_id, 0),
             "개정 검토": review_counts.get(table_id, 0),
         })
     return rows
