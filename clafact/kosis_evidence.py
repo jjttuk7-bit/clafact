@@ -1,7 +1,7 @@
 """Traceable research evidence object for a KOSIS table."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
 
@@ -20,11 +20,12 @@ class KosisEvidenceObject:
     retrieved_at: str
     structure_type: str = ""
     snapshot_id: str = ""
+    definition_provenance: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for field in ("table_id", "url", "title", "organization", "indicator", "retrieved_at"):
-            if not getattr(self, field).strip():
-                raise ValueError(f"{field} is required")
+        for field_name in ("table_id", "url", "title", "organization", "indicator", "retrieved_at"):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"{field_name} is required")
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -41,4 +42,5 @@ class KosisEvidenceObject:
             "retrieved_at": self.retrieved_at,
             "structure_type": self.structure_type,
             "snapshot_id": self.snapshot_id,
+            "definition_provenance": dict(self.definition_provenance),
         }

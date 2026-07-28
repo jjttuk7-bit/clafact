@@ -1948,11 +1948,34 @@ if view == "검증 실험실":
                         with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
                             snapshot_store.append(snapshot)
                         snapshot_id = snapshot.snapshot_id
+                    definition_provenance = {}
+                    if definition.strip():
+                        definition_provenance = {
+                            "source_url": st.session_state.get(
+                                "kosis_evidence_definition_candidate_source", table_url
+                            ),
+                            "method": st.session_state.get(
+                                "kosis_evidence_definition_candidate_method", "manual_input"
+                            ),
+                            "approved_at": datetime.now().astimezone().isoformat(),
+                        }
+                    definition_provenance = {}
+                    if definition.strip():
+                        definition_provenance = {
+                            "source_url": st.session_state.get(
+                                "kosis_evidence_definition_candidate_source", table_url
+                            ),
+                            "method": st.session_state.get(
+                                "kosis_evidence_definition_candidate_method", "manual_input"
+                            ),
+                            "approved_at": datetime.now().astimezone().isoformat(),
+                        }
                     evidence = build_manual_evidence(
                         table_id=table_id, url=table_url, title=title, organization=organization,
                         indicator=indicator, dimensions=dimensions, time_dimension=time_dimension,
                         unit=unit, definition=definition, source_selection=selection,
                         retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,
+                        definition_provenance=definition_provenance,
                     )
                     with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
                         evidence_store.append(evidence)

@@ -1,13 +1,16 @@
 """Convert manual KOSIS evidence input to a research evidence object."""
 from __future__ import annotations
 
+from typing import Mapping
+
 from clafact.kosis_evidence import KosisEvidenceObject
 
 
 def build_manual_evidence(*, table_id: str, url: str, title: str, organization: str,
                           indicator: str, dimensions: str, time_dimension: str,
                           unit: str, definition: str, source_selection: str,
-                          retrieved_at: str, structure_type: str = "", snapshot_id: str = "") -> KosisEvidenceObject:
+                          retrieved_at: str, structure_type: str = "", snapshot_id: str = "",
+                          definition_provenance: Mapping[str, str] | None = None) -> KosisEvidenceObject:
     parsed_dimensions = tuple(item.strip() for item in dimensions.split(",") if item.strip())
     parsed_selection = {}
     for item in source_selection.split(";"):
@@ -22,4 +25,5 @@ def build_manual_evidence(*, table_id: str, url: str, title: str, organization: 
         indicator=indicator, dimensions=parsed_dimensions, time_dimension=time_dimension,
         unit=unit, definition=definition, source_selection=parsed_selection,
         retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,
+        definition_provenance=dict(definition_provenance or {}),
     )
