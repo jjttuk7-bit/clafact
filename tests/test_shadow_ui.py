@@ -1,4 +1,4 @@
-from clafact.shadow_ui import download_filenames, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input
+from clafact.shadow_ui import download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input
 
 
 def test_shadow_database_path_is_research_only(tmp_path):
@@ -59,3 +59,23 @@ def test_shadow_input_defaults_prefill_selected_csv_article():
 
 def test_shadow_input_defaults_returns_none_without_selected_article():
     assert shadow_input_defaults(None, fallback_date="2026-07-28") is None
+
+def test_execution_status_summary_marks_hcx_not_configured():
+    summary = execution_status_summary({
+        "rows": [{"shadow": {"hcx_status": "not_configured"}}],
+    })
+
+    assert summary == {
+        "label": "HCX 미설정 · AI 판정 미사용",
+        "detail": "HCX 상태: not_configured 1건",
+        "severity": "warning",
+    }
+
+
+def test_execution_status_summary_marks_successful_hcx_response():
+    summary = execution_status_summary({
+        "rows": [{"shadow": {"hcx_status": "success"}}],
+    })
+
+    assert summary["label"] == "HCX 응답 완료"
+    assert summary["severity"] == "success"

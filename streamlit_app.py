@@ -103,7 +103,7 @@ from clafact.shadow_export import export_shadow_run_csv, export_shadow_run_json
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
 from clafact.shadow_ui import (
-    download_filenames, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
+    download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -1872,6 +1872,14 @@ if view == "검증 실험실":
                 metric_columns[1].metric("검토 필요", metrics["review_count"])
                 metric_columns[2].metric("LLM 호출", metrics["llm_calls"])
                 metric_columns[3].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
+                execution_status = execution_status_summary(shadow_run)
+                execution_message = f"실행 상태: {execution_status['label']} · {execution_status['detail']}"
+                if execution_status["severity"] == "success":
+                    st.success(execution_message)
+                elif execution_status["severity"] == "warning":
+                    st.warning(execution_message)
+                else:
+                    st.error(execution_message)
                 st.dataframe(shadow_result_rows(shadow_run), width="stretch", hide_index=True)
 
                 reviewable_rows = [
