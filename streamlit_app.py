@@ -2271,13 +2271,14 @@ if view == "검증 실험실":
                     selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")
                     if st.button("선택 후보를 근거 입력에 적용", key=f"kosis_candidate_apply_button_{shadow_run_id}"):
                         hit = candidate_labels[selected_candidate_label].hit
-                        st.session_state["kosis_evidence_prefill_pending"] = {"table_id": hit.tbl_id, "url": f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", "indicator": candidate_labels[selected_candidate_label].selected_item}
+                        st.session_state["kosis_evidence_prefill_pending"] = {"table_id": hit.tbl_id, "url": f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", "indicator": getattr(candidate_labels[selected_candidate_label], "selected_item", "")}
                         st.rerun()
                 for rank, candidate in enumerate(candidate_results, start=1):
                     hit = candidate.hit
                     reasons = ", ".join(candidate.reasons) or "제목 기반 일치 신호 없음"
                     penalties = ", ".join(candidate.penalties)
-                    st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점" + (f" · 선택 항목: {candidate.selected_item}" if candidate.selected_item else ""))
+                    selected_item = getattr(candidate, "selected_item", "")
+                    st.markdown(f"**{rank}위 · {hit.tbl_name}** — {candidate.score}점" + (f" · 선택 항목: {selected_item}" if selected_item else ""))
                     st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))
                     st.link_button("KOSIS 표 열기", f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", key=f"kosis_candidate_open_{shadow_run_id}_{rank}")
                 with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
