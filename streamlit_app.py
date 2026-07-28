@@ -33,6 +33,7 @@ from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readine
 from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
+from clafact.kosis_evidence_registry import build_evidence_registry_rows
 from clafact.kosis_snapshot_compare import compare_snapshots
 from clafact.kosis_revision_impact import find_revision_impacts
 from clafact.kosis_revision_review_store import KosisRevisionReviewStore
@@ -1985,6 +1986,49 @@ if view == "검증 실험실":
                         st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
                 except ValueError as error:
                     st.error(f"KOSIS 근거 저장 실패: {error}")
+        with st.expander("KOSIS 근거 객체 레지스트리", expanded=False):
+            with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
+                registered_evidence = evidence_store.list_all()
+            if not registered_evidence:
+                st.caption("저장된 KOSIS 근거 객체가 없습니다. 위 입력 화면에서 근거 객체를 저장하면 이곳에 표시됩니다.")
+            else:
+                snapshot_counts = {}
+                mapping_counts = {}
+                review_counts = {}
+                with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store, \
+                     KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store, \
+                     KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                    for registered in registered_evidence:
+                        registered_table_id = registered["table_id"]
+                        snapshot_counts[registered_table_id] = len(snapshot_store.list_for_table(registered_table_id))
+                        mapping_counts[registered_table_id] = len(mapping_store.list_for_table(registered_table_id))
+                        review_counts[registered_table_id] = len(review_store.list_for_table(registered_table_id))
+                st.dataframe(
+                    build_evidence_registry_rows(
+                        evidence_objects=registered_evidence,
+                        snapshot_counts=snapshot_counts,
+                        mapping_counts=mapping_counts,
+                        review_counts=review_counts,
+                    ),
+                    width="stretch", hide_index=True,
+                )
+                evidence_options = {
+                    f"{item['table_id']} · {item['title']}": item
+                    for item in registered_evidence
+                }
+                selected_evidence_label = st.selectbox(
+                    "상세 확인할 근거 객체", list(evidence_options), key="kosis_evidence_registry_selected",
+                )
+                selected_registered_evidence = evidence_options[selected_evidence_label]
+                st.json(selected_registered_evidence)
+                st.download_button(
+                    "근거 객체 JSON 다운로드",
+                    data=json.dumps(selected_registered_evidence, ensure_ascii=False, indent=2),
+                    file_name=f"{selected_registered_evidence['table_id']}-evidence.json",
+                    mime="application/json",
+                    key=f"kosis_evidence_registry_download_{selected_registered_evidence['table_id']}",
+                )
+
         with st.expander("KOSIS 조회 스냅샷 · 개정 이력", expanded=False):
             snapshot_table_id = st.text_input(
                 "조회할 KOSIS 통계표 ID",
