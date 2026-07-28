@@ -52,6 +52,12 @@ class KosisShadowMappingStore:
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def list_for_table(self, table_id: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT payload_json FROM kosis_shadow_mapping WHERE table_id = ? ORDER BY shadow_run_id, row_index",
+            (table_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
     def close(self) -> None:
         self.conn.close()
 

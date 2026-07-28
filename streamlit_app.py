@@ -33,6 +33,7 @@ from clafact.kosis_evidence_input import build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_snapshot_compare import compare_snapshots
+from clafact.kosis_revision_impact import find_revision_impacts
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
@@ -1982,6 +1983,26 @@ if view == "검증 실험실":
                                 "현재 수정일": row["last_changed_after"],
                             } for row in comparison.rows]
                             st.dataframe(comparison_rows, width="stretch", hide_index=True)
+                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                                mapped_sentences = mapping_store.list_for_table(snapshot_table_id)
+                            impacts = find_revision_impacts(
+                                mappings=mapped_sentences,
+                                comparison_rows=comparison.rows,
+                            )
+                            if impacts:
+                                st.warning(f"개정으로 재검토가 권고되는 Shadow 문장 연결 {len(impacts)}건입니다. 운영 판정은 변경하지 않았습니다.")
+                                st.dataframe([{
+                                    "Shadow 실행": impact.shadow_run_id,
+                                    "문장 번호": impact.row_index,
+                                    "기간": impact.period,
+                                    "지표": impact.indicator,
+                                    "이전 값": impact.value_before,
+                                    "현재 값": impact.value_after,
+                                    "연결 점수": impact.match_score if impact.match_score is not None else "-",
+                                    "연결 메모": impact.note,
+                                } for impact in impacts], width="stretch", hide_index=True)
+                            elif mapped_sentences:
+                                st.success("이 표에 연결된 Shadow 문장 중, 변경된 선택 조건과 일치하는 재검토 대상은 없습니다.")
                         else:
                             st.success("최신 두 스냅샷에서 값과 최종수정일 차이가 없습니다.")
             else:
