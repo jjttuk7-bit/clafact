@@ -61,3 +61,19 @@ def test_store_migrates_legacy_table_id_rows_without_losing_them(tmp_path):
 
     assert saved[0]["table_id"] == "DT_1B040A3"
     assert saved[0]["evidence_id"] == _evidence().evidence_id
+
+
+def test_store_accepts_same_evidence_when_only_retrieval_snapshot_changes(tmp_path):
+    first = _evidence()
+    refreshed = KosisEvidenceObject(
+        table_id=first.table_id, url=first.url, title=first.title,
+        organization=first.organization, indicator=first.indicator,
+        dimensions=first.dimensions, time_dimension=first.time_dimension,
+        unit=first.unit, definition=first.definition,
+        source_selection=first.source_selection,
+        retrieved_at="2026-07-29T08:00:00+09:00", snapshot_id="kosis-refreshed",
+    )
+
+    with KosisEvidenceStore(tmp_path / "kosis_evidence.db") as store:
+        assert store.append(first) is True
+        assert store.append(refreshed) is False

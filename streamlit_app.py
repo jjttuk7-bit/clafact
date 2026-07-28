@@ -2002,11 +2002,15 @@ if view == "검증 실험실":
                         definition_provenance=definition_provenance,
                     )
                     with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
-                        evidence_store.append(evidence)
-                    if snapshot_id:
+                        inserted = evidence_store.append(evidence)
+                    if snapshot_id and inserted:
                         st.success(f"KOSIS 근거 객체와 조회 스냅샷을 저장했습니다: {evidence.table_id} · {snapshot_id}")
-                    else:
+                    elif snapshot_id:
+                        st.info(f"동일 KOSIS 근거 객체가 이미 있어 객체는 유지했고, 새 조회 스냅샷을 보존했습니다: {snapshot_id}")
+                    elif inserted:
                         st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
+                    else:
+                        st.info("동일 KOSIS 근거 객체가 이미 저장되어 있습니다.")
                 except ValueError as error:
                     st.error(f"KOSIS 근거 저장 실패: {error}")
         with st.expander("KOSIS 근거 객체 레지스트리", expanded=False):

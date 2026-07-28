@@ -9,6 +9,14 @@ from typing import Any
 from clafact.kosis_evidence import KosisEvidenceObject, build_evidence_id
 
 
+_VOLATILE_EVIDENCE_FIELDS = frozenset({"retrieved_at", "snapshot_id"})
+
+
+def _definition_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the stable evidence definition, excluding per-query provenance."""
+    return {key: value for key, value in payload.items() if key not in _VOLATILE_EVIDENCE_FIELDS}
+
+
 class KosisEvidenceStore:
     """Store exact evidence objects, not merely one object per KOSIS table."""
 
@@ -74,8 +82,9 @@ class KosisEvidenceStore:
                 "SELECT payload_json FROM kosis_evidence WHERE evidence_id = ?", (evidence.evidence_id,)
             ).fetchone()
             if existing is not None:
-                if existing["payload_json"] != payload:
-                    raise ValueError("different payload for existing evidence_id")
+                existing_payload = json.loads(existing["payload_json"])
+                if _definition_payload(existing_payload) != _definition_payload(evidence.as_dict()):
+                    raise ValueError("different evidence definition for existing evidence_id")
                 return False
             self.conn.execute(
                 "INSERT INTO kosis_evidence (evidence_id, table_id, payload_json) VALUES (?, ?, ?)",
