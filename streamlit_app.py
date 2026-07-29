@@ -36,6 +36,7 @@ from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
+from clafact.kosis_snapshot_preparation import prepare_kosis_snapshot_context
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_registry import build_evidence_registry_rows
 from clafact.kosis_evidence_case_status import build_evidence_case_status
@@ -1877,7 +1878,7 @@ if view == "검증 실험실":
             if pending_candidate.get("indicator"):
                 st.session_state["kosis_evidence_indicator"] = pending_candidate["indicator"]
                 st.session_state["kosis_evidence_candidate_indicator"] = pending_candidate["indicator"]
-            st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. 메타데이터 자동 채우기로 계속하세요.")
+            st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. KOSIS 조회·스냅샷 준비를 계속하세요.")
         st.markdown("##### KOSIS 통계표 근거 입력")
         with st.expander("통계표 근거 객체 저장", expanded=False):
             st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
@@ -1888,7 +1889,7 @@ if view == "검증 실험실":
             if autofill_error:
                 st.caption(f"자동 채우기 준비 안내: {autofill_error}")
             if st.button(
-                "KOSIS 메타데이터 자동 채우기", key="kosis_evidence_autofill",
+                "KOSIS 조회·스냅샷 준비", key="kosis_evidence_autofill",
                 disabled=autofill_error is not None,
             ):
                 try:
@@ -1896,17 +1897,19 @@ if view == "검증 실험실":
                         st.session_state.get("kosis_evidence_table_id", ""),
                         st.session_state.get("kosis_evidence_url", ""),
                     )
-                    rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, recent_n=1)
+                    query_params = {"recent_n": 1}
+                    rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, **query_params)
                     snapshot_retrieved_at = datetime.now().astimezone().isoformat()
-                    st.session_state["kosis_evidence_snapshot_context"] = {
-                        "org_id": identity.org_id,
-                        "table_id": identity.table_id,
-                        "query_params": {"recent_n": 1},
-                        "retrieved_at": snapshot_retrieved_at,
-                        "rows": rows,
-                    }
-                    fields = autofill_from_rows(table_id=identity.table_id, rows=rows)
-                    structure = classify_table_structure(rows)
+                    preparation = prepare_kosis_snapshot_context(
+                        table_id=identity.table_id,
+                        org_id=identity.org_id,
+                        query_params=query_params,
+                        retrieved_at=snapshot_retrieved_at,
+                        rows=rows,
+                    )
+                    st.session_state["kosis_evidence_snapshot_context"] = preparation.snapshot_context.as_dict()
+                    fields = preparation.fields
+                    structure = preparation.structure
                     st.session_state['kosis_evidence_structure_type'] = structure.structure_type
                     st.session_state['kosis_evidence_structure_reason'] = structure.reason
                     for state_key, value in {
@@ -1922,9 +1925,10 @@ if view == "검증 실험실":
                             continue
                         if value:
                             st.session_state[state_key] = value
-                    st.success("공식 KOSIS API 응답을 바탕으로 입력 초안을 채웠습니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
+                    st.success(f"공식 KOSIS API 조회 완료 · 스냅샷 {len(rows)}건 준비됨 · 근거 저장 시 함께 보존됩니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
                 except (RuntimeError, ValueError) as error:
-                    st.error(f"KOSIS 자동 채우기를 실행하지 못했습니다: {error}")
+                    st.session_state.pop("kosis_evidence_snapshot_context", None)
+                    st.error(f"KOSIS 조회·스냅샷 준비를 실행하지 못했습니다: {error}")
             definition_source_url = st.session_state.get("kosis_evidence_url", "")
             if not definition_source_url:
                 st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")

@@ -24,3 +24,11 @@ def test_shadow_actual_value_comparison_displays_gate_results():
     assert 'st.markdown("###### 대조 게이트")' in source
     assert 'comparison_display.get("gate_results", ())' in source
     assert '"통과" if gate.get("passed") else "실패"' in source
+
+def test_candidate_apply_guides_to_kosis_snapshot_preparation():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '"KOSIS 조회·스냅샷 준비"' in source
+    assert 'prepare_kosis_snapshot_context' in source
+    assert 'KOSIS 조회·스냅샷 준비를 계속하세요.' in source
+    assert 'st.session_state.pop("kosis_evidence_snapshot_context", None)' in source
