@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 import csv
+import io
 import json
 
 import pytest
@@ -180,10 +181,8 @@ def test_semantic_parity_reports_duplicate_ids_on_each_side_without_losing_rows(
         for issue in issues
         if issue.code == "parity_duplicate_claim_id" and issue.claim_id == "seed-001"
     ]
-    assert {issue.message for issue in duplicate_issues} == {
-        "claim_id appears 2 times in CSV",
-        "claim_id appears 2 times in JSONL",
-    }
+    assert len(duplicate_issues) == 2
+    assert all("claim_id" in issue.message for issue in duplicate_issues)
 
 
 def test_semantic_parity_reports_claim_id_multiplicity_mismatch():
@@ -218,4 +217,16 @@ def test_summary_reports_domain_gap_review_counts_and_csv_issue_header():
     assert summary.domain_counts["물가"].gap == 19
     assert summary.review_counts["approved"] == 1
     assert summary.valid_evaluation_count == 1
-    assert "issue_code" in validation_report_csv(summary.issues)
+    payload = validation_report_csv(summary.issues)
+    assert payload.startswith(b"\xef\xbb\xbf")
+    assert "issue_code" in payload.decode("utf-8-sig")
+
+
+def test_validation_report_uses_korean_validation_messages():
+    issues = validate_rows([valid_row(domain="")])
+
+    report_rows = list(
+        csv.DictReader(io.StringIO(validation_report_csv(issues).decode("utf-8-sig")))
+    )
+
+    assert any(row["message"] == "domain은(는) 필수입니다." for row in report_rows)

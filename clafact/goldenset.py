@@ -196,13 +196,13 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                         "required_field",
                         claim_id,
                         field,
-                        f"{field} is required",
+                        f"{field}은(는) 필수입니다.",
                     )
                 )
 
         domain = _text(row.get("domain"))
         if domain and domain not in DOMAINS:
-            issues.append(_issue("invalid_domain", claim_id, "domain", "domain is not allowed"))
+            issues.append(_issue("invalid_domain", claim_id, "domain", "허용되지 않은 분야입니다."))
 
         review_status = _text(row.get("review_status"))
         if review_status and review_status not in ALLOWED_REVIEW_STATUSES:
@@ -211,7 +211,7 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                     "invalid_review_status",
                     claim_id,
                     "review_status",
-                    "review_status is not allowed",
+                    "허용되지 않은 검수 상태입니다.",
                 )
             )
 
@@ -222,7 +222,7 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                     "invalid_claim_type",
                     claim_id,
                     "claim_type",
-                    "claim_type is not allowed",
+                    "허용되지 않은 주장 유형입니다.",
                 )
             )
 
@@ -233,7 +233,7 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                         "duplicate_claim_id",
                         claim_id,
                         "claim_id",
-                        "claim_id must be distinct",
+                        "claim_id는 고유해야 합니다.",
                     )
                 )
             seen_ids.add(claim_id)
@@ -246,7 +246,7 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                         "duplicate_sentence",
                         claim_id,
                         "sentence",
-                        "sentence duplicates another row after normalization",
+                        "정규화한 문장이 다른 행과 중복됩니다.",
                     )
                 )
             seen_sentences.add(normalized_sentence)
@@ -259,7 +259,7 @@ def validate_rows(rows: Sequence[Mapping[str, object]]) -> list[ValidationIssue]
                             "approved_kosis_required",
                             claim_id,
                             field,
-                            f"approved rows require {field}",
+                            f"승인 행에는 {field}이(가) 필요합니다.",
                         )
                     )
 
@@ -284,7 +284,7 @@ def validate_semantic_parity(
                         "parity_duplicate_claim_id",
                         claim_id,
                         "claim_id",
-                        f"claim_id appears {len(rows)} times in {source_name}",
+                        f"claim_id가 {source_name}에 {len(rows)}회 있습니다.",
                     )
                 )
 
@@ -294,7 +294,7 @@ def validate_semantic_parity(
                 "parity_missing_in_jsonl",
                 claim_id,
                 "claim_id",
-                "claim_id exists in CSV but not JSONL",
+                "claim_id가 CSV에는 있지만 JSONL에는 없습니다.",
             )
         )
     for claim_id in sorted(jsonl_by_id.keys() - csv_by_id.keys()):
@@ -303,7 +303,7 @@ def validate_semantic_parity(
                 "parity_missing_in_csv",
                 claim_id,
                 "claim_id",
-                "claim_id exists in JSONL but not CSV",
+                "claim_id가 JSONL에는 있지만 CSV에는 없습니다.",
             )
         )
 
@@ -316,7 +316,7 @@ def validate_semantic_parity(
                     "parity_claim_id_multiplicity_mismatch",
                     claim_id,
                     "claim_id",
-                    "claim_id appears a different number of times in CSV and JSONL",
+                    "claim_id의 CSV와 JSONL 등장 횟수가 다릅니다.",
                 )
             )
 
@@ -328,7 +328,7 @@ def validate_semantic_parity(
                             "parity_field_mismatch",
                             claim_id,
                             field,
-                            "field values differ between CSV and JSONL",
+                            "CSV와 JSONL의 필드 값이 다릅니다.",
                         )
                     )
 
@@ -404,8 +404,8 @@ def summarize_rows(rows: Sequence[Mapping[str, object]]) -> GoldensetSummary:
     )
 
 
-def validation_report_csv(issues: Sequence[ValidationIssue]) -> str:
-    """Return a CSV report that callers can encode with ``utf-8-sig`` for Excel."""
+def validation_report_csv(issues: Sequence[ValidationIssue]) -> bytes:
+    """Return a BOM-prefixed CSV payload suitable for direct Excel download."""
 
     output = io.StringIO(newline="")
     writer = csv.writer(output)
@@ -414,4 +414,4 @@ def validation_report_csv(issues: Sequence[ValidationIssue]) -> str:
         writer.writerow(
             (issue.claim_id, issue.severity, issue.code, issue.field, issue.message)
         )
-    return output.getvalue()
+    return output.getvalue().encode("utf-8-sig")
