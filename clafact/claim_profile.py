@@ -5,10 +5,17 @@ from dataclasses import dataclass
 import re
 
 
-_TOPIC_INDICATORS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("물가", ("소비자물가", "물가")),
-    ("고용", ("고용률", "실업률", "취업자 수", "취업자")),
-    ("인구", ("출생아 수", "출생아", "주민등록인구", "인구")),
+_INDICATOR_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("물가", "소비자물가", ("소비자물가",)),
+    ("물가", "물가", ("물가",)),
+    ("고용", "고용률", ("고용률",)),
+    ("고용", "실업률", ("실업률",)),
+    ("고용", "취업자 수", ("취업자 수", "취업자")),
+    ("인구", "출생아 수", ("출생아 수", "출생아")),
+    ("인구", "주민등록인구", ("주민등록인구",)),
+    ("인구", "인구", ("인구",)),
+    ("무역", "수출액", ("수출액", "수출")),
+    ("무역", "수입액", ("수입액", "수입")),
 )
 _ANAPHORIC_PATTERN = re.compile(r"이\s*같은|이같은|해당|그(?:는|이|러한|같은)")
 
@@ -28,10 +35,9 @@ class ClaimProfile:
 
 def _detect_topic_indicator(sentence: str) -> tuple[str, str]:
     compact = "".join(sentence.split())
-    for topic, indicators in _TOPIC_INDICATORS:
-        for indicator in indicators:
-            if "".join(indicator.split()) in compact:
-                return topic, indicator
+    for topic, indicator, aliases in _INDICATOR_SPECS:
+        if any("".join(alias.split()) in compact for alias in aliases):
+            return topic, indicator
     return "", ""
 
 

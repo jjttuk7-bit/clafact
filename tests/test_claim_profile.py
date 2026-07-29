@@ -22,6 +22,23 @@ def test_extracts_employment_profile_from_numeric_claim():
     assert profile.search_query == "고용률"
 
 
+def test_detects_export_value_as_trade_indicator():
+    profile = build_claim_profile("7월 수출은 13% 증가했다.")
+
+    assert profile.topic == "무역"
+    assert profile.indicator == "수출액"
+    assert profile.period == "월"
+    assert profile.unit == "%"
+    assert profile.search_query == "수출액"
+
+
+def test_distinguishes_employment_rate_from_employed_people():
+    rate = build_claim_profile("고용률은 62.7%다.")
+    people = build_claim_profile("취업자는 2800만명이다.")
+
+    assert rate.indicator == "고용률"
+    assert people.indicator == "취업자 수"
+
 def test_inherits_indicator_for_anaphoric_followup_sentence():
     previous = build_claim_profile("10월 소비자물가가 2.4% 상승했다.")
     profile = build_claim_profile("이같은 물가 상승률은 15개월 만에 가장 높다.", previous=previous)
