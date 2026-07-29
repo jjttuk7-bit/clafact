@@ -51,3 +51,20 @@ def test_preparation_keeps_nested_snapshot_context_immutable():
         result.snapshot_context.query_params["recent_n"] = 2
     with pytest.raises(TypeError):
         result.snapshot_context.rows[0]["DT"] = "3.0"
+
+def test_preparation_preserves_explicit_query_params_in_immutable_context_and_storage_payload():
+    query_params = {"recent_n": 3, "itm_id": "ITM_01"}
+    result = prepare_kosis_snapshot_context(
+        table_id="DT_CPI",
+        org_id="101",
+        rows=[{"TBL_NM": "소비자물가", "ITM_NM": "전년동월비", "DT": "2.0"}],
+        retrieved_at="2026-07-29T10:00:00+09:00",
+        query_params=query_params,
+    )
+
+    query_params["itm_id"] = "CHANGED"
+
+    assert result.snapshot_context.query_params == {"recent_n": 3, "itm_id": "ITM_01"}
+    assert result.snapshot_context.as_dict()["query_params"] == {"recent_n": 3, "itm_id": "ITM_01"}
+    with pytest.raises(TypeError):
+        result.snapshot_context.query_params["recent_n"] = 1

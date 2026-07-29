@@ -11,10 +11,14 @@ from clafact.kosis_table_structure import KosisTableStructure, classify_table_st
 
 def _freeze(value: object) -> object:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        return _freeze_mapping(value)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     return value
+
+
+def _freeze_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
+    return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
 
 
 def _thaw(value: object) -> object:
@@ -61,16 +65,20 @@ def prepare_kosis_snapshot_context(
     org_id: str,
     rows: Sequence[Mapping[str, object]],
     retrieved_at: str,
+    query_params: Mapping[str, object] | None = None,
 ) -> KosisSnapshotPreparation:
     """Build the existing evidence draft and immutable snapshot context from fetched rows."""
-    frozen_rows = tuple(_freeze(row) for row in rows)
+    frozen_rows = tuple(_freeze_mapping(row) for row in rows)
+    frozen_query_params = _freeze_mapping(
+        query_params if query_params is not None else {"recent_n": 1}
+    )
     return KosisSnapshotPreparation(
         fields=autofill_from_rows(table_id=table_id, rows=rows),
         structure=classify_table_structure(rows),
         snapshot_context=KosisSnapshotContext(
             org_id=org_id,
             table_id=table_id,
-            query_params=MappingProxyType({"recent_n": 1}),
+            query_params=frozen_query_params,
             retrieved_at=retrieved_at,
             rows=frozen_rows,
         ),
