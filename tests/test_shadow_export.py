@@ -124,6 +124,7 @@ def test_csv_export_includes_actual_kosis_value_comparison(tmp_path):
         "status": "match", "reason": "값 일치", "claim_value": "2.4%",
         "official_value": "2.4%", "claim_period": "2025-10",
         "snapshot_id": "kosis-snapshot-1",
+        "gate_results": [{"name": "기간", "passed": True, "detail": "2025-10 일치"}],
     }]}
     with _saved_run(tmp_path) as service:
         payload = export_shadow_run_csv(
@@ -134,3 +135,4 @@ def test_csv_export_includes_actual_kosis_value_comparison(tmp_path):
     assert row["kosis_value_comparison_status"] == "match"
     assert row["kosis_claim_value"] == "2.4%"
     assert row["kosis_snapshot_id"] == "kosis-snapshot-1"
+    assert row["kosis_value_comparison_gates"] == "기간: 통과(2025-10 일치)"

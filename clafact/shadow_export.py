@@ -15,7 +15,7 @@ SHADOW_CSV_COLUMNS = (
     "parsed_period", "risk_reasons", "review_state", "review_actions", "review_notes",
     "kosis_table_id", "kosis_evidence_object_id", "kosis_mapping_status",
     "kosis_match_score", "kosis_match_reasons", "kosis_score_breakdown", "kosis_source_selection", "kosis_mapping_note",
-    "kosis_value_comparison_status", "kosis_value_comparison_reason", "kosis_claim_value",
+    "kosis_value_comparison_status", "kosis_value_comparison_reason", "kosis_value_comparison_gates", "kosis_claim_value",
     "kosis_official_value", "kosis_claim_period", "kosis_snapshot_id",
 )
 
@@ -51,9 +51,21 @@ def _flatten_kosis_value_comparisons(comparisons: list[Mapping[str, Any]]) -> di
     def values(key: str) -> str:
         return " | ".join(str(comparison.get(key, "") or "") for comparison in comparisons)
 
+    def gate_results(comparison: Mapping[str, Any]) -> str:
+        rows: list[str] = []
+        for gate in comparison.get("gate_results", ()):
+            if not isinstance(gate, Mapping):
+                continue
+            name = str(gate.get("name", "") or "")
+            status = "통과" if gate.get("passed") else "실패"
+            detail = str(gate.get("detail", "") or "")
+            rows.append(f"{name}: {status}({detail})" if detail else f"{name}: {status}")
+        return " ; ".join(rows)
+
     return {
         "kosis_value_comparison_status": values("status"),
         "kosis_value_comparison_reason": values("reason"),
+        "kosis_value_comparison_gates": " | ".join(gate_results(comparison) for comparison in comparisons),
         "kosis_claim_value": values("claim_value"),
         "kosis_official_value": values("official_value"),
         "kosis_claim_period": values("claim_period"),
