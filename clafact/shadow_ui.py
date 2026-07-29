@@ -78,3 +78,13 @@ def execution_status_summary(run: Mapping[str, Any]) -> dict[str, str]:
     if counts and set(counts) == {"not_configured"}:
         return {"label": "HCX 미설정 · AI 판정 미사용", "detail": f"HCX 상태: {detail}", "severity": "warning", "response_rows": response_rows, "total_rows": total_rows}
     return {"label": "HCX 호출 오류·부분 실패 · 검토 필요", "detail": f"HCX 상태: {detail or '기록 없음'}", "severity": "error", "response_rows": response_rows, "total_rows": total_rows}
+
+def llm_attempt_summary(run: Mapping[str, Any]) -> dict[str, int]:
+    """Separate logical LLM comparison paths from successful HCX API responses."""
+    metrics = summary_metrics(run.get("summary", {}))
+    execution = execution_status_summary(run)
+    return {
+        "attempt_paths": metrics["llm_calls"],
+        "actual_responses": int(execution["response_rows"]),
+        "total_rows": int(execution["total_rows"]),
+    }

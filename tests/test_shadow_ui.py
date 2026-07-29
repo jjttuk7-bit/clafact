@@ -1,4 +1,4 @@
-from clafact.shadow_ui import download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input
+from clafact.shadow_ui import download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, llm_attempt_summary, validate_shadow_input
 
 
 def test_shadow_database_path_is_research_only(tmp_path):
@@ -83,3 +83,14 @@ def test_execution_status_summary_marks_successful_hcx_response():
     assert summary["severity"] == "success"
     assert summary["response_rows"] == 1
     assert summary["total_rows"] == 1
+
+def test_llm_attempt_summary_separates_planned_paths_from_actual_responses():
+    summary = llm_attempt_summary({
+        "summary": {"llm_calls": 27},
+        "rows": [
+            {"shadow": {"hcx_status": "not_configured"}},
+            {"shadow": {"hcx_status": "not_configured"}},
+        ],
+    })
+
+    assert summary == {"attempt_paths": 27, "actual_responses": 0, "total_rows": 2}

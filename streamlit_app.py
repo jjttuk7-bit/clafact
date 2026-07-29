@@ -125,7 +125,7 @@ from clafact.shadow_export import (
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
 from clafact.shadow_ui import (
-    download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
+    download_filenames, execution_status_summary, llm_attempt_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -2246,12 +2246,13 @@ if view == "검증 실험실":
             if shadow_run:
                 metrics = summary_metrics(shadow_run["summary"])
                 execution_status = execution_status_summary(shadow_run)
+                llm_attempts = llm_attempt_summary(shadow_run)
                 metric_columns = st.columns(5)
                 metric_columns[0].metric("분석 문장", metrics["row_count"])
                 metric_columns[1].metric("검토 필요", metrics["review_count"])
-                metric_columns[2].metric("LLM 비교 경로", f"{metrics['llm_calls']}회")
+                metric_columns[2].metric("LLM 판정 시도 경로", f"{llm_attempts['attempt_paths']}건")
                 metric_columns[3].metric(
-                    "실제 HCX 응답", f"{execution_status.get('response_rows', 0)} / {execution_status.get('total_rows', metrics['row_count'])} 문장"
+                    "실제 HCX API 응답", f"{execution_status.get('response_rows', 0)} / {execution_status.get('total_rows', metrics['row_count'])} 문장"
                 )
                 metric_columns[4].metric("실행 시간", f"{metrics['elapsed_ms']:,} ms")
                 execution_message = f"실행 상태: {execution_status['label']} · {execution_status['detail']}"
