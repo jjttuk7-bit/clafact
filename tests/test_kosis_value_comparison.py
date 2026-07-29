@@ -73,3 +73,17 @@ def test_requires_same_selected_indicator_when_snapshot_contains_multiple_items(
 
     assert result.status == "not_comparable"
     assert "지표" in result.reason
+
+
+def test_does_not_compare_percentage_point_to_percent_rate():
+    result = compare_claim_to_snapshot(
+        claim_sentence="지난달 소비자 물가가 전월보다 0.3%p 상승했다.",
+        article_date="2025-11-04",
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+        snapshot=_snapshot([_record(value="0.3", unit="%")]),
+    )
+
+    assert result.status == "not_comparable"
+    assert "값 성격" in result.reason or "단위" in result.reason
+    assert any(not gate["passed"] for gate in result.gate_results)

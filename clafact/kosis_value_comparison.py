@@ -76,6 +76,20 @@ def _gate(name: str, passed: bool, detail: str) -> dict[str, object]:
     return {"name": name, "passed": passed, "detail": detail}
 
 
+def _value_kind(unit: object) -> str:
+    normalized = str(unit or "").strip().lower()
+    if normalized in {"%p", "퍼센트포인트"}:
+        return "퍼센트포인트"
+    if normalized in {"%", "퍼센트"}:
+        return "비율"
+    return "절대수치"
+
+
+def _normalized_unit(unit: object) -> str:
+    normalized = str(unit or "").strip().lower()
+    return {"퍼센트": "%", "퍼센트포인트": "%p"}.get(normalized, normalized)
+
+
 def _result(
     *,
     status: str,
@@ -195,16 +209,35 @@ def compare_claim_to_snapshot(
 
     record = selected_records[0]
     official_unit = str(record.get("unit", "")).strip()
-    if quantity.unit in {"%", "퍼센트"} and official_unit != "%":
+    claim_kind = _value_kind(quantity.unit)
+    official_kind = _value_kind(official_unit)
+    if claim_kind != official_kind:
+        reason = f"값 성격이 다릅니다: 문장 {claim_kind}, KOSIS {official_kind}"
+        gates.append(_gate("값 성격", False, reason))
         return _result(
             status="not_comparable",
-            reason=f"단위가 다릅니다: 문장 {quantity.unit}, KOSIS {official_unit or '-'}",
+            reason=reason,
             quantity=quantity,
             claim_period=parsed.period,
             snapshot=snapshot,
             record=record,
             gate_results=gates,
         )
+    gates.append(_gate("값 성격", True, f"문장과 KOSIS 값 성격이 {claim_kind}로 일치합니다."))
+
+    if _normalized_unit(quantity.unit) != _normalized_unit(official_unit):
+        reason = f"단위가 다릅니다: 문장 {quantity.unit or '-'}, KOSIS {official_unit or '-'}"
+        gates.append(_gate("단위", False, reason))
+        return _result(
+            status="not_comparable",
+            reason=reason,
+            quantity=quantity,
+            claim_period=parsed.period,
+            snapshot=snapshot,
+            record=record,
+            gate_results=gates,
+        )
+    gates.append(_gate("단위", True, f"문장과 KOSIS 단위가 {_normalized_unit(official_unit) or '-'}로 일치합니다."))
     try:
         official_value = float(str(record.get("value", "")).replace(",", ""))
     except ValueError:
