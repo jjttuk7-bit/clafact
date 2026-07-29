@@ -57,3 +57,12 @@ def test_shadow_actual_value_comparison_renders_read_only_official_value_card():
     assert 'st.expander("다른 공식 값 후보 보기")' in source
     for label in ("문장 값 / KOSIS 값", "비교 상태", "대조 근거", "기간", "지표", "선택 조건", "단위", "스냅샷 ID", "조회 시각"):
         assert label in source
+
+
+def test_shadow_value_card_uses_the_snapshot_referenced_by_comparison_result():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "comparison_snapshot = next(" in source
+    assert 'snapshot.get("snapshot_id") == comparison_for_card.snapshot_id' in source
+    assert "snapshot=comparison_snapshot" in source
+    assert "대조 결과가 가리키는 KOSIS 스냅샷을 찾지 못해 후보 카드를 표시하지 않습니다." in source
