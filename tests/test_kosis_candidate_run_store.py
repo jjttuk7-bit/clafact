@@ -20,3 +20,19 @@ def test_store_keeps_candidate_run_and_flattens_csv_rows(tmp_path):
     assert rows[0]["shadow_run_id"] == "shadow-1"
     assert rows[0]["table_id"] == "DT_MONTH"
     assert rows[0]["reasons"] == "지표 일치"
+
+
+def test_store_lists_candidate_searches_for_one_shadow_run(tmp_path):
+    with KosisCandidateRunStore(tmp_path / "runs.db") as store:
+        store.append(
+            shadow_run_id="shadow-1", row_index=2, sentence="문장", query="물가",
+            candidates=[], created_at="2026-07-29T10:00:00+09:00",
+        )
+        store.append(
+            shadow_run_id="shadow-2", row_index=1, sentence="다른 문장", query="인구",
+            candidates=[], created_at="2026-07-29T11:00:00+09:00",
+        )
+        searches = store.list_for_shadow_run("shadow-1")
+
+    assert len(searches) == 1
+    assert searches[0]["row_index"] == 2

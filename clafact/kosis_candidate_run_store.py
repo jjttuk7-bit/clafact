@@ -26,6 +26,24 @@ class KosisCandidateRunStore:
                  json.dumps(candidates, ensure_ascii=False)))
         return run_id
 
+    def list_for_shadow_run(self, shadow_run_id: str) -> list[dict[str, Any]]:
+        """Return candidate-search attempts for one Shadow run, newest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM kosis_candidate_run WHERE shadow_run_id = ? ORDER BY created_at DESC",
+            (shadow_run_id,),
+        ).fetchall()
+        return [
+            {
+                "candidate_run_id": row["run_id"],
+                "shadow_run_id": row["shadow_run_id"],
+                "row_index": row["row_index"],
+                "sentence": row["sentence"],
+                "query": row["query_text"],
+                "created_at": row["created_at"],
+                "candidates": json.loads(row["candidates_json"]),
+            }
+            for row in rows
+        ]
     def list_csv_rows(self) -> list[dict[str, Any]]:
         records = self.conn.execute("SELECT * FROM kosis_candidate_run ORDER BY created_at DESC").fetchall()
         rows = []

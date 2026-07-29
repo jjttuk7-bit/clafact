@@ -126,6 +126,7 @@ from clafact.shadow_export import (
 )
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
+from clafact.shadow_step_guide import build_shadow_step_guide, guide_next_action_text
 from clafact.shadow_ui import (
     download_filenames, execution_status_summary, llm_attempt_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
 )
@@ -2276,6 +2277,53 @@ if view == "검증 실험실":
                     key=f"kosis_candidate_sentence_{shadow_run_id}",
                 )
                 candidate_row = candidate_sentence_options[candidate_sentence_label]
+                try:
+                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                        guide_mappings = mapping_store.list_for_run(shadow_run_id)
+                    with KosisValueComparisonStore(ROOT / "data/research/kosis_value_comparison.db") as comparison_store:
+                        guide_comparisons = comparison_store.list_for_run(shadow_run_id)
+                    with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
+                        guide_candidate_runs = candidate_store.list_for_shadow_run(shadow_run_id)
+                except Exception as error:
+                    guide_mappings = []
+                    guide_comparisons = []
+                    st.warning(f"연구 진행 가이드의 KOSIS 기록을 읽지 못했습니다: {error}")
+                guide = build_shadow_step_guide(
+                    shadow_run=shadow_run,
+                    selected_row_index=candidate_row["row_index"],
+                    candidate_search_done=(
+                        st.session_state.get(f"kosis_candidate_searched_row_{shadow_run_id}")
+                        == candidate_row["row_index"]
+                        or any(
+                            int(search["row_index"]) == candidate_row["row_index"]
+                            for search in guide_candidate_runs
+                        )
+                    ),
+                    mappings=guide_mappings,
+                    comparisons=guide_comparisons,
+                    reviews=shadow_run.get("reviews", []),
+                )
+                state_labels = {
+                    "complete": "완료",
+                    "next": "다음",
+                    "review_needed": "검토 필요",
+                    "locked": "대기",
+                }
+                state_icons = {
+                    "complete": "✅",
+                    "next": "➡️",
+                    "review_needed": "⚠️",
+                    "locked": "○",
+                }
+                with st.expander("연구 진행 가이드", expanded=True):
+                    st.progress(guide.completed_count / len(guide.steps), text=f"{guide.completed_count} / {len(guide.steps)} 단계 완료")
+                    for step_number, step in enumerate(guide.steps, start=1):
+                        st.write(
+                            f"{step_number}. {state_icons[step.state]} **{step.label}** — "
+                            f"{state_labels[step.state]}"
+                        )
+                        st.caption(step.detail)
+                    st.info(guide_next_action_text(guide.next_step_id))
                 candidate_position = next(index for index, row in enumerate(shadow_run["rows"]) if row["row_index"] == candidate_row["row_index"])
                 previous_profile = None
                 for previous_row in reversed(shadow_run["rows"][:candidate_position]):
