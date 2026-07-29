@@ -30,6 +30,7 @@ from clafact.kosis import HttpKosisClient
 from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
+from clafact.kosis_candidate_compat import search_candidates_with_context
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
@@ -2288,7 +2289,7 @@ if view == "검증 실험실":
                     try:
                         search_index, metadata_client = load_engine()
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
-                        candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile)
+                        candidates = search_candidates_with_context(suggest_kosis_candidates, candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
                         candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": candidate_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
