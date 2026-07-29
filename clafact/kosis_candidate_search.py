@@ -46,12 +46,40 @@ def _title_matches_rate(title: str) -> bool:
 
 def _title_matches_comparison(title: str, comparison: str) -> bool:
     if comparison == "전년동월비":
-        return "전년동월비" in title
+        return "전년동월비" in title or "전년비" in title
     if comparison == "전월비":
         return "전월비" in title
     if comparison == "전년 대비":
         return "전년" in title
     return False
+
+
+def _official_item_score(item: str, profile: ClaimProfile) -> int:
+    """Rank a table item by canonical indicator, comparison, and unit signals."""
+    compact_item = _compact(item)
+    score = 0
+    if profile.indicator and _compact(profile.indicator) in compact_item:
+        score += 100
+    if profile.comparison and _title_matches_comparison(compact_item, profile.comparison):
+        score += 10
+    if profile.unit in ("%", "%p") and "%" in item:
+        score += 2
+    return score
+
+
+def _select_official_item(item_names: tuple[str, ...], profile: ClaimProfile) -> str:
+    if not item_names:
+        return ""
+    return max(item_names, key=lambda item: _official_item_score(item, profile))
+
+
+def _is_trade_item_conflict(item: str, profile: ClaimProfile) -> bool:
+    compact_item = _compact(item)
+    return (
+        profile.indicator == "수출액" and "수출물량" in compact_item
+    ) or (
+        profile.indicator == "수입액" and "수입물량" in compact_item
+    )
 
 
 def evaluate_kosis_candidate(
@@ -107,8 +135,16 @@ def evaluate_kosis_candidate(
         else:
             penalties.append(f"{profile.comparison} 표현 없음")
 
-    selected_item = next((item for item in item_names if "전년" in item), "")
+    selected_item = _select_official_item(item_names, profile)
     official_items = " ".join(item_names)
+    if selected_item and profile.indicator and _compact(profile.indicator) in _compact(selected_item):
+        max_score += 20
+        score += 20
+        reasons.append(f"공식 항목 {profile.indicator} 일치")
+        score_breakdown.append(f"+20 공식 항목 {profile.indicator} 일치")
+    elif selected_item and _is_trade_item_conflict(selected_item, profile):
+        penalties.append(f"공식 항목 {selected_item} 의미 충돌")
+
     if profile.comparison == "전년동월비":
         max_score += 20
         if "전월비" in official_items and "전년" not in official_items:

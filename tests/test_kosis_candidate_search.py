@@ -60,6 +60,16 @@ def test_candidate_selects_year_over_year_item_within_same_table():
     assert result.selected_item == "전년비"
 
 
+def test_trade_candidate_prefers_export_value_item_over_export_volume_item():
+    result = evaluate_kosis_candidate(
+        "7월 수출은 13% 증가했다.",
+        TableHit("DT_EXPORT", "101", "월별 수출입액", "무역통계", 1.0),
+        item_names=("수출물량 전년동월비(%)", "수출액 전년동월비(%)"),
+    )
+
+    assert result.selected_item == "수출액 전년동월비(%)"
+    assert "+20 공식 항목 수출액 일치" in result.score_breakdown
+
 def test_candidate_exposes_point_by_point_score_breakdown():
     result = evaluate_kosis_candidate(
         "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다.",
