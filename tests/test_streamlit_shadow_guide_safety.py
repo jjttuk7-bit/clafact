@@ -68,3 +68,10 @@ def test_shadow_value_card_uses_the_snapshot_referenced_by_comparison_result():
     assert 'snapshot.get("snapshot_id") == comparison_for_card.snapshot_id' in source
     assert "snapshot=comparison_snapshot" in source
     assert "대조 결과가 가리키는 KOSIS 스냅샷을 찾지 못해 후보 카드를 표시하지 않습니다." in source
+
+def test_shadow_mode_exposes_read_only_goldenset_seed_status_and_downloads():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'st.expander("골든셋 Seed 100 현황"' in source
+    assert '"골든셋 CSV 템플릿 다운로드"' in source
+    assert '"골든셋 검증 결과 다운로드"' in source

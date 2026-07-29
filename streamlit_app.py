@@ -25,6 +25,7 @@ from clafact.assets.alias_dict import AliasDict
 from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
 from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
+from clafact import goldenset as research_goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
 from clafact.claim_profile import build_claim_profile, profile_summary
@@ -2332,6 +2333,71 @@ if view == "검증 실험실":
                         )
                         st.caption(step.detail)
                     st.info(guide_next_action_text(guide.next_step_id))
+
+                with st.expander("골든셋 Seed 100 현황", expanded=False):
+                    st.caption("연구 전용 Seed 100 원본을 읽기만 합니다. 이 화면에서는 업로드·저장·수정을 하지 않습니다.")
+                    try:
+                        goldenset_rows = research_goldenset.load_csv(research_goldenset.SEED_CSV_PATH)
+                        goldenset_summary = research_goldenset.summarize_rows(goldenset_rows)
+                        template_bytes = research_goldenset.SEED_CSV_PATH.read_bytes()
+                    except (OSError, ValueError, csv.Error) as error:
+                        st.warning(
+                            "골든셋 Seed 100 연구 원본을 읽지 못했습니다. "
+                            f"Shadow 실행과 후보 탐색은 계속 사용할 수 있습니다: {error}"
+                        )
+                    else:
+                        total_column, approved_column, review_column, hold_column = st.columns(4)
+                        total_column.metric("전체", f"{goldenset_summary.current_count} / {goldenset_summary.target_count}")
+                        approved_column.metric("승인", goldenset_summary.review_counts.get("approved", 0))
+                        review_column.metric("검수 대기", goldenset_summary.review_counts.get("needs_review", 0))
+                        hold_column.metric("보류", goldenset_summary.review_counts.get("on_hold", 0))
+
+                        st.caption("분야별 목표 / 현재 / 부족")
+                        st.dataframe(
+                            [
+                                {
+                                    "분야": domain,
+                                    "목표": progress.target,
+                                    "현재": progress.current,
+                                    "부족": progress.gap,
+                                }
+                                for domain, progress in goldenset_summary.domain_counts.items()
+                            ],
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+                        if goldenset_summary.issues:
+                            st.warning(f"검증 오류·누락 필드 {len(goldenset_summary.issues)}건")
+                            st.dataframe(
+                                [
+                                    {
+                                        "claim_id": issue.claim_id or "(행 식별자 없음)",
+                                        "필드": issue.field,
+                                        "오류": issue.message,
+                                    }
+                                    for issue in goldenset_summary.issues
+                                ],
+                                hide_index=True,
+                                use_container_width=True,
+                            )
+                        else:
+                            st.success("현재 Seed 원본에서 검증 오류·누락 필드가 없습니다.")
+
+                        template_column, report_column = st.columns(2)
+                        template_column.download_button(
+                            "골든셋 CSV 템플릿 다운로드",
+                            data=template_bytes,
+                            file_name="seed_v0.1.csv",
+                            mime="text/csv",
+                            key=f"goldenset_template_download_{shadow_run_id}",
+                        )
+                        report_column.download_button(
+                            "골든셋 검증 결과 다운로드",
+                            data=research_goldenset.validation_report_csv(goldenset_summary.issues),
+                            file_name="seed_v0.1_validation_report.csv",
+                            mime="text/csv",
+                            key=f"goldenset_validation_download_{shadow_run_id}",
+                        )
                 candidate_position = next(index for index, row in enumerate(shadow_run["rows"]) if row["row_index"] == candidate_row["row_index"])
                 previous_profile = None
                 for previous_row in reversed(shadow_run["rows"][:candidate_position]):
