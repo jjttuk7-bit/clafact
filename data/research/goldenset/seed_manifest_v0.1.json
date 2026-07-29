@@ -1,0 +1,13 @@
+{
+  "version": "v0.1",
+  "target_count": 100,
+  "domain_targets": {
+    "물가": 20,
+    "고용": 20,
+    "인구": 20,
+    "주거": 20,
+    "보건": 20
+  },
+  "allowed_review_statuses": ["draft", "needs_review", "approved", "on_hold"],
+  "claim_types": ["수준형", "증감형", "비율형", "순위형", "비교형", "추정형"]
+}
