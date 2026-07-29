@@ -2,10 +2,48 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from clafact.kosis_evidence_autofill import KosisAutofillFields, autofill_from_rows
 from clafact.kosis_table_structure import KosisTableStructure, classify_table_structure
+
+
+def _freeze(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+@dataclass(frozen=True)
+class KosisSnapshotContext:
+    """Immutable snapshot inputs with a storage-compatible conversion method."""
+
+    org_id: str
+    table_id: str
+    query_params: Mapping[str, object]
+    retrieved_at: str
+    rows: tuple[Mapping[str, object], ...]
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a fresh mutable payload accepted by the existing snapshot store."""
+        return {
+            "org_id": self.org_id,
+            "table_id": self.table_id,
+            "query_params": _thaw(self.query_params),
+            "retrieved_at": self.retrieved_at,
+            "rows": _thaw(self.rows),
+        }
 
 
 @dataclass(frozen=True)
@@ -14,7 +52,7 @@ class KosisSnapshotPreparation:
 
     fields: KosisAutofillFields
     structure: KosisTableStructure
-    snapshot_context: Mapping[str, object]
+    snapshot_context: KosisSnapshotContext
 
 
 def prepare_kosis_snapshot_context(
@@ -24,15 +62,16 @@ def prepare_kosis_snapshot_context(
     rows: Sequence[Mapping[str, object]],
     retrieved_at: str,
 ) -> KosisSnapshotPreparation:
-    """Build the existing evidence draft and snapshot context from fetched rows."""
+    """Build the existing evidence draft and immutable snapshot context from fetched rows."""
+    frozen_rows = tuple(_freeze(row) for row in rows)
     return KosisSnapshotPreparation(
         fields=autofill_from_rows(table_id=table_id, rows=rows),
         structure=classify_table_structure(rows),
-        snapshot_context={
-            "org_id": org_id,
-            "table_id": table_id,
-            "query_params": {"recent_n": 1},
-            "retrieved_at": retrieved_at,
-            "rows": list(rows),
-        },
+        snapshot_context=KosisSnapshotContext(
+            org_id=org_id,
+            table_id=table_id,
+            query_params=MappingProxyType({"recent_n": 1}),
+            retrieved_at=retrieved_at,
+            rows=frozen_rows,
+        ),
     )
