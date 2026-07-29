@@ -138,6 +138,13 @@ class GoldensetSummary:
     valid_evaluation_count: int
     issues: tuple[ValidationIssue, ...]
 
+def blank_seed_csv_bytes() -> bytes:
+    """Return a BOM-prefixed, header-only CSV independent of current Seed rows."""
+
+    output = io.StringIO(newline="")
+    csv.writer(output).writerow(CSV_COLUMNS)
+    return output.getvalue().encode("utf-8-sig")
+
 def blank_seed_rows() -> list[dict[str, str]]:
     """Return the current blank seed rows; the committed template has headers only."""
 

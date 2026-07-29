@@ -75,3 +75,13 @@ def test_shadow_mode_exposes_read_only_goldenset_seed_status_and_downloads():
     assert 'st.expander("골든셋 Seed 100 현황"' in source
     assert '"골든셋 CSV 템플릿 다운로드"' in source
     assert '"골든셋 검증 결과 다운로드"' in source
+
+def test_goldenset_status_is_between_the_step_guide_and_candidate_search_controls():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    guide_index = source.index('with st.expander("연구 진행 가이드"')
+    goldenset_index = source.index('with st.expander("골든셋 Seed 100 현황"')
+    candidate_heading_index = source.index('st.markdown("##### KOSIS 후보 탐색")')
+    candidate_selectbox_index = source.index('"후보를 찾을 Shadow 문장"')
+
+    assert guide_index < goldenset_index < candidate_heading_index < candidate_selectbox_index

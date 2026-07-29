@@ -12,6 +12,7 @@ from clafact.goldenset import (
     REQUIRED_COLUMNS,
     SEED_CSV_PATH,
     ValidationIssue,
+    blank_seed_csv_bytes,
     blank_seed_rows,
     load_csv,
     load_jsonl,
@@ -230,3 +231,13 @@ def test_validation_report_uses_korean_validation_messages():
     )
 
     assert any(row["message"] == "domain은(는) 필수입니다." for row in report_rows)
+
+def test_blank_seed_csv_bytes_are_header_only_even_when_seed_rows_exist():
+    rows = [valid_row()]
+
+    template_rows = list(
+        csv.reader(io.StringIO(blank_seed_csv_bytes().decode("utf-8-sig")))
+    )
+
+    assert rows
+    assert template_rows == [list(CSV_COLUMNS)]

@@ -2278,11 +2278,13 @@ if view == "검증 실험실":
                     f"#{row['row_index']} · {row['sentence'][:70]}": row
                     for row in shadow_run["rows"]
                 }
-                st.markdown("##### KOSIS 후보 탐색")
-                candidate_sentence_label = st.selectbox(
-                    "후보를 찾을 Shadow 문장", list(candidate_sentence_options),
-                    key=f"kosis_candidate_sentence_{shadow_run_id}",
+                candidate_selection_key = f"kosis_candidate_sentence_{shadow_run_id}"
+                candidate_default_label = next(iter(candidate_sentence_options))
+                candidate_sentence_label = st.session_state.get(
+                    candidate_selection_key, candidate_default_label
                 )
+                if candidate_sentence_label not in candidate_sentence_options:
+                    candidate_sentence_label = candidate_default_label
                 candidate_row = candidate_sentence_options[candidate_sentence_label]
                 guide_candidate_runs = []
                 try:
@@ -2339,7 +2341,6 @@ if view == "검증 실험실":
                     try:
                         goldenset_rows = research_goldenset.load_csv(research_goldenset.SEED_CSV_PATH)
                         goldenset_summary = research_goldenset.summarize_rows(goldenset_rows)
-                        template_bytes = research_goldenset.SEED_CSV_PATH.read_bytes()
                     except (OSError, ValueError, csv.Error) as error:
                         st.warning(
                             "골든셋 Seed 100 연구 원본을 읽지 못했습니다. "
@@ -2386,7 +2387,7 @@ if view == "검증 실험실":
                         template_column, report_column = st.columns(2)
                         template_column.download_button(
                             "골든셋 CSV 템플릿 다운로드",
-                            data=template_bytes,
+                            data=research_goldenset.blank_seed_csv_bytes(),
                             file_name="seed_v0.1.csv",
                             mime="text/csv",
                             key=f"goldenset_template_download_{shadow_run_id}",
@@ -2398,6 +2399,13 @@ if view == "검증 실험실":
                             mime="text/csv",
                             key=f"goldenset_validation_download_{shadow_run_id}",
                         )
+
+                st.markdown("##### KOSIS 후보 탐색")
+                candidate_sentence_label = st.selectbox(
+                    "후보를 찾을 Shadow 문장", list(candidate_sentence_options),
+                    key=candidate_selection_key,
+                )
+                candidate_row = candidate_sentence_options[candidate_sentence_label]
                 candidate_position = next(index for index, row in enumerate(shadow_run["rows"]) if row["row_index"] == candidate_row["row_index"])
                 previous_profile = None
                 for previous_row in reversed(shadow_run["rows"][:candidate_position]):
