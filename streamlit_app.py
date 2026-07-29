@@ -1943,7 +1943,7 @@ if view == "검증 실험실":
             table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
             table_url = k2.text_input("원본 URL", key="kosis_evidence_url")
             title = st.text_input("표 제목", key="kosis_evidence_title")
-            organization = st.text_input("작성 기관", value="통계청", key="kosis_evidence_org")
+            organization = st.text_input("작성 기관", value="국가데이터처", key="kosis_evidence_org")
             indicator = st.text_input("핵심 지표", key="kosis_evidence_indicator")
             dimensions = st.text_input("분류 차원 (쉼표)", placeholder="시도, 성별", key="kosis_evidence_dimensions")
             time_dimension = st.text_input("시간 차원", placeholder="연", key="kosis_evidence_time")

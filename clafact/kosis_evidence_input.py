@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from clafact.kosis_evidence import KosisEvidenceObject
+from clafact.kosis_organization import normalize_kosis_organization
 
 
 def build_manual_evidence(*, table_id: str, url: str, title: str, organization: str,
@@ -21,7 +22,7 @@ def build_manual_evidence(*, table_id: str, url: str, title: str, organization: 
             raise ValueError("source_selection must use key=value")
         parsed_selection[key.strip()] = value.strip()
     return KosisEvidenceObject(
-        table_id=table_id, url=url, title=title, organization=organization,
+        table_id=table_id, url=url, title=title, organization=normalize_kosis_organization(organization),
         indicator=indicator, dimensions=parsed_dimensions, time_dimension=time_dimension,
         unit=unit, definition=definition, source_selection=parsed_selection,
         retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,

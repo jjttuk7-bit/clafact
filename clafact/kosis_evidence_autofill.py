@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
+from clafact.kosis_organization import normalize_kosis_organization
+
 
 PERIOD_LABELS = {"A": "연", "Y": "연", "M": "월", "Q": "분기", "H": "반기"}
 
@@ -67,7 +69,7 @@ def autofill_from_rows(*, table_id: str, rows: Sequence[Mapping[str, object]]) -
     period = _first_label(row, "PRD_SE")
     return KosisAutofillFields(
         title=_first_label(row, "TBL_NM"),
-        organization=_first_label(row, "ORG_NM", "ORG_NAME"),
+        organization=normalize_kosis_organization(_first_label(row, "ORG_NM", "ORG_NAME")),
         indicator=_first_label(row, "ITM_NM"),
         dimensions=", ".join(dimensions),
         time_dimension=PERIOD_LABELS.get(period, period),
