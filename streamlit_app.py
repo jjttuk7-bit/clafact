@@ -33,7 +33,7 @@ from clafact.kosis_candidate_search import suggest_kosis_candidates
 from clafact.kosis_candidate_compat import search_candidates_with_context
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
-from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
+from clafact.kosis_evidence_autofill import autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_snapshot_preparation import prepare_kosis_snapshot_context
@@ -49,7 +49,6 @@ from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
 from clafact.kosis_value_comparison import compare_claim_to_snapshot
 from clafact.kosis_value_comparison_store import KosisValueComparisonStore
-from clafact.kosis_table_structure import classify_table_structure
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
 from clafact.service.batch import process_pending
@@ -2368,6 +2367,7 @@ if view == "검증 실험실":
                     selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")
                     if st.button("선택 후보를 근거 입력에 적용", key=f"kosis_candidate_apply_button_{shadow_run_id}"):
                         hit = candidate_labels[selected_candidate_label].hit
+                        st.session_state.pop("kosis_evidence_snapshot_context", None)
                         st.session_state["kosis_evidence_prefill_pending"] = build_candidate_evidence_prefill(
                             table_id=hit.tbl_id,
                             org_id=hit.org_id,

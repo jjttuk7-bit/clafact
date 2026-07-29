@@ -31,4 +31,15 @@ def test_candidate_apply_guides_to_kosis_snapshot_preparation():
     assert '"KOSIS 조회·스냅샷 준비"' in source
     assert 'prepare_kosis_snapshot_context' in source
     assert 'KOSIS 조회·스냅샷 준비를 계속하세요.' in source
-    assert 'st.session_state.pop("kosis_evidence_snapshot_context", None)' in source
+
+
+def test_candidate_apply_clears_stale_snapshot_before_setting_prefill():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+    candidate_apply_scope = source[source.index('if st.button("선택 후보를 근거 입력에 적용"'):]
+
+    clear_snapshot_index = candidate_apply_scope.index(
+        'st.session_state.pop("kosis_evidence_snapshot_context", None)'
+    )
+    set_prefill_index = candidate_apply_scope.index('st.session_state["kosis_evidence_prefill_pending"] =')
+
+    assert clear_snapshot_index < set_prefill_index
