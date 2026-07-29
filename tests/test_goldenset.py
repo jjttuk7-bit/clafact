@@ -15,8 +15,10 @@ from clafact.goldenset import (
     load_csv,
     load_jsonl,
     seed_manifest,
+    summarize_rows,
     validate_rows,
     validate_semantic_parity,
+    validation_report_csv,
 )
 
 
@@ -195,3 +197,25 @@ def test_semantic_parity_reports_claim_id_multiplicity_mismatch():
         and issue.claim_id == "seed-001"
         for issue in issues
     )
+
+
+def test_summary_reports_domain_gap_review_counts_and_csv_issue_header():
+    summary = summarize_rows(
+        [
+            valid_row(claim_id="seed-001", domain="물가", review_status="approved"),
+            valid_row(
+                claim_id="seed-002",
+                domain="고용",
+                review_status="needs_review",
+                reviewer="",
+            ),
+        ]
+    )
+
+    assert summary.target_count == 100
+    assert summary.current_count == 2
+    assert summary.domain_counts["물가"].current == 1
+    assert summary.domain_counts["물가"].gap == 19
+    assert summary.review_counts["approved"] == 1
+    assert summary.valid_evaluation_count == 1
+    assert "issue_code" in validation_report_csv(summary.issues)

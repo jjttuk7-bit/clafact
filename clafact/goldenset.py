@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
+from types import MappingProxyType
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Mapping, Sequence
@@ -115,6 +117,26 @@ class ValidationIssue:
     field: str
     message: str
 
+
+@dataclass(frozen=True)
+class DomainProgress:
+    """Read-only current and remaining count for one Seed domain."""
+
+    target: int
+    current: int
+    gap: int
+
+
+@dataclass(frozen=True)
+class GoldensetSummary:
+    """Pure, immutable quality and progress view for a set of seed rows."""
+
+    target_count: int
+    current_count: int
+    domain_counts: Mapping[str, DomainProgress]
+    review_counts: Mapping[str, int]
+    valid_evaluation_count: int
+    issues: tuple[ValidationIssue, ...]
 
 def blank_seed_rows() -> list[dict[str, str]]:
     """Return the current blank seed rows; the committed template has headers only."""
@@ -339,3 +361,57 @@ def _issue(code: str, claim_id: str, field: str, message: str) -> ValidationIssu
         field=field,
         message=message,
     )
+
+
+def summarize_rows(rows: Sequence[Mapping[str, object]]) -> GoldensetSummary:
+    """Summarize seed progress without changing the supplied rows."""
+
+    issues = tuple(validate_rows(rows))
+    domain_current = {domain: 0 for domain in DOMAINS}
+    review_current = {status: 0 for status in ALLOWED_REVIEW_STATUSES}
+
+    for row in rows:
+        domain = _text(row.get("domain"))
+        review_status = _text(row.get("review_status"))
+        if domain in domain_current:
+            domain_current[domain] += 1
+        if review_status:
+            review_current[review_status] = review_current.get(review_status, 0) + 1
+
+    domain_counts = {
+        domain: DomainProgress(
+            target=DOMAIN_TARGETS[domain],
+            current=domain_current[domain],
+            gap=max(0, DOMAIN_TARGETS[domain] - domain_current[domain]),
+        )
+        for domain in DOMAINS
+    }
+    errored_claim_ids = {issue.claim_id for issue in issues}
+    valid_evaluation_count = sum(
+        1
+        for row in rows
+        if _text(row.get("review_status")) == "approved"
+        and _text(row.get("claim_id")) not in errored_claim_ids
+    )
+
+    return GoldensetSummary(
+        target_count=sum(DOMAIN_TARGETS.values()),
+        current_count=len(rows),
+        domain_counts=MappingProxyType(domain_counts),
+        review_counts=MappingProxyType(review_current),
+        valid_evaluation_count=valid_evaluation_count,
+        issues=issues,
+    )
+
+
+def validation_report_csv(issues: Sequence[ValidationIssue]) -> str:
+    """Return a CSV report that callers can encode with ``utf-8-sig`` for Excel."""
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(("claim_id", "severity", "issue_code", "field", "message"))
+    for issue in issues:
+        writer.writerow(
+            (issue.claim_id, issue.severity, issue.code, issue.field, issue.message)
+        )
+    return output.getvalue()
