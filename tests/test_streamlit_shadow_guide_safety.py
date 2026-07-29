@@ -11,3 +11,9 @@ def test_candidate_history_default_exists_before_guide_store_reads():
     )
 
     assert default_index < store_read_index
+
+def test_shadow_mode_places_the_current_guide_hint_at_each_action_area():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert source.count('guide.screen_hint.step_id') >= 3
+    assert 'guide.screen_hint.message' in source

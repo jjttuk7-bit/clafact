@@ -1,6 +1,16 @@
 from clafact.shadow_step_guide import build_shadow_step_guide, guide_next_action_text
 
 
+def test_guide_exposes_the_active_step_and_its_screen_hint():
+    guide = build_shadow_step_guide(
+        shadow_run={"rows": [{"row_index": 1, "sentence": "물가가 2.4% 올랐다."}]},
+        selected_row_index=1,
+    )
+
+    assert guide.next_step_id == "find_candidate"
+    assert guide.screen_hint.step_id == "find_candidate"
+    assert "KOSIS 후보 3개 찾기" in guide.screen_hint.message
+
 def test_guide_starts_with_shadow_execution_when_no_run_exists():
     guide = build_shadow_step_guide()
 

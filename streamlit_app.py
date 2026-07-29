@@ -2340,6 +2340,8 @@ if view == "검증 실험실":
                 st.caption(f"주장 프로필: {profile_summary(candidate_profile)}")
                 if candidate_profile.context_inherited:
                     st.info("앞 문장의 지표를 이어받아 KOSIS 후보를 탐색합니다.")
+                if guide.screen_hint and guide.screen_hint.step_id == "find_candidate":
+                    st.info(f"현재 단계: {guide.screen_hint.message}")
                 if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
                     try:
                         search_index, metadata_client = load_engine()
@@ -2396,6 +2398,8 @@ if view == "검증 실험실":
                             file_name="kosis_candidate_search_history.csv", mime="text/csv; charset=utf-8",
                             key=f"kosis_candidate_history_csv_{shadow_run_id}")
 
+                if guide.screen_hint and guide.screen_hint.step_id == "compare_value":
+                    st.info(f"현재 단계: {guide.screen_hint.message}")
                 st.markdown("##### KOSIS 근거 연결")
                 with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
                     evidence_objects = evidence_store.list_all()
@@ -2539,6 +2543,8 @@ if view == "검증 실험실":
                     if row["review_state"] == "needs_review"
                 ]
                 if reviewable_rows:
+                    if guide.screen_hint and guide.screen_hint.step_id == "review_export":
+                        st.info(f"현재 단계: {guide.screen_hint.message}")
                     st.markdown("##### Shadow 검토")
                     review_options = {
                         f"#{row['row_index']} · {row['sentence'][:70]}": row

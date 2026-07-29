@@ -14,10 +14,17 @@ class ShadowGuideStep:
 
 
 @dataclass(frozen=True)
+class ShadowGuideScreenHint:
+    step_id: str
+    message: str
+
+
+@dataclass(frozen=True)
 class ShadowStepGuide:
     steps: tuple[ShadowGuideStep, ...]
     completed_count: int
     next_step_id: str | None
+    screen_hint: ShadowGuideScreenHint | None
 
 
 def guide_next_action_text(step_id: str | None) -> str:
@@ -30,6 +37,17 @@ def guide_next_action_text(step_id: str | None) -> str:
         "review_export": "다음 할 일: 검토 메모를 저장하고 연구 기록을 다운로드하세요.",
     }
     return prompts.get(step_id, "5단계 연구 기록이 준비되었습니다. 필요하면 CSV를 다운로드하세요.")
+
+def guide_screen_hint(step_id: str | None) -> ShadowGuideScreenHint | None:
+    """Describe the existing on-screen control for the current guide step."""
+    hints = {
+        "execute": "Shadow 실행 버튼을 눌러 연구용 분석 기록을 만드세요.",
+        "select_sentence": "검토할 Shadow 문장을 선택하세요.",
+        "find_candidate": "KOSIS 후보 3개 찾기 버튼을 눌러 근거 후보를 찾으세요.",
+        "compare_value": "KOSIS 근거 연결 뒤 실제 값 대조를 실행하세요.",
+        "review_export": "Shadow 검토 저장 후 JSON 또는 CSV를 다운로드하세요.",
+    }
+    return ShadowGuideScreenHint(step_id, hints[step_id]) if step_id in hints else None
 
 def _has_row(records: Sequence[Mapping[str, Any]], row_index: int | None) -> bool:
     return row_index is not None and any(int(record.get("row_index", -1)) == row_index for record in records)
@@ -102,4 +120,9 @@ def build_shadow_step_guide(
         (step.step_id for step in steps if step.state in {"next", "review_needed"}),
         None,
     )
-    return ShadowStepGuide(steps=steps, completed_count=completed_count, next_step_id=next_step_id)
+    return ShadowStepGuide(
+        steps=steps,
+        completed_count=completed_count,
+        next_step_id=next_step_id,
+        screen_hint=guide_screen_hint(next_step_id),
+    )
