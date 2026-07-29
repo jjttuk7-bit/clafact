@@ -248,11 +248,23 @@ def validate_semantic_parity(
     csv_rows: Sequence[Mapping[str, object]],
     jsonl_rows: Sequence[Mapping[str, object]],
 ) -> list[ValidationIssue]:
-    """Report differing IDs or field values between CSV and JSONL representations."""
+    """Report differing IDs, multiplicities, or field values across two formats."""
 
-    csv_by_id = _rows_by_claim_id(csv_rows)
-    jsonl_by_id = _rows_by_claim_id(jsonl_rows)
+    csv_by_id = _group_rows_by_claim_id(csv_rows)
+    jsonl_by_id = _group_rows_by_claim_id(jsonl_rows)
     issues: list[ValidationIssue] = []
+
+    for source_name, rows_by_id in (("CSV", csv_by_id), ("JSONL", jsonl_by_id)):
+        for claim_id, rows in sorted(rows_by_id.items()):
+            if len(rows) > 1:
+                issues.append(
+                    _issue(
+                        "parity_duplicate_claim_id",
+                        claim_id,
+                        "claim_id",
+                        f"claim_id appears {len(rows)} times in {source_name}",
+                    )
+                )
 
     for claim_id in sorted(csv_by_id.keys() - jsonl_by_id.keys()):
         issues.append(
@@ -274,31 +286,42 @@ def validate_semantic_parity(
         )
 
     for claim_id in sorted(csv_by_id.keys() & jsonl_by_id.keys()):
-        csv_row = csv_by_id[claim_id]
-        jsonl_row = jsonl_by_id[claim_id]
-        for field in sorted(set(csv_row) | set(jsonl_row)):
-            if _text(csv_row.get(field)) != _text(jsonl_row.get(field)):
-                issues.append(
-                    _issue(
-                        "parity_field_mismatch",
-                        claim_id,
-                        field,
-                        "field values differ between CSV and JSONL",
-                    )
+        csv_records = csv_by_id[claim_id]
+        jsonl_records = jsonl_by_id[claim_id]
+        if len(csv_records) != len(jsonl_records):
+            issues.append(
+                _issue(
+                    "parity_claim_id_multiplicity_mismatch",
+                    claim_id,
+                    "claim_id",
+                    "claim_id appears a different number of times in CSV and JSONL",
                 )
+            )
+
+        for csv_row, jsonl_row in zip(csv_records, jsonl_records):
+            for field in sorted(set(csv_row) | set(jsonl_row)):
+                if _text(csv_row.get(field)) != _text(jsonl_row.get(field)):
+                    issues.append(
+                        _issue(
+                            "parity_field_mismatch",
+                            claim_id,
+                            field,
+                            "field values differ between CSV and JSONL",
+                        )
+                    )
 
     return issues
 
 
-def _rows_by_claim_id(
+def _group_rows_by_claim_id(
     rows: Sequence[Mapping[str, object]],
-) -> dict[str, Mapping[str, object]]:
-    return {
-        claim_id: row
-        for row in rows
-        if (claim_id := _text(row.get("claim_id")))
-    }
-
+) -> dict[str, list[Mapping[str, object]]]:
+    grouped: dict[str, list[Mapping[str, object]]] = {}
+    for row in rows:
+        claim_id = _text(row.get("claim_id"))
+        if claim_id:
+            grouped.setdefault(claim_id, []).append(row)
+    return grouped
 
 def _normalize_sentence(value: str) -> str:
     return " ".join(value.split()).casefold()

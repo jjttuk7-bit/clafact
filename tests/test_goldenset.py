@@ -165,3 +165,33 @@ def test_loaders_and_semantic_parity_report_id_and_field_differences(tmp_path):
         "parity_missing_in_csv",
         "parity_missing_in_jsonl",
     }
+
+
+def test_semantic_parity_reports_duplicate_ids_on_each_side_without_losing_rows():
+    csv_rows = [valid_row(), valid_row(reviewer="reviewer-c")]
+    jsonl_rows = [valid_row(), valid_row(reviewer="reviewer-c")]
+
+    issues = validate_semantic_parity(csv_rows, jsonl_rows)
+
+    duplicate_issues = [
+        issue
+        for issue in issues
+        if issue.code == "parity_duplicate_claim_id" and issue.claim_id == "seed-001"
+    ]
+    assert {issue.message for issue in duplicate_issues} == {
+        "claim_id appears 2 times in CSV",
+        "claim_id appears 2 times in JSONL",
+    }
+
+
+def test_semantic_parity_reports_claim_id_multiplicity_mismatch():
+    issues = validate_semantic_parity(
+        [valid_row(), valid_row(reviewer="reviewer-c")],
+        [valid_row()],
+    )
+
+    assert any(
+        issue.code == "parity_claim_id_multiplicity_mismatch"
+        and issue.claim_id == "seed-001"
+        for issue in issues
+    )
