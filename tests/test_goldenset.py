@@ -1,6 +1,6 @@
 from dataclasses import FrozenInstanceError
-
 import csv
+import json
 
 import pytest
 
@@ -10,8 +10,13 @@ from clafact.goldenset import (
     CSV_COLUMNS,
     REQUIRED_COLUMNS,
     SEED_CSV_PATH,
+    ValidationIssue,
     blank_seed_rows,
+    load_csv,
+    load_jsonl,
     seed_manifest,
+    validate_rows,
+    validate_semantic_parity,
 )
 
 
@@ -64,3 +69,99 @@ def test_seed_constants_keep_controlled_labels_and_stable_csv_order():
 def test_blank_seed_csv_header_uses_stable_column_order():
     with SEED_CSV_PATH.open(encoding="utf-8-sig", newline="") as handle:
         assert tuple(next(csv.reader(handle))) == CSV_COLUMNS
+
+
+def valid_row(**overrides):
+    row = {column: "example" for column in CSV_COLUMNS}
+    row.update(
+        {
+            "claim_id": "seed-001",
+            "domain": "물가",
+            "sentence": "소비자물가가 2.4% 상승했다.",
+            "review_status": "approved",
+            "kosis_table_id": "DT_1J22042",
+            "claim_type": "증감형",
+            "indicator": "전년동월비(%)",
+            "value": "2.4",
+            "unit": "%",
+            "period": "2025-10",
+            "kosis_selection": "지수종류=총지수",
+            "official_value": "2.4",
+            "source_url": "https://kosis.kr/example",
+            "snapshot_id": "snapshot-001",
+            "annotator": "researcher-a",
+            "reviewer": "reviewer-b",
+        }
+    )
+    row.update(overrides)
+    return row
+
+
+def test_validate_rows_reports_blank_kosis_or_official_answer_for_approved_row():
+    issues = validate_rows(
+        [
+            valid_row(
+                kosis_table_id="",
+                kosis_selection="",
+                official_value="",
+                source_url="",
+                snapshot_id="",
+            )
+        ]
+    )
+
+    assert any(issue.code == "approved_kosis_required" for issue in issues)
+
+
+def test_validate_rows_reports_duplicate_id_and_normalized_duplicate_sentence():
+    issues = validate_rows(
+        [
+            valid_row(),
+            valid_row(
+                sentence="  소비자물가가   2.4% 상승했다. ",
+                reviewer="reviewer-c",
+            ),
+        ]
+    )
+
+    assert {issue.code for issue in issues} >= {
+        "duplicate_claim_id",
+        "duplicate_sentence",
+    }
+
+
+def test_validation_issue_is_an_immutable_data_record():
+    issue = ValidationIssue(
+        code="required",
+        severity="error",
+        claim_id="seed-001",
+        field="sentence",
+        message="sentence is required",
+    )
+
+    assert issue.claim_id == "seed-001"
+    with pytest.raises(FrozenInstanceError):
+        issue.code = "changed"
+
+
+def test_loaders_and_semantic_parity_report_id_and_field_differences(tmp_path):
+    csv_path = tmp_path / "seed.csv"
+    jsonl_path = tmp_path / "seed.jsonl"
+    csv_row = valid_row()
+    jsonl_row = valid_row(claim_id="seed-002", unit="명")
+
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerow(csv_row)
+    jsonl_path.write_text(json.dumps(jsonl_row, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    assert load_csv(csv_path) == [csv_row]
+    assert load_jsonl(jsonl_path) == [jsonl_row]
+
+    issues = validate_semantic_parity(load_csv(csv_path), load_jsonl(jsonl_path))
+
+    assert {issue.code for issue in issues} >= {
+        "parity_missing_in_csv",
+        "parity_missing_in_jsonl",
+    }
