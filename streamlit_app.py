@@ -34,7 +34,7 @@ from clafact.kosis_candidate_compat import search_candidates_with_context
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_from_rows, autofill_readiness_error, parse_kosis_table_identity
-from clafact.kosis_evidence_input import build_manual_evidence
+from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_registry import build_evidence_registry_rows
@@ -1872,6 +1872,8 @@ if view == "검증 실험실":
         if pending_candidate:
             st.session_state["kosis_evidence_table_id"] = pending_candidate["table_id"]
             st.session_state["kosis_evidence_url"] = pending_candidate["url"]
+            if pending_candidate.get("title"):
+                st.session_state["kosis_evidence_title"] = pending_candidate["title"]
             if pending_candidate.get("indicator"):
                 st.session_state["kosis_evidence_indicator"] = pending_candidate["indicator"]
                 st.session_state["kosis_evidence_candidate_indicator"] = pending_candidate["indicator"]
@@ -2360,7 +2362,12 @@ if view == "검증 실험실":
                     selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")
                     if st.button("선택 후보를 근거 입력에 적용", key=f"kosis_candidate_apply_button_{shadow_run_id}"):
                         hit = candidate_labels[selected_candidate_label].hit
-                        st.session_state["kosis_evidence_prefill_pending"] = {"table_id": hit.tbl_id, "url": f"https://kosis.kr/statHtml/statHtml.do?orgId={hit.org_id}&tblId={hit.tbl_id}", "indicator": getattr(candidate_labels[selected_candidate_label], "selected_item", "")}
+                        st.session_state["kosis_evidence_prefill_pending"] = build_candidate_evidence_prefill(
+                            table_id=hit.tbl_id,
+                            org_id=hit.org_id,
+                            title=hit.tbl_name,
+                            indicator=getattr(candidate_labels[selected_candidate_label], "selected_item", ""),
+                        )
                         st.rerun()
                 for rank, candidate in enumerate(candidate_results, start=1):
                     hit = candidate.hit

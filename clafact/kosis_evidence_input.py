@@ -6,6 +6,15 @@ from typing import Mapping
 from clafact.kosis_evidence import KosisEvidenceObject
 from clafact.kosis_organization import normalize_kosis_organization
 
+def build_candidate_evidence_prefill(*, table_id: str, org_id: str, title: str, indicator: str) -> dict[str, str]:
+    """Build the complete evidence-form draft for a selected KOSIS candidate."""
+    return {
+        "table_id": table_id,
+        "url": f"https://kosis.kr/statHtml/statHtml.do?orgId={org_id}&tblId={table_id}",
+        "title": title.strip(),
+        "indicator": indicator.strip(),
+    }
+
 
 def build_manual_evidence(*, table_id: str, url: str, title: str, organization: str,
                           indicator: str, dimensions: str, time_dimension: str,
