@@ -2501,6 +2501,14 @@ if view == "검증 실험실":
                                 f"조회: {comparison_display['snapshot_retrieved_at'] or '-'}"
                             )
                             st.caption("대조 근거: " + comparison_display["reason"])
+                            gate_results = comparison_display.get("gate_results", ())
+                            if gate_results:
+                                st.markdown("###### 대조 게이트")
+                                for gate in gate_results:
+                                    name = str(gate.get("name", "") or "")
+                                    status = "통과" if gate.get("passed") else "실패"
+                                    detail = str(gate.get("detail", "") or "")
+                                    st.caption(f"{name}: {status}" + (f" · {detail}" if detail else ""))
                     mapping_status = st.selectbox(
                         "연결 상태", ("candidate", "reviewed", "rejected"),
                         format_func=lambda status: {
