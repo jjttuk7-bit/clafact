@@ -238,4 +238,3 @@ Expected: only goldenset data/module/tests, Shadow Mode read-only UI, and associ
 git add docs/plans/2026-07-29-goldenset-seed-100-design.md
 git commit -m "docs: finalize goldenset seed guidance"
 ```
-

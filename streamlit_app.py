@@ -2340,7 +2340,12 @@ if view == "검증 실험실":
                     st.caption("연구 전용 Seed 100 원본을 읽기만 합니다. 이 화면에서는 업로드·저장·수정을 하지 않습니다.")
                     try:
                         goldenset_rows = research_goldenset.load_csv(research_goldenset.SEED_CSV_PATH)
-                        goldenset_summary = research_goldenset.summarize_rows(goldenset_rows)
+                        goldenset_jsonl_rows = research_goldenset.load_jsonl(research_goldenset.SEED_JSONL_PATH)
+                        goldenset_parity_issues = research_goldenset.validate_semantic_parity(goldenset_rows, goldenset_jsonl_rows)
+                        goldenset_summary = research_goldenset.summarize_rows(
+                            goldenset_rows,
+                            additional_issues=goldenset_parity_issues,
+                        )
                     except (OSError, ValueError, csv.Error) as error:
                         st.warning(
                             "골든셋 Seed 100 연구 원본을 읽지 못했습니다. "

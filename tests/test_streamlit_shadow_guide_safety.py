@@ -85,3 +85,12 @@ def test_goldenset_status_is_between_the_step_guide_and_candidate_search_control
     candidate_selectbox_index = source.index('"후보를 찾을 Shadow 문장"')
 
     assert guide_index < goldenset_index < candidate_heading_index < candidate_selectbox_index
+
+
+def test_goldenset_status_loads_jsonl_and_surfaces_semantic_parity_as_research_validation():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "load_jsonl(research_goldenset.SEED_JSONL_PATH)" in source
+    assert "validate_semantic_parity(goldenset_rows, goldenset_jsonl_rows)" in source
+    assert "additional_issues=goldenset_parity_issues" in source
+    assert "Shadow 실행과 후보 탐색은 계속 사용할 수 있습니다" in source

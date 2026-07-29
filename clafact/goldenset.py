@@ -15,6 +15,7 @@ GOLDENSET_DIRECTORY: Final[Path] = (
     Path(__file__).resolve().parents[1] / "data" / "research" / "goldenset"
 )
 SEED_CSV_PATH: Final[Path] = GOLDENSET_DIRECTORY / "seed_v0.1.csv"
+SEED_JSONL_PATH: Final[Path] = GOLDENSET_DIRECTORY / "seed_v0.1.jsonl"
 SEED_MANIFEST_PATH: Final[Path] = GOLDENSET_DIRECTORY / "seed_manifest_v0.1.json"
 
 DOMAINS: Final[tuple[str, ...]] = ("물가", "고용", "인구", "주거", "보건")
@@ -370,10 +371,14 @@ def _issue(code: str, claim_id: str, field: str, message: str) -> ValidationIssu
     )
 
 
-def summarize_rows(rows: Sequence[Mapping[str, object]]) -> GoldensetSummary:
-    """Summarize seed progress without changing the supplied rows."""
+def summarize_rows(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    additional_issues: Sequence[ValidationIssue] = (),
+) -> GoldensetSummary:
+    """Summarize seed progress and supplied research-only validation findings."""
 
-    issues = tuple(validate_rows(rows))
+    issues = list(validate_rows(rows))
     domain_current = {domain: 0 for domain in DOMAINS}
     review_current = {status: 0 for status in ALLOWED_REVIEW_STATUSES}
 
@@ -393,6 +398,28 @@ def summarize_rows(rows: Sequence[Mapping[str, object]]) -> GoldensetSummary:
         )
         for domain in DOMAINS
     }
+    for domain, progress in domain_counts.items():
+        if progress.current < progress.target:
+            issues.append(
+                _issue(
+                    "domain_target_under",
+                    "",
+                    "domain",
+                    f"{domain} 분야가 목표 {progress.target}건보다 {progress.target - progress.current}건 부족합니다.",
+                )
+            )
+        elif progress.current > progress.target:
+            issues.append(
+                _issue(
+                    "domain_target_over",
+                    "",
+                    "domain",
+                    f"{domain} 분야가 목표 {progress.target}건보다 {progress.current - progress.target}건 초과했습니다.",
+                )
+            )
+
+    issues.extend(additional_issues)
+    issues = tuple(issues)
     errored_claim_ids = {issue.claim_id for issue in issues}
     valid_evaluation_count = sum(
         1

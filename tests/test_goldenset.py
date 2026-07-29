@@ -11,6 +11,7 @@ from clafact.goldenset import (
     CSV_COLUMNS,
     REQUIRED_COLUMNS,
     SEED_CSV_PATH,
+    SEED_JSONL_PATH,
     ValidationIssue,
     blank_seed_csv_bytes,
     blank_seed_rows,
@@ -241,3 +242,52 @@ def test_blank_seed_csv_bytes_are_header_only_even_when_seed_rows_exist():
 
     assert rows
     assert template_rows == [list(CSV_COLUMNS)]
+
+
+def test_summary_reports_under_and_over_target_domains_without_invalidating_approved_rows():
+    rows = [
+        valid_row(
+            claim_id=f"seed-{index:03d}",
+            domain="물가",
+            sentence=f"소비자물가가 {index}% 상승했다.",
+        )
+        for index in range(1, 22)
+    ]
+
+    summary = summarize_rows(rows)
+
+    issue_codes = {issue.code for issue in summary.issues}
+    assert {"domain_target_over", "domain_target_under"} <= issue_codes
+    assert any(
+        issue.code == "domain_target_over"
+        and issue.field == "domain"
+        and issue.claim_id == ""
+        and issue.message == "물가 분야가 목표 20건보다 1건 초과했습니다."
+        for issue in summary.issues
+    )
+    assert any(
+        issue.code == "domain_target_under"
+        and issue.field == "domain"
+        and issue.claim_id == ""
+        and issue.message == "고용 분야가 목표 20건보다 20건 부족합니다."
+        for issue in summary.issues
+    )
+    assert summary.valid_evaluation_count == 21
+
+
+def test_summary_includes_semantic_parity_issues_in_validation_report():
+    csv_rows = [valid_row()]
+    jsonl_rows = [valid_row(unit="명")]
+
+    summary = summarize_rows(
+        csv_rows,
+        additional_issues=validate_semantic_parity(csv_rows, jsonl_rows),
+    )
+
+    assert any(issue.code == "parity_field_mismatch" for issue in summary.issues)
+    report = validation_report_csv(summary.issues).decode("utf-8-sig")
+    assert "parity_field_mismatch" in report
+
+
+def test_seed_jsonl_template_exists_and_is_loadable_for_semantic_parity():
+    assert load_jsonl(SEED_JSONL_PATH) == []
