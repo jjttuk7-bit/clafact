@@ -17,3 +17,10 @@ def test_shadow_mode_places_the_current_guide_hint_at_each_action_area():
 
     assert source.count('guide.screen_hint.step_id') >= 3
     assert 'guide.screen_hint.message' in source
+
+def test_shadow_actual_value_comparison_displays_gate_results():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'st.markdown("###### 대조 게이트")' in source
+    assert 'comparison_display.get("gate_results", ())' in source
+    assert '"통과" if gate.get("passed") else "실패"' in source
