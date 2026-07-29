@@ -24,6 +24,7 @@ class KosisValueComparison:
     snapshot_id: str
     snapshot_retrieved_at: str
     tolerance: float | None
+    gate_results: tuple[dict[str, object], ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -36,6 +37,7 @@ class KosisValueComparison:
             "snapshot_id": self.snapshot_id,
             "snapshot_retrieved_at": self.snapshot_retrieved_at,
             "tolerance": self.tolerance,
+            "gate_results": [dict(gate) for gate in self.gate_results],
         }
 
 
@@ -70,6 +72,10 @@ def _matches_selection(record: Mapping[str, object], selection: Mapping[str, str
     return True
 
 
+def _gate(name: str, passed: bool, detail: str) -> dict[str, object]:
+    return {"name": name, "passed": passed, "detail": detail}
+
+
 def _result(
     *,
     status: str,
@@ -79,6 +85,7 @@ def _result(
     snapshot: Mapping[str, object],
     record: Mapping[str, object] | None = None,
     tolerance: float | None = None,
+    gate_results: list[dict[str, object]] | None = None,
 ) -> KosisValueComparison:
     return KosisValueComparison(
         status=status,
@@ -90,6 +97,7 @@ def _result(
         snapshot_id=str(snapshot.get("snapshot_id", "")),
         snapshot_retrieved_at=str(snapshot.get("retrieved_at", "")),
         tolerance=tolerance,
+        gate_results=tuple(gate_results or ()),
     )
 
 
@@ -104,6 +112,7 @@ def compare_claim_to_snapshot(
     """Compare a parsed claim only with a stored, explicit KOSIS snapshot."""
     parsed = parse_claim(claim_sentence, article_date)
     quantity = _select_quantity(parsed.quantities)
+    gates: list[dict[str, object]] = []
     if quantity is None:
         return _result(
             status="not_comparable",
@@ -111,14 +120,17 @@ def compare_claim_to_snapshot(
             quantity=None,
             claim_period=parsed.period,
             snapshot=snapshot or {},
+            gate_results=gates,
         )
     if not parsed.period:
+        gates.append(_gate("기간", False, "문장의 기준 기간을 특정하지 못했습니다."))
         return _result(
             status="not_comparable",
             reason="문장의 기준 기간을 특정하지 못했습니다.",
             quantity=quantity,
             claim_period="",
             snapshot=snapshot or {},
+            gate_results=gates,
         )
     if not snapshot or not snapshot.get("records"):
         return _result(
@@ -127,6 +139,7 @@ def compare_claim_to_snapshot(
             quantity=quantity,
             claim_period=parsed.period,
             snapshot=snapshot or {},
+            gate_results=gates,
         )
 
     period_records = [
@@ -134,39 +147,51 @@ def compare_claim_to_snapshot(
         if isinstance(record, Mapping) and _normalize_period(record.get("period")) == parsed.period
     ]
     if not period_records:
+        reason = f"스냅샷에 문장 기간({parsed.period})의 값이 없습니다."
+        gates.append(_gate("기간", False, reason))
         return _result(
             status="not_comparable",
-            reason=f"스냅샷에 문장 기간({parsed.period})의 값이 없습니다.",
+            reason=reason,
             quantity=quantity,
             claim_period=parsed.period,
             snapshot=snapshot,
+            gate_results=gates,
         )
+    gates.append(_gate("기간", True, f"문장과 스냅샷 기간이 {parsed.period}로 일치합니다."))
 
     indicator_records = [
         record for record in period_records
         if _compact(record.get("indicator")) == _compact(evidence_indicator)
     ]
     if not indicator_records:
+        reason = "스냅샷에 선택한 핵심 지표와 같은 항목이 없습니다."
+        gates.append(_gate("지표", False, reason))
         return _result(
             status="not_comparable",
-            reason="스냅샷에 선택한 핵심 지표와 같은 항목이 없습니다.",
+            reason=reason,
             quantity=quantity,
             claim_period=parsed.period,
             snapshot=snapshot,
+            gate_results=gates,
         )
+    gates.append(_gate("지표", True, f"핵심 지표 {evidence_indicator}가 일치합니다."))
 
     selected_records = [
         record for record in indicator_records
         if _matches_selection(record, evidence_selection)
     ]
     if not selected_records:
+        reason = "스냅샷에 근거 객체의 선택 조건과 같은 값이 없습니다."
+        gates.append(_gate("선택 조건", False, reason))
         return _result(
             status="not_comparable",
-            reason="스냅샷에 근거 객체의 선택 조건과 같은 값이 없습니다.",
+            reason=reason,
             quantity=quantity,
             claim_period=parsed.period,
             snapshot=snapshot,
+            gate_results=gates,
         )
+    gates.append(_gate("선택 조건", True, "근거 객체의 선택 조건이 스냅샷과 일치합니다."))
 
     record = selected_records[0]
     official_unit = str(record.get("unit", "")).strip()
@@ -178,6 +203,7 @@ def compare_claim_to_snapshot(
             claim_period=parsed.period,
             snapshot=snapshot,
             record=record,
+            gate_results=gates,
         )
     try:
         official_value = float(str(record.get("value", "")).replace(",", ""))
@@ -189,6 +215,7 @@ def compare_claim_to_snapshot(
             claim_period=parsed.period,
             snapshot=snapshot,
             record=record,
+            gate_results=gates,
         )
 
     tolerance = PERCENT_TOLERANCE if quantity.unit in {"%", "퍼센트"} else 0.0
@@ -202,6 +229,7 @@ def compare_claim_to_snapshot(
             snapshot=snapshot,
             record=record,
             tolerance=tolerance,
+            gate_results=gates,
         )
     return _result(
         status="mismatch",
@@ -211,4 +239,5 @@ def compare_claim_to_snapshot(
         snapshot=snapshot,
         record=record,
         tolerance=tolerance,
+        gate_results=gates,
     )

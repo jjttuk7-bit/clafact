@@ -32,6 +32,8 @@ def test_compares_percent_claim_against_same_period_snapshot_value():
     assert result.claim_value == "2.4%"
     assert result.official_value == "2.4%"
     assert result.snapshot_id == "kosis-snapshot-1"
+    assert [gate["name"] for gate in result.gate_results[:3]] == ["기간", "지표", "선택 조건"]
+    assert all(gate["passed"] for gate in result.gate_results[:3])
 
 
 def test_marks_different_value_as_mismatch_when_comparison_is_possible():
