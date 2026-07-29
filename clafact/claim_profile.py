@@ -82,3 +82,12 @@ def build_claim_profile(sentence: str, *, previous: ClaimProfile | None = None) 
         search_query=indicator,
         context_inherited=inherited,
     )
+
+
+def profile_summary(profile: ClaimProfile) -> str:
+    """Render the extracted profile as a compact, reviewable Shadow caption."""
+    suffix = " · 앞 문장 문맥 보완" if profile.context_inherited else ""
+    return (
+        f"주제: {profile.topic} · 지표: {profile.indicator} · 시간: {profile.period} "
+        f"· 비교: {profile.comparison} · 단위: {profile.unit}{suffix}"
+    )

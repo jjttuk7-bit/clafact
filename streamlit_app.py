@@ -27,6 +27,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
 from clafact.kosis import HttpKosisClient
+from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
@@ -400,7 +401,8 @@ st.markdown("""
   .sidebar-caption { color:var(--ops-muted); font-size:.78rem; line-height:1.5; margin-bottom:1.4rem; }
   [data-testid="stSidebar"] [data-testid="stRadio"] label { border-radius:.55rem; color:var(--ops-text); padding:.48rem .55rem; margin:.12rem 0; }
   [data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:var(--ops-page); }
-  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background:var(--ops-page); border-left:3px solid var(--primary-color); font-weight:720; }`n  .stApp { --ops-page:var(--background-color); --ops-surface:var(--secondary-background-color); --ops-text:var(--text-color); --ops-muted:color-mix(in srgb,var(--text-color) 66%,var(--background-color)); --ops-border:color-mix(in srgb,var(--text-color) 24%,var(--background-color)); background:var(--ops-page); color:var(--ops-text); }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) { background:var(--ops-page); border-left:3px solid var(--primary-color); font-weight:720; }
+  .stApp { --ops-page:var(--background-color); --ops-surface:var(--secondary-background-color); --ops-text:var(--text-color); --ops-muted:color-mix(in srgb,var(--text-color) 66%,var(--background-color)); --ops-border:color-mix(in srgb,var(--text-color) 24%,var(--background-color)); background:var(--ops-page); color:var(--ops-text); }
   [data-testid="stHeader"] { --ops-page:var(--background-color); background:var(--ops-page); }
   .block-container { max-width:1440px; padding-top:2rem; padding-bottom:4rem; }
   h1,h2,h3 { color:var(--ops-text) !important; }
@@ -419,7 +421,8 @@ st.markdown("""
   .ops-value { color:var(--ops-text); font-size:2.25rem; font-weight:760; letter-spacing:-.04em; margin-top:.4rem; }
   .ops-note { color:var(--ops-muted); font-size:.78rem; margin-top:.4rem; }
   div.stButton > button { background:var(--ops-surface); color:var(--ops-text); border-color:var(--ops-border); }
-  div.stButton > button[kind="primary"] { background:#087f73 !important; color:#FFFFFF !important; border-color:#087f73 !important; }`n  div.stButton > button[kind="primary"] p { color:#FFFFFF !important; }
+  div.stButton > button[kind="primary"] { background:#087f73 !important; color:#FFFFFF !important; border-color:#087f73 !important; }
+  div.stButton > button[kind="primary"] p { color:#FFFFFF !important; }
   div.stButton > button p { color:inherit !important; }
   :focus-visible { outline:3px solid #f1c96b !important; outline-offset:2px; }
   .ops-workspace { background:var(--ops-surface); border:1px solid var(--ops-border); border-radius:1rem; padding:1.15rem 1.25rem 1.3rem; margin:0 0 1.4rem; box-shadow:0 8px 24px rgba(16,42,58,.05); }
@@ -2268,20 +2271,36 @@ if view == "검증 실험실":
                     "후보를 찾을 Shadow 문장", list(candidate_sentence_options),
                     key=f"kosis_candidate_sentence_{shadow_run_id}",
                 )
+                candidate_row = candidate_sentence_options[candidate_sentence_label]
+                candidate_position = next(index for index, row in enumerate(shadow_run["rows"]) if row["row_index"] == candidate_row["row_index"])
+                previous_profile = None
+                for previous_row in reversed(shadow_run["rows"][:candidate_position]):
+                    candidate_previous_profile = build_claim_profile(previous_row["sentence"])
+                    if candidate_previous_profile.indicator:
+                        previous_profile = candidate_previous_profile
+                        break
+                candidate_sentence = candidate_row["sentence"]
+                candidate_profile = build_claim_profile(candidate_sentence, previous=previous_profile)
+                st.caption(f"주장 프로필: {profile_summary(candidate_profile)}")
+                if candidate_profile.context_inherited:
+                    st.info("앞 문장의 지표를 이어받아 KOSIS 후보를 탐색합니다.")
                 if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
                     try:
                         search_index, metadata_client = load_engine()
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
-                        candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client)
+                        candidates = suggest_kosis_candidates(candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
-                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item} for rank, c in enumerate(candidates, start=1)]
+                        st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": candidate_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
-                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_sentence_options[candidate_sentence_label]["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
+                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
                         st.warning("KOSIS_API_KEY가 설정되지 않아 후보를 검색할 수 없습니다. 수동 근거 입력은 계속 사용할 수 있습니다.")
                     except Exception as error:
                         st.warning(f"KOSIS 후보 탐색을 완료하지 못했습니다: {error}")
                 candidate_results = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", [])
+                if not candidate_results and st.session_state.get(f"kosis_candidate_searched_row_{shadow_run_id}") == candidate_row["row_index"]:
+                    st.info("KOSIS 후보 부족 — 수동 근거 입력 또는 보류 검토가 필요합니다.")
                 if candidate_results:
                     candidate_labels = {f"{rank}위 · {c.hit.tbl_name} (적합도 {getattr(c, 'fit_score', c.score)}점)": c for rank, c in enumerate(candidate_results, start=1)}
                     selected_candidate_label = st.selectbox("근거 입력에 적용할 후보", list(candidate_labels), key=f"kosis_candidate_apply_{shadow_run_id}")

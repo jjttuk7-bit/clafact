@@ -1,4 +1,4 @@
-from clafact.claim_profile import build_claim_profile
+from clafact.claim_profile import build_claim_profile, profile_summary
 
 
 def test_extracts_population_profile_from_numeric_claim():
@@ -30,3 +30,12 @@ def test_inherits_indicator_for_anaphoric_followup_sentence():
     assert profile.indicator == "소비자물가"
     assert profile.context_inherited is True
     assert profile.search_query == "소비자물가"
+
+
+def test_formats_profile_summary_with_context_provenance():
+    previous = build_claim_profile("10월 소비자물가가 2.4% 상승했다.")
+    profile = build_claim_profile("이같은 물가 상승률은 15개월 만에 가장 높다.", previous=previous)
+
+    assert profile_summary(profile) == (
+        "주제: 물가 · 지표: 소비자물가 · 시간:  · 비교:  · 단위:  · 앞 문장 문맥 보완"
+    )
