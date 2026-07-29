@@ -2277,6 +2277,7 @@ if view == "검증 실험실":
                     key=f"kosis_candidate_sentence_{shadow_run_id}",
                 )
                 candidate_row = candidate_sentence_options[candidate_sentence_label]
+                guide_candidate_runs = []
                 try:
                     with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
                         guide_mappings = mapping_store.list_for_run(shadow_run_id)
@@ -2287,6 +2288,7 @@ if view == "검증 실험실":
                 except Exception as error:
                     guide_mappings = []
                     guide_comparisons = []
+                    guide_candidate_runs = []
                     st.warning(f"연구 진행 가이드의 KOSIS 기록을 읽지 못했습니다: {error}")
                 guide = build_shadow_step_guide(
                     shadow_run=shadow_run,
@@ -2562,6 +2564,7 @@ if view == "검증 실험실":
                             st.error(f"Shadow 검토를 저장하지 못했습니다: {error}")
 
                 st.markdown("##### 실행 기록 다운로드")
+                guide_candidate_runs = []
                 try:
                     with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
                         kosis_mappings_by_row = group_kosis_mappings_by_row(
