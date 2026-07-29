@@ -1,3 +1,5 @@
+import pytest
+
 from clafact.kosis_value_comparison import KosisValueComparison
 from clafact.kosis_value_comparison_card import build_value_comparison_card
 
@@ -81,3 +83,58 @@ def test_not_comparable_and_empty_snapshot_have_no_false_primary():
     assert card.primary is None
     assert card.alternatives == ()
     assert card.reason == "비교 결과"
+
+
+def test_primary_ignores_same_value_record_when_indicator_or_selection_differs():
+    card = build_value_comparison_card(
+        _comparison(),
+        _snapshot([
+            _record(indicator="전월비(%)"),
+            _record(selection={"지수종류": "다른지수"}),
+            _record(),
+        ]),
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+    )
+
+    assert card.primary is not None
+    assert card.primary.indicator == "전년동월비(%)"
+    assert dict(card.primary.selection) == {"지수종류": "총지수"}
+
+def test_card_freezes_gate_results_for_read_only_rendering():
+    comparison = _comparison()
+    comparison = KosisValueComparison(
+        **{**comparison.__dict__, "gate_results": ({"name": "기간", "passed": True, "detail": "일치"},)}
+    )
+
+    card = build_value_comparison_card(
+        comparison,
+        _snapshot([_record()]),
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+    )
+
+    with pytest.raises(TypeError):
+        card.gate_results[0]["passed"] = False
+
+
+def test_orders_tied_alternatives_independently_of_api_input_order():
+    primary = _record(value="2.4")
+    first = _record(value="9.0")
+    second = _record(value="1.0")
+
+    first_card = build_value_comparison_card(
+        _comparison(),
+        _snapshot([primary, first, second]),
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+    )
+    second_card = build_value_comparison_card(
+        _comparison(),
+        _snapshot([primary, second, first]),
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+    )
+
+    assert [candidate.official_value for candidate in first_card.alternatives] == ["1.0%", "9.0%"]
+    assert [candidate.official_value for candidate in second_card.alternatives] == ["1.0%", "9.0%"]

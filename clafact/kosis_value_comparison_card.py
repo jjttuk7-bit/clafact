@@ -71,7 +71,7 @@ class KosisValueComparisonCard:
     official_period: str
     snapshot_id: str
     snapshot_retrieved_at: str
-    gate_results: tuple[dict[str, object], ...]
+    gate_results: tuple[Mapping[str, object], ...]
     primary: KosisValueCandidate | None
     alternatives: tuple[KosisValueCandidate, ...]
 
@@ -115,11 +115,21 @@ def _is_primary(candidate: KosisValueCandidate, comparison: KosisValueComparison
         comparison.status in {"match", "mismatch"}
         and candidate.period == _normalize_period(comparison.official_period)
         and candidate.official_value == comparison.official_value
+        and all(passed for _, passed in candidate.gate_matches)
     )
 
 
-def _candidate_order(candidate: KosisValueCandidate) -> tuple[int, int, int, int]:
-    return tuple(int(passed) for _, passed in candidate.gate_matches)
+def _candidate_order(candidate: KosisValueCandidate) -> tuple[object, ...]:
+    matches = tuple(int(passed) for _, passed in candidate.gate_matches)
+    selection = tuple(sorted((str(key), str(value)) for key, value in candidate.selection.items()))
+    return (
+        *(-matched for matched in matches),
+        candidate.period,
+        _compact(candidate.indicator),
+        selection,
+        candidate.value,
+        _normalized_unit(candidate.unit),
+    )
 
 
 def build_value_comparison_card(
@@ -150,7 +160,7 @@ def build_value_comparison_card(
         candidate for index, candidate in enumerate(candidates)
         if index != primary_index
     ]
-    alternatives.sort(key=_candidate_order, reverse=True)
+    alternatives.sort(key=_candidate_order)
     return KosisValueComparisonCard(
         status=comparison.status,
         reason=comparison.reason,
@@ -160,7 +170,7 @@ def build_value_comparison_card(
         official_period=comparison.official_period,
         snapshot_id=comparison.snapshot_id,
         snapshot_retrieved_at=comparison.snapshot_retrieved_at,
-        gate_results=tuple(dict(gate) for gate in comparison.gate_results),
+        gate_results=tuple(MappingProxyType(dict(gate)) for gate in comparison.gate_results),
         primary=primary,
         alternatives=tuple(alternatives),
     )
