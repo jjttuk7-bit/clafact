@@ -46,6 +46,8 @@ from clafact.kosis_revision_review_store import KosisRevisionReviewStore
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
+from clafact.kosis_value_comparison import compare_claim_to_snapshot
+from clafact.kosis_value_comparison_store import KosisValueComparisonStore
 from clafact.kosis_table_structure import classify_table_structure
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
@@ -120,7 +122,7 @@ from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
 from clafact.pipeline.run import verify_article, verify_sentence
 from clafact.shadow_export import (
-    export_shadow_run_csv, export_shadow_run_json, group_kosis_mappings_by_row,
+    export_shadow_run_csv, export_shadow_run_json, group_kosis_mappings_by_row, group_kosis_value_comparisons_by_row,
 )
 from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
@@ -2387,6 +2389,57 @@ if view == "검증 실험실":
                     st.caption(f"점수 산정: {score_breakdown}")
                     st.caption("검토 근거: " + " · ".join(match_result.reasons))
 
+                    st.markdown("##### KOSIS 실제 값 대조")
+                    with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                        snapshot_history = snapshot_store.list_for_table(selected_evidence["table_id"])
+                    if not snapshot_history:
+                        st.info("실제 값 대조를 하려면 이 통계표의 KOSIS 조회 스냅샷이 먼저 필요합니다.")
+                    else:
+                        latest_snapshot = snapshot_history[0]
+                        article_date_for_comparison = str(shadow_run["summary"].get("article_date") or shadow_date)
+                        comparison_key = (
+                            f"kosis_value_comparison_{shadow_run_id}_"
+                            f"{selected_sentence['row_index']}_{selected_evidence.get('evidence_id', selected_evidence['table_id'])}"
+                        )
+                        if st.button("KOSIS 실제 값 대조", key=f"{comparison_key}_run"):
+                            comparison = compare_claim_to_snapshot(
+                                claim_sentence=selected_sentence["sentence"],
+                                article_date=article_date_for_comparison,
+                                evidence_indicator=selected_evidence["indicator"],
+                                evidence_selection=selected_evidence["source_selection"],
+                                snapshot=latest_snapshot,
+                            )
+                            st.session_state[comparison_key] = comparison.as_dict()
+                            try:
+                                with KosisValueComparisonStore(ROOT / "data/research/kosis_value_comparison.db") as comparison_store:
+                                    inserted = comparison_store.append(
+                                        shadow_run_id=shadow_run_id,
+                                        row_index=selected_sentence["row_index"],
+                                        evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
+                                        comparison=comparison,
+                                    )
+                                if inserted:
+                                    st.success("실제 값 대조 결과를 Shadow 연구 전용 저장소에 기록했습니다.")
+                                else:
+                                    st.info("동일한 실제 값 대조 결과가 이미 기록되어 있습니다.")
+                            except ValueError as error:
+                                st.error(f"실제 값 대조 결과를 저장하지 못했습니다: {error}")
+                        comparison_display = st.session_state.get(comparison_key)
+                        if comparison_display:
+                            status_label = {
+                                "match": "일치",
+                                "mismatch": "불일치",
+                                "not_comparable": "비교 불가",
+                            }.get(comparison_display["status"], comparison_display["status"])
+                            value_column, status_column = st.columns(2)
+                            value_column.metric("문장 값 / KOSIS 값", f"{comparison_display['claim_value'] or '-'} / {comparison_display['official_value'] or '-'}")
+                            status_column.metric("실제 값 대조", status_label)
+                            st.caption(
+                                f"기준 기간: {comparison_display['claim_period'] or '-'} · "
+                                f"스냅샷: {comparison_display['snapshot_id'] or '-'} · "
+                                f"조회: {comparison_display['snapshot_retrieved_at'] or '-'}"
+                            )
+                            st.caption("대조 근거: " + comparison_display["reason"])
                     mapping_status = st.selectbox(
                         "연결 상태", ("candidate", "reviewed", "rejected"),
                         format_func=lambda status: {
@@ -2469,6 +2522,14 @@ if view == "검증 실험실":
                 except Exception as error:
                     kosis_mappings_by_row = {}
                     st.warning(f"KOSIS 연구 매핑을 CSV에 포함하지 못했습니다: {error}")
+                try:
+                    with KosisValueComparisonStore(ROOT / "data/research/kosis_value_comparison.db") as comparison_store:
+                        kosis_comparisons_by_row = group_kosis_value_comparisons_by_row(
+                            comparison_store.list_for_run(shadow_run_id)
+                        )
+                except Exception as error:
+                    kosis_comparisons_by_row = {}
+                    st.warning(f"KOSIS 실제 값 대조 결과를 CSV에 포함하지 못했습니다: {error}")
                 json_name, csv_name = download_filenames(shadow_run["run_id"])
                 download_columns = st.columns(2)
                 download_columns[0].download_button(
@@ -2477,7 +2538,7 @@ if view == "검증 실험실":
                     use_container_width=True,
                 )
                 download_columns[1].download_button(
-                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row),
+                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row, comparisons_by_row=kosis_comparisons_by_row),
                     file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
                     use_container_width=True,
                 )

@@ -35,6 +35,7 @@ class ShadowLabService:
         resolved_created_at = created_at or datetime.now(timezone.utc).isoformat()
         input_hash = sha256(f"{article_date}\n{text}".encode("utf-8")).hexdigest()
         summary = {
+            "article_date": article_date,
             "row_count": len(experiment.rows),
             "review_count": sum(row["review_state"] == "needs_review" for row in experiment.rows),
             "llm_calls": experiment.llm_calls,

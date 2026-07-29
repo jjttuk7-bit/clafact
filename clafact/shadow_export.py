@@ -15,6 +15,8 @@ SHADOW_CSV_COLUMNS = (
     "parsed_period", "risk_reasons", "review_state", "review_actions", "review_notes",
     "kosis_table_id", "kosis_evidence_object_id", "kosis_mapping_status",
     "kosis_match_score", "kosis_match_reasons", "kosis_score_breakdown", "kosis_source_selection", "kosis_mapping_note",
+    "kosis_value_comparison_status", "kosis_value_comparison_reason", "kosis_claim_value",
+    "kosis_official_value", "kosis_claim_period", "kosis_snapshot_id",
 )
 
 
@@ -34,6 +36,29 @@ def group_kosis_mappings_by_row(
     for mapping in mappings:
         grouped.setdefault(int(mapping["row_index"]), []).append(mapping)
     return grouped
+
+def group_kosis_value_comparisons_by_row(
+    comparisons: list[Mapping[str, Any]],
+) -> dict[int, list[Mapping[str, Any]]]:
+    """Group persisted actual-value comparisons by Shadow sentence row."""
+    grouped: dict[int, list[Mapping[str, Any]]] = {}
+    for comparison in comparisons:
+        grouped.setdefault(int(comparison["row_index"]), []).append(comparison)
+    return grouped
+
+
+def _flatten_kosis_value_comparisons(comparisons: list[Mapping[str, Any]]) -> dict[str, str]:
+    def values(key: str) -> str:
+        return " | ".join(str(comparison.get(key, "") or "") for comparison in comparisons)
+
+    return {
+        "kosis_value_comparison_status": values("status"),
+        "kosis_value_comparison_reason": values("reason"),
+        "kosis_claim_value": values("claim_value"),
+        "kosis_official_value": values("official_value"),
+        "kosis_claim_period": values("claim_period"),
+        "kosis_snapshot_id": values("snapshot_id"),
+    }
 
 def _flatten_kosis_mappings(mappings: list[Mapping[str, Any]]) -> dict[str, str]:
     """Return spreadsheet cells for zero or more research-only KOSIS mappings."""
@@ -76,11 +101,13 @@ def export_shadow_run_json(run: Mapping[str, Any] | None) -> bytes:
 def export_shadow_run_csv(
     run: Mapping[str, Any] | None, *,
     mappings_by_row: Mapping[int, list[Mapping[str, Any]]] | None = None,
+    comparisons_by_row: Mapping[int, list[Mapping[str, Any]]] | None = None,
 ) -> bytes:
     """행 단위 분석용, Excel 안전 UTF-8 BOM CSV를 반환한다."""
     if run is None:
         raise KeyError("Shadow 실행을 찾을 수 없습니다")
     mappings_by_row = mappings_by_row or {}
+    comparisons_by_row = comparisons_by_row or {}
     reviews_by_row: dict[int, list[dict[str, Any]]] = {}
     for review in run.get("reviews", []):
         reviews_by_row.setdefault(int(review["row_index"]), []).append(review)
@@ -92,6 +119,7 @@ def export_shadow_run_csv(
         shadow = row["shadow"]
         reviews = reviews_by_row.get(int(row["row_index"]), [])
         flattened = _flatten_kosis_mappings(mappings_by_row.get(int(row["row_index"]), []))
+        flattened.update(_flatten_kosis_value_comparisons(comparisons_by_row.get(int(row["row_index"]), [])))
         flattened.update({
             "run_id": run["run_id"],
             "created_at": run["created_at"],

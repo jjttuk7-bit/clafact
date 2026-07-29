@@ -117,3 +117,20 @@ def test_csv_export_uses_exact_kosis_evidence_object_id(tmp_path):
     assert row["kosis_table_id"] == "DT_1J22042"
     assert row["kosis_evidence_object_id"] == "DT_1J22042:year-over-year"
     assert row["kosis_score_breakdown"] == "'+40 지표 의미 일치 (전년동월비) ; +25 단위 일치 (%)"
+
+
+def test_csv_export_includes_actual_kosis_value_comparison(tmp_path):
+    comparisons_by_row = {1: [{
+        "status": "match", "reason": "값 일치", "claim_value": "2.4%",
+        "official_value": "2.4%", "claim_period": "2025-10",
+        "snapshot_id": "kosis-snapshot-1",
+    }]}
+    with _saved_run(tmp_path) as service:
+        payload = export_shadow_run_csv(
+            service.get_run("shadow-export-1"), comparisons_by_row=comparisons_by_row
+        )
+
+    row = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))[0]
+    assert row["kosis_value_comparison_status"] == "match"
+    assert row["kosis_claim_value"] == "2.4%"
+    assert row["kosis_snapshot_id"] == "kosis-snapshot-1"

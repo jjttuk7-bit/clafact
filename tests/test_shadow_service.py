@@ -23,6 +23,7 @@ def test_service_executes_persists_and_returns_decoded_run(tmp_path):
         assert result["summary"]["row_count"] == 1
         saved = service.get_run("shadow-service-1")
         assert saved["policy"]["version"] == "shadow-policy-v1"
+        assert saved["summary"]["article_date"] == "2026-07-28"
         assert saved["rows"][0]["baseline"]["python_candidate"] is True
         assert "candidate_conflict" in saved["rows"][0]["risk_reasons"]
 
