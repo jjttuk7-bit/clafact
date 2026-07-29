@@ -43,3 +43,17 @@ def test_candidate_apply_clears_stale_snapshot_before_setting_prefill():
     set_prefill_index = candidate_apply_scope.index('st.session_state["kosis_evidence_prefill_pending"] =')
 
     assert clear_snapshot_index < set_prefill_index
+
+
+def test_shadow_actual_value_comparison_renders_read_only_official_value_card():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "build_value_comparison_card" in source
+    assert "comparison_card = build_value_comparison_card(" in source
+    assert "snapshot=latest_snapshot" in source
+    assert 'evidence_indicator=selected_evidence["indicator"]' in source
+    assert 'evidence_selection=selected_evidence["source_selection"]' in source
+    assert 'if comparison_card.alternatives:' in source
+    assert 'st.expander("다른 공식 값 후보 보기")' in source
+    for label in ("문장 값 / KOSIS 값", "비교 상태", "대조 근거", "기간", "지표", "선택 조건", "단위", "스냅샷 ID", "조회 시각"):
+        assert label in source
