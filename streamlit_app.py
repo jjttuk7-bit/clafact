@@ -47,7 +47,8 @@ from clafact.kosis_revision_review_store import KosisRevisionReviewStore
 from clafact.kosis_evidence_store import KosisEvidenceStore
 from clafact.kosis_shadow_mapping import KosisShadowMapping
 from clafact.kosis_shadow_mapping_store import KosisShadowMappingStore
-from clafact.kosis_value_comparison import compare_claim_to_snapshot
+from clafact.kosis_value_comparison import KosisValueComparison, compare_claim_to_snapshot
+from clafact.kosis_value_comparison_card import build_value_comparison_card
 from clafact.kosis_value_comparison_store import KosisValueComparisonStore
 from clafact.ops_dashboard import build_ops_claim_rows
 from clafact.pipeline.ingest import load_articles
@@ -2491,28 +2492,103 @@ if view == "검증 실험실":
                                 st.error(f"실제 값 대조 결과를 저장하지 못했습니다: {error}")
                         comparison_display = st.session_state.get(comparison_key)
                         if comparison_display:
-                            status_label = {
-                                "match": "일치",
-                                "mismatch": "불일치",
-                                "not_comparable": "비교 불가",
-                            }.get(comparison_display["status"], comparison_display["status"])
-                            value_column, status_column = st.columns(2)
-                            value_column.metric("문장 값 / KOSIS 값", f"{comparison_display['claim_value'] or '-'} / {comparison_display['official_value'] or '-'}")
-                            status_column.metric("실제 값 대조", status_label)
-                            st.caption(
-                                f"기준 기간: {comparison_display['claim_period'] or '-'} · "
-                                f"스냅샷: {comparison_display['snapshot_id'] or '-'} · "
-                                f"조회: {comparison_display['snapshot_retrieved_at'] or '-'}"
+                            comparison_for_card = KosisValueComparison(
+                                status=str(comparison_display.get("status", "")),
+                                reason=str(comparison_display.get("reason", "")),
+                                claim_value=str(comparison_display.get("claim_value", "")),
+                                official_value=str(comparison_display.get("official_value", "")),
+                                claim_period=str(comparison_display.get("claim_period", "")),
+                                official_period=str(comparison_display.get("official_period", "")),
+                                snapshot_id=str(comparison_display.get("snapshot_id", "")),
+                                snapshot_retrieved_at=str(comparison_display.get("snapshot_retrieved_at", "")),
+                                tolerance=comparison_display.get("tolerance"),
+                                gate_results=tuple(
+                                    dict(gate)
+                                    for gate in comparison_display.get("gate_results", ())
+                                    if isinstance(gate, dict)
+                                ),
                             )
-                            st.caption("대조 근거: " + comparison_display["reason"])
-                            gate_results = comparison_display.get("gate_results", ())
-                            if gate_results:
-                                st.markdown("###### 대조 게이트")
-                                for gate in gate_results:
-                                    name = str(gate.get("name", "") or "")
-                                    status = "통과" if gate.get("passed") else "실패"
-                                    detail = str(gate.get("detail", "") or "")
-                                    st.caption(f"{name}: {status}" + (f" · {detail}" if detail else ""))
+                            comparison_snapshot = next(
+                                (
+                                    snapshot for snapshot in snapshot_history
+                                    if snapshot.get("snapshot_id") == comparison_for_card.snapshot_id
+                                ),
+                                None,
+                            )
+                            if comparison_snapshot is None:
+                                st.info(
+                                    "대조 결과가 가리키는 KOSIS 스냅샷을 찾지 못해 후보 카드를 표시하지 않습니다."
+                                )
+                            else:
+                                comparison_card = build_value_comparison_card(
+                                    comparison_for_card,
+                                    snapshot=comparison_snapshot,
+                                    evidence_indicator=selected_evidence["indicator"],
+                                    evidence_selection=selected_evidence["source_selection"],
+                                )
+                                status_label = {
+                                    "match": "일치",
+                                    "mismatch": "불일치",
+                                    "not_comparable": "비교 불가",
+                                }.get(comparison_card.status, comparison_card.status)
+                                st.markdown("###### 실제 값 비교 카드")
+                                value_column, status_column = st.columns(2)
+                                value_column.metric(
+                                    "문장 값 / KOSIS 값",
+                                    f"{comparison_card.claim_value or '-'} / {comparison_card.official_value or '-'}",
+                                )
+                                status_column.metric("비교 상태", status_label)
+                                st.caption("대조 근거: " + comparison_card.reason)
+                                period_column, context_column = st.columns(2)
+                                period_column.caption(
+                                    f"기간: 문장 {comparison_card.claim_period or '-'} · "
+                                    f"KOSIS {comparison_card.official_period or '-'}"
+                                )
+                                if comparison_card.primary:
+                                    selection_text = ", ".join(
+                                        f"{dimension}={value}"
+                                        for dimension, value in comparison_card.primary.selection.items()
+                                    ) or "-"
+                                    context_column.caption(f"지표: {comparison_card.primary.indicator or '-'}")
+                                    context_column.caption(f"선택 조건: {selection_text}")
+                                    context_column.caption(f"단위: {comparison_card.primary.unit or '-'}")
+                                else:
+                                    context_column.caption(f"지표: {selected_evidence['indicator'] or '-'}")
+                                    context_column.caption(f"선택 조건: {selected_evidence['source_selection'] or '-'}")
+                                    context_column.caption("단위: -")
+                                st.caption(
+                                    f"스냅샷 ID: {comparison_card.snapshot_id or '-'} · "
+                                    f"조회 시각: {comparison_card.snapshot_retrieved_at or '-'}"
+                                )
+                                if comparison_card.gate_results:
+                                    st.markdown("###### 대조 게이트")
+                                    for gate in comparison_card.gate_results:
+                                        name = str(gate.get("name", "") or "")
+                                        status = "통과" if gate.get("passed") else "실패"
+                                        detail = str(gate.get("detail", "") or "")
+                                        st.caption(f"{name}: {status}" + (f" · {detail}" if detail else ""))
+                                if comparison_card.alternatives:
+                                    with st.expander("다른 공식 값 후보 보기"):
+                                        for rank, candidate in enumerate(comparison_card.alternatives, start=1):
+                                            selection_text = ", ".join(
+                                                f"{dimension}={value}"
+                                                for dimension, value in candidate.selection.items()
+                                            ) or "-"
+                                            mismatched_gates = [
+                                                name for name, passed in candidate.gate_matches if not passed
+                                            ]
+                                            candidate_reason = (
+                                                "일치 사유: 기간·지표·선택 조건·단위가 모두 일치"
+                                                if not mismatched_gates
+                                                else "제외 사유: " + ", ".join(mismatched_gates) + " 불일치"
+                                            )
+                                            st.markdown(
+                                                f"**{rank}. {candidate.official_value or '-'}** · "
+                                                f"기간 {candidate.period or '-'} · 지표 {candidate.indicator or '-'}"
+                                            )
+                                            st.caption(
+                                                f"선택 조건: {selection_text} · {candidate_reason}"
+                                            )
                     mapping_status = st.selectbox(
                         "연결 상태", ("candidate", "reviewed", "rejected"),
                         format_func=lambda status: {
