@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from clafact.claim_profile import ClaimProfile, build_claim_profile
 from clafact.pipeline.retrieve import TableHit
 
 
@@ -30,66 +31,96 @@ def _compact(text: str) -> str:
     return "".join(text.lower().split())
 
 
-def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[str, ...] = ()) -> KosisCandidate:
-    """Score a candidate table from title signals only; never assert factual truth."""
-    claim = _compact(sentence)
+def _title_matches_period(title: str, period: str) -> bool:
+    tokens = {
+        "월": ("월별", "월간", "전년동월비", "전월비"),
+        "분기": ("분기",),
+        "연": ("연도별", "연간", "연별", "년간"),
+    }
+    return any(token in title for token in tokens.get(period, ()))
+
+
+def _title_matches_rate(title: str) -> bool:
+    return any(token in title for token in ("등락률", "증감률", "상승률", "전년동월비", "전월비", "률"))
+
+
+def _title_matches_comparison(title: str, comparison: str) -> bool:
+    if comparison == "전년동월비":
+        return "전년동월비" in title
+    if comparison == "전월비":
+        return "전월비" in title
+    if comparison == "전년 대비":
+        return "전년" in title
+    return False
+
+
+def evaluate_kosis_candidate(
+    sentence: str,
+    hit: TableHit,
+    *,
+    item_names: tuple[str, ...] = (),
+    profile: ClaimProfile | None = None,
+) -> KosisCandidate:
+    """Score one candidate from an explainable numeric-claim profile."""
+    profile = profile or build_claim_profile(sentence)
     title = _compact(hit.tbl_name)
     score = 0
+    max_score = 0
     reasons: list[str] = []
     penalties: list[str] = []
     score_breakdown: list[str] = []
-    max_score = 0
 
-    if "소비자물가" in claim:
+    if profile.indicator:
         max_score += 50
-    if "소비자물가" in claim and "소비자물가" in title:
-        score += 50
-        reasons.append("지표 일치")
-        score_breakdown.append("+50 지표 일치")
+        if _compact(profile.indicator) in title:
+            score += 50
+            reasons.append("지표 일치")
+            score_breakdown.append("+50 지표 일치")
+        else:
+            penalties.append("지표명 직접 일치 없음")
 
-    expects_month = "지난달" in claim or "이번달" in claim or "전년동월" in claim
-    monthly_title = any(token in title for token in ("월별", "월간", "전년동월비", "전월비"))
-    if expects_month:
+    if profile.period:
         max_score += 20
-    if expects_month and monthly_title:
-        score += 20
-        reasons.append("월 단위 일치")
-        score_breakdown.append("+20 월 단위 일치")
-    elif expects_month:
-        penalties.append("월 단위 표현 없음")
+        if _title_matches_period(title, profile.period):
+            score += 20
+            reasons.append(f"{profile.period} 단위 일치")
+            score_breakdown.append(f"+20 {profile.period} 단위 일치")
+        else:
+            penalties.append(f"{profile.period} 단위 표현 없음")
 
-    expects_rate = "%" in sentence or "퍼센트" in sentence
-    rate_title = any(token in title for token in ("등락률", "증감률", "상승률", "전년동월비", "전월비"))
+    expects_rate = profile.unit in ("%", "%p")
     if expects_rate:
         max_score += 20
-    if expects_rate and rate_title:
-        score += 20
-        reasons.append("등락률/증감률 단위 일치")
-        score_breakdown.append("+20 등락률/증감률 단위 일치")
-    elif expects_rate:
-        penalties.append("등락률/증감률 표현 없음")
+        if _title_matches_rate(title):
+            score += 20
+            reasons.append("등락률/증감률 단위 일치")
+            score_breakdown.append("+20 등락률/증감률 단위 일치")
+        else:
+            penalties.append("등락률/증감률 표현 없음")
 
-    expects_year_over_year = any(token in claim for token in ("지난해같은달", "전년동월", "전년동월비"))
-    if expects_year_over_year:
-        max_score += 30
-    if expects_year_over_year and "전년동월비" in title:
-        score += 10
-        reasons.append("전년동월비 일치")
-        score_breakdown.append("+10 전년동월비 일치")
-    elif expects_year_over_year:
-        penalties.append("전년동월비 표현 없음")
+    if profile.comparison:
+        max_score += 10
+        if _title_matches_comparison(title, profile.comparison):
+            score += 10
+            reasons.append(f"{profile.comparison} 일치")
+            score_breakdown.append(f"+10 {profile.comparison} 일치")
+        else:
+            penalties.append(f"{profile.comparison} 표현 없음")
 
     selected_item = next((item for item in item_names if "전년" in item), "")
     official_items = " ".join(item_names)
-    if expects_year_over_year and "전월비" in official_items and "전년" not in official_items:
-        deduction = min(40, score)
-        score -= deduction
-        penalties.append("공식 항목 전월비 불일치")
-        score_breakdown.append(f"-{deduction} 공식 항목 전월비 불일치")
-    elif expects_year_over_year and ("전년비" in official_items or "전년동월비" in official_items):
-        score += 20
-        reasons.append("공식 항목 전년동월비 일치")
-        score_breakdown.append("+20 공식 항목 전년동월비 일치")
+    if profile.comparison == "전년동월비":
+        max_score += 20
+        if "전월비" in official_items and "전년" not in official_items:
+            deduction = min(40, score)
+            score -= deduction
+            penalties.append("공식 항목 전월비 불일치")
+            score_breakdown.append(f"-{deduction} 공식 항목 전월비 불일치")
+        elif "전년비" in official_items or "전년동월비" in official_items:
+            score += 20
+            reasons.append("공식 항목 전년동월비 일치")
+            score_breakdown.append("+20 공식 항목 전년동월비 일치")
+
     return KosisCandidate(
         hit=hit,
         score=score,
@@ -101,10 +132,19 @@ def evaluate_kosis_candidate(sentence: str, hit: TableHit, *, item_names: tuple[
     )
 
 
-def suggest_kosis_candidates(sentence: str, search_index: object, *, top_k: int = 3, metadata_client: object | None = None) -> list[KosisCandidate]:
-    """Search and return the best explainable table candidates for one sentence."""
-    query = "소비자물가" if "소비자물가" in _compact(sentence) else sentence
-    hits = search_index.search(query, top_k=10)
+def suggest_kosis_candidates(
+    sentence: str,
+    search_index: object,
+    *,
+    top_k: int = 3,
+    metadata_client: object | None = None,
+    previous_profile: ClaimProfile | None = None,
+) -> list[KosisCandidate]:
+    """Search supported KOSIS candidates using a structured numeric claim profile."""
+    profile = build_claim_profile(sentence, previous=previous_profile)
+    if not profile.search_query:
+        return []
+    hits = search_index.search(profile.search_query, top_k=10)
     candidates = []
     for hit in hits:
         item_names: tuple[str, ...] = ()
@@ -114,5 +154,5 @@ def suggest_kosis_candidates(sentence: str, search_index: object, *, top_k: int 
                 item_names = tuple(dict.fromkeys(str(row.get("ITM_NM", "")) for row in rows if row.get("ITM_NM")))
             except Exception:
                 pass
-        candidates.append(evaluate_kosis_candidate(sentence, hit, item_names=item_names))
+        candidates.append(evaluate_kosis_candidate(sentence, hit, item_names=item_names, profile=profile))
     return sorted(candidates, key=lambda candidate: -candidate.score)[:top_k]

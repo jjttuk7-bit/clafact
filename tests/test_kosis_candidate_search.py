@@ -80,3 +80,27 @@ def test_candidate_normalizes_raw_ranking_to_hundred_point_fit():
     assert result.score == 110
     assert result.max_score == 120
     assert result.fit_score == 92
+
+
+def test_search_uses_claim_profile_query_for_employment_claim():
+    class FakeIndex:
+        last_query = ""
+
+        def search(self, query: str, top_k: int):
+            self.last_query = query
+            return [TableHit("DT_EMPLOYMENT", "101", "고용률", "경제활동인구조사", 1.0)]
+
+    index = FakeIndex()
+    candidates = suggest_kosis_candidates("지난해 고용률은 62.7%로 전년보다 0.3%p 상승했다.", index)
+
+    assert index.last_query == "고용률"
+    assert candidates[0].hit.tbl_id == "DT_EMPLOYMENT"
+    assert candidates[0].fit_score == 70
+
+
+def test_returns_no_candidates_when_profile_has_no_supported_indicator():
+    class FakeIndex:
+        def search(self, query: str, top_k: int):
+            raise AssertionError("unsupported claim must not call KOSIS search")
+
+    assert suggest_kosis_candidates("경제가 어렵다는 평가가 나왔다.", FakeIndex()) == []
