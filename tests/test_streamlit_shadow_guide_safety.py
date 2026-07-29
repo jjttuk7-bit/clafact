@@ -50,7 +50,9 @@ def test_shadow_actual_value_comparison_renders_read_only_official_value_card():
 
     assert "build_value_comparison_card" in source
     assert "comparison_card = build_value_comparison_card(" in source
-    assert "snapshot=latest_snapshot" in source
+    card_scope = source[source.index("comparison_card = build_value_comparison_card("):]
+    assert "snapshot=comparison_snapshot" in card_scope
+    assert "snapshot=latest_snapshot" not in card_scope
     assert 'evidence_indicator=selected_evidence["indicator"]' in source
     assert 'evidence_selection=selected_evidence["source_selection"]' in source
     assert 'if comparison_card.alternatives:' in source
