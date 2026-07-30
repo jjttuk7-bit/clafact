@@ -252,3 +252,13 @@ def test_candidate_metadata_failure_retains_ranked_candidates():
 def test_http_client_limits_connection_attempts_for_ui_profile():
     client = HttpKosisClient(api_key="DUMMY", max_connection_attempts=1)
     assert client.max_connection_attempts == 1
+
+
+def test_http_client_rejects_nonpositive_connection_attempt_limit():
+    for attempts in (0, -1):
+        try:
+            HttpKosisClient(api_key="DUMMY", max_connection_attempts=attempts)
+        except ValueError as error:
+            assert "max_connection_attempts" in str(error)
+        else:
+            raise AssertionError("nonpositive connection attempt limits must be rejected")

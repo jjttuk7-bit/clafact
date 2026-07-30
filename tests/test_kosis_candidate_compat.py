@@ -18,3 +18,23 @@ def test_retries_without_context_for_stale_candidate_search_signature():
 
     assert result == ["candidate"]
     assert calls == [("이같은 물가 상승률은 높다.", "index", "metadata")]
+
+
+def test_retries_without_metadata_limit_for_partially_updated_search_signature():
+    calls = []
+
+    def stale_search(sentence, index, *, metadata_client=None, previous_profile=None):
+        calls.append((sentence, index, metadata_client, previous_profile))
+        return ["candidate"]
+
+    result = search_candidates_with_context(
+        stale_search,
+        "이같은 물가 상승률은 높다.",
+        "index",
+        metadata_client="metadata",
+        previous_profile="previous",
+        metadata_limit=3,
+    )
+
+    assert result == ["candidate"]
+    assert calls == [("이같은 물가 상승률은 높다.", "index", "metadata", "previous")]

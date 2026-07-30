@@ -26,7 +26,7 @@ from clafact.assets.failures import FailureRecorder, FAILURE_TYPES
 from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact.eval import harness
-from clafact.kosis import HttpKosisClient
+from clafact.kosis import HttpKosisClient, KosisApiError, KosisConnectionError
 from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
@@ -324,7 +324,11 @@ def kosis_retry_message(error: Exception) -> str:
         return f"KOSIS 표 파라미터 확인 필요: {detail}. 다시 시도하세요."
     if "호출 예산 소진" in detail:
         return f"KOSIS 호출 예산 소진: {detail}. 다시 시도하지 말고 예산을 확인하세요."
-    return f"KOSIS 연결 지연: {detail}. 잠시 후 다시 시도하세요."
+    if isinstance(error, KosisConnectionError):
+        return f"KOSIS 연결 지연: {detail}. 잠시 후 다시 시도하세요."
+    if isinstance(error, KosisApiError) or "KOSIS HTTP 오류" in detail:
+        return f"KOSIS API 응답 오류: {detail}. 표 설정을 확인한 뒤 다시 시도하세요."
+    return f"KOSIS 조회 오류: {detail}. 입력과 연결 상태를 확인하세요."
 @st.cache_resource
 def load_engine():
     client = create_ui_kosis_client()

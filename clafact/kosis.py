@@ -192,6 +192,8 @@ class HttpKosisClient:
         self.api_key = api_key or os.environ.get("KOSIS_API_KEY", "")
         self.timeout = timeout
         self.max_objl_repairs = max_objl_repairs
+        if max_connection_attempts is not None and max_connection_attempts < 1:
+            raise ValueError("max_connection_attempts must be at least 1")
         self.max_connection_attempts = max_connection_attempts
         # 기본값으로도 보호되게 한다 — 가드는 "켜는 걸 잊으면" 없는 것과 같다.
         self.rate = rate_limiter or RateLimiter(per_minute=30)

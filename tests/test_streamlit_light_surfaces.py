@@ -25,6 +25,9 @@ def test_dashboard_limits_kosis_connection_retries_and_classifies_retry_errors()
     assert "UI_KOSIS_MAX_CONNECTION_ATTEMPTS = 1" in source
     assert "max_connection_attempts=UI_KOSIS_MAX_CONNECTION_ATTEMPTS" in source
     assert "metadata_limit=3" in source
+    assert "isinstance(error, KosisConnectionError)" in source
+    assert "KOSIS API 응답 오류" in source
+    assert "KOSIS 조회 오류" in source
     assert "KOSIS 연결 지연" in source
     assert "KOSIS 표 파라미터 확인 필요" in source
     assert "KOSIS 호출 예산 소진" in source
