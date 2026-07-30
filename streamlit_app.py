@@ -2731,7 +2731,7 @@ if view == "검증 실험실":
                     st.info("먼저 위의 ‘통계표 근거 객체 저장’에서 KOSIS 통계표를 한 건 이상 저장해 주세요.")
                 reviewable_rows = [
                     row for row in shadow_run["rows"]
-                    if row["review_state"] == "needs_review"
+                    if row["review_state"] in {"needs_review", "reviewed", "hold"}
                 ]
                 if reviewable_rows:
                     if guide.screen_hint and guide.screen_hint.step_id == "review_export":

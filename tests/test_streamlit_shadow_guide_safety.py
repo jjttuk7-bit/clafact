@@ -94,3 +94,9 @@ def test_goldenset_status_loads_jsonl_and_surfaces_semantic_parity_as_research_v
     assert "validate_semantic_parity(goldenset_rows, goldenset_jsonl_rows)" in source
     assert "additional_issues=goldenset_parity_issues" in source
     assert "Shadow 실행과 후보 탐색은 계속 사용할 수 있습니다" in source
+
+
+def test_shadow_review_keeps_reviewed_rows_available_for_correction():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'row["review_state"] in {"needs_review", "reviewed", "hold"}' in source
