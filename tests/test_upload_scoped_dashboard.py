@@ -24,9 +24,10 @@ def test_dashboard_wires_real_kosis_api_engine() -> None:
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     engine = source[source.index("def load_engine():"):source.index("def render_card")]
 
-    assert "HttpKosisClient" in engine
+    assert "create_ui_kosis_client()" in engine
+    assert "HttpKosisClient" in source
     assert "KosisSearchIndex" in engine
-    assert 'os.environ["KOSIS_API_KEY"]' in engine
+    assert 'os.environ["KOSIS_API_KEY"]' in source
 
 
 def test_dashboard_scopes_processing_and_audit_rows_to_uploaded_articles() -> None:

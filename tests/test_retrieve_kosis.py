@@ -191,3 +191,64 @@ if __name__ == "__main__":
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
+
+
+def test_http_fetch_stops_objl_repairs_at_configured_limit():
+    """UI profile must stop bounded objL repairs instead of probing every level."""
+    import urllib.request
+
+    client = HttpKosisClient(
+        api_key="DUMMY",
+        max_objl_repairs=1,
+        budget=CallBudget(Path(__import__("tempfile").mkdtemp()) / "budget.json", limit=10),
+        rate_limiter=RateLimiter(600),
+    )
+    original_urlopen = urllib.request.urlopen
+    calls = 0
+
+    class Response(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def urlopen(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return Response(b'{"err":"20","errMsg":"objL required"}')
+
+    try:
+        urllib.request.urlopen = urlopen
+        with __import__("pytest").raises(RuntimeError, match="objL 보완 제한"):
+            client.fetch_data("101", "DT_X", recent_n=1)
+        assert calls == 2
+    finally:
+        urllib.request.urlopen = original_urlopen
+
+
+def test_candidate_metadata_failure_retains_ranked_candidates():
+    """Metadata enrichment failure must not discard search candidates."""
+    from clafact.kosis_candidate_search import suggest_kosis_candidates
+    from clafact.pipeline.retrieve import TableHit
+
+    class Index:
+        def search(self, query, top_k):
+            return [
+                TableHit("MONTHLY", "101", "월별 소비자물가 등락률(전년동월비)", "소비자물가조사", 0.2),
+                TableHit("ANNUAL", "101", "연도별 소비자물가지수", "소비자물가조사", 1.0),
+            ]
+
+    class FailingMetadata:
+        def fetch_data(self, *args, **kwargs):
+            raise TimeoutError("KOSIS metadata timeout")
+
+    candidates = suggest_kosis_candidates(
+        "지난달 소비자물가가 지난해 같은 달 대비 2.4% 상승했다.",
+        Index(),
+        metadata_client=FailingMetadata(),
+    )
+
+    assert [candidate.hit.tbl_id for candidate in candidates] == ["MONTHLY", "ANNUAL"]
+
+
+def test_http_client_limits_connection_attempts_for_ui_profile():
+    client = HttpKosisClient(api_key="DUMMY", max_connection_attempts=1)
+    assert client.max_connection_attempts == 1
