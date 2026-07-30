@@ -185,10 +185,16 @@ class HttpKosisClient:
     BASE = BASE_URL
 
     def __init__(self, api_key: str | None = None, timeout: int = 15,
+                 max_objl_repairs: int | None = None,
+                 max_connection_attempts: int | None = None,
                  rate_limiter: RateLimiter | None = None,
                  budget: CallBudget | None = None):
         self.api_key = api_key or os.environ.get("KOSIS_API_KEY", "")
         self.timeout = timeout
+        self.max_objl_repairs = max_objl_repairs
+        if max_connection_attempts is not None and max_connection_attempts < 1:
+            raise ValueError("max_connection_attempts must be at least 1")
+        self.max_connection_attempts = max_connection_attempts
         # 기본값으로도 보호되게 한다 — 가드는 "켜는 걸 잊으면" 없는 것과 같다.
         self.rate = rate_limiter or RateLimiter(per_minute=30)
         self.budget = budget or CallBudget()
@@ -205,7 +211,10 @@ class HttpKosisClient:
             (문서 19 §5.5) 헛되이 차감하면 KOSIS 가 받은 적 없는 호출로 로컬 카운터만 태운다.
         """
         self.budget.check(1)          # 예산 초과면 호출하기 *전에* 멈춘다
-        for i, delay in enumerate(backoff_delays()):
+        delays = backoff_delays()
+        if self.max_connection_attempts is not None:
+            delays = delays[:self.max_connection_attempts]
+        for i, delay in enumerate(delays):
             self.rate.acquire()
             try:
                 with urllib.request.urlopen(url, timeout=self.timeout) as resp:  # noqa: S310
@@ -219,7 +228,7 @@ class HttpKosisClient:
                 self.budget.spend(1, f"{note} HTTP{e.code}")
                 raise RuntimeError(f"KOSIS HTTP 오류 {e.code}: {e.reason}") from e
             except (urllib.error.URLError, TimeoutError) as e:   # 연결 실패만 재시도·미차감
-                if i == len(backoff_delays()) - 1:
+                if i == len(delays) - 1:
                     raise KosisConnectionError(
                         f"KOSIS 호출 실패({type(e).__name__}): {e}\n"
                         f"  → 연결 실패이므로 호출 예산은 차감하지 않았습니다 "
@@ -231,8 +240,11 @@ class HttpKosisClient:
     def fetch_data(self, org_id: str, tbl_id: str, **params) -> list[dict]:
         """통계자료 조회. objL 누락 오류 20만 다음 분류 수준 ALL로 보완한다."""
         query_params = dict(params)
-        remaining_levels = iter(level for level in range(2, 9)
-                                if f"obj_l{level}" not in query_params)
+        remaining_levels = [level for level in range(2, 9)
+                            if f"obj_l{level}" not in query_params]
+        if self.max_objl_repairs is not None:
+            remaining_levels = remaining_levels[:self.max_objl_repairs]
+        remaining_levels = iter(remaining_levels)
         while True:
             url = build_url(org_id, tbl_id, self.api_key, **query_params)
             try:
@@ -243,6 +255,10 @@ class HttpKosisClient:
                     raise
                 level = next(remaining_levels, None)
                 if level is None:  # 모든 추가 objL을 보완해도 오류 20인 비정상 표
+                    if self.max_objl_repairs is not None:
+                        raise RuntimeError(
+                            f"KOSIS objL 보완 제한({self.max_objl_repairs}회) 도달: {tbl_id}"
+                        ) from error
                     raise
                 query_params[f"obj_l{level}"] = "ALL"
         rows = data if isinstance(data, list) else []

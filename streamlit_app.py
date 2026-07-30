@@ -27,7 +27,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact import goldenset as research_goldenset
 from clafact.eval import harness
-from clafact.kosis import HttpKosisClient
+from clafact.kosis import HttpKosisClient, KosisApiError, KosisConnectionError
 from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
@@ -305,10 +305,34 @@ def render_stored_claim(row, number: int) -> None:
                 st.json(audit_data, expanded=False)
 CONF_ORDER = {"low": 0, "medium": 1, "high": 2, None: 3}
 
+UI_KOSIS_TIMEOUT_SECONDS = 5
+UI_KOSIS_MAX_OBJL_REPAIRS = 1
+UI_KOSIS_MAX_CONNECTION_ATTEMPTS = 1
 
+def create_ui_kosis_client():
+    return HttpKosisClient(
+        api_key=os.environ["KOSIS_API_KEY"],
+        timeout=UI_KOSIS_TIMEOUT_SECONDS,
+        max_objl_repairs=UI_KOSIS_MAX_OBJL_REPAIRS,
+        max_connection_attempts=UI_KOSIS_MAX_CONNECTION_ATTEMPTS,
+    )
+
+
+
+def kosis_retry_message(error: Exception) -> str:
+    detail = str(error)
+    if "objL 보완 제한" in detail:
+        return f"KOSIS 표 파라미터 확인 필요: {detail}. 다시 시도하세요."
+    if "호출 예산 소진" in detail:
+        return f"KOSIS 호출 예산 소진: {detail}. 다시 시도하지 말고 예산을 확인하세요."
+    if isinstance(error, KosisConnectionError):
+        return f"KOSIS 연결 지연: {detail}. 잠시 후 다시 시도하세요."
+    if isinstance(error, KosisApiError) or "KOSIS HTTP 오류" in detail:
+        return f"KOSIS API 응답 오류: {detail}. 표 설정을 확인한 뒤 다시 시도하세요."
+    return f"KOSIS 조회 오류: {detail}. 입력과 연결 상태를 확인하세요."
 @st.cache_resource
 def load_engine():
-    client = HttpKosisClient(api_key=os.environ["KOSIS_API_KEY"])
+    client = create_ui_kosis_client()
     return KosisSearchIndex(client), client
 
 
@@ -1899,7 +1923,7 @@ if view == "검증 실험실":
                         st.session_state.get("kosis_evidence_url", ""),
                     )
                     query_params = {"recent_n": 1}
-                    rows = HttpKosisClient().fetch_data(identity.org_id, identity.table_id, **query_params)
+                    rows = create_ui_kosis_client().fetch_data(identity.org_id, identity.table_id, **query_params)
                     snapshot_retrieved_at = datetime.now().astimezone().isoformat()
                     preparation = prepare_kosis_snapshot_context(
                         table_id=identity.table_id,
@@ -1929,7 +1953,7 @@ if view == "검증 실험실":
                     st.success(f"공식 KOSIS API 조회 완료 · 스냅샷 {len(rows)}건 준비됨 · 근거 저장 시 함께 보존됩니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
                 except (RuntimeError, ValueError) as error:
                     st.session_state.pop("kosis_evidence_snapshot_context", None)
-                    st.error(f"KOSIS 조회·스냅샷 준비를 실행하지 못했습니다: {error}")
+                    st.error(kosis_retry_message(error))
             definition_source_url = st.session_state.get("kosis_evidence_url", "")
             if not definition_source_url:
                 st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")
@@ -2429,7 +2453,7 @@ if view == "검증 실험실":
                     try:
                         search_index, metadata_client = load_engine()
                         candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
-                        candidates = search_candidates_with_context(suggest_kosis_candidates, candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile)
+                        candidates = search_candidates_with_context(suggest_kosis_candidates, candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile, metadata_limit=3)
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
                         candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": candidate_profile.__dict__} for rank, c in enumerate(candidates, start=1)]

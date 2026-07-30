@@ -175,6 +175,7 @@ def suggest_kosis_candidates(
     top_k: int = 3,
     metadata_client: object | None = None,
     previous_profile: ClaimProfile | None = None,
+    metadata_limit: int = 3,
 ) -> list[KosisCandidate]:
     """Search supported KOSIS candidates using a structured numeric claim profile."""
     profile = build_claim_profile(sentence, previous=previous_profile)
@@ -182,9 +183,9 @@ def suggest_kosis_candidates(
         return []
     hits = search_index.search(profile.search_query, top_k=10)
     candidates = []
-    for hit in hits:
+    for hit_index, hit in enumerate(hits):
         item_names: tuple[str, ...] = ()
-        if metadata_client is not None:
+        if metadata_client is not None and hit_index < metadata_limit:
             try:
                 rows = metadata_client.fetch_data(hit.org_id, hit.tbl_id, recent_n=1)
                 item_names = tuple(dict.fromkeys(str(row.get("ITM_NM", "")) for row in rows if row.get("ITM_NM")))
