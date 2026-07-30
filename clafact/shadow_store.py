@@ -154,7 +154,7 @@ class ShadowStore:
             state = "hold" if action == "hold" else "reviewed"
             self.conn.execute(
                 "UPDATE shadow_rows SET review_state = ? WHERE run_id = ? AND row_index = ?",
-                ("reviewed", run_id, row_index),
+                (state, run_id, row_index),
             )
             self.conn.commit()
             return True

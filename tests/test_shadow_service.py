@@ -38,4 +38,4 @@ def test_service_keeps_review_history_outside_operating_store(tmp_path):
         assert service.review(
             "shadow-service-2", 1, action="hold", note="시간 기준 확인", reviewed_at="2026-07-28T10:01:00+09:00"
         ) is True
-        assert service.get_run("shadow-service-2")["rows"][0]["review_state"] == "reviewed"
+        assert service.get_run("shadow-service-2")["rows"][0]["review_state"] == "hold"

@@ -31,7 +31,7 @@ def test_json_export_keeps_policy_summary_rows_and_review_history(tmp_path):
     document = json.loads(payload.decode("utf-8"))
     assert document["policy"]["version"] == "shadow-policy-v1"
     assert document["summary"]["row_count"] == 1
-    assert document["rows"][0]["review_state"] == "reviewed"
+    assert document["rows"][0]["review_state"] == "hold"
     assert document["reviews"][0]["action"] == "hold"
 
 

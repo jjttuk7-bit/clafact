@@ -43,14 +43,14 @@ def test_store_rejects_different_payload_for_existing_run_id(tmp_path):
             store.append_run(_run(), [_row("다른 문장")])
 
 
-def test_store_appends_review_and_marks_row_reviewed(tmp_path):
+def test_store_appends_hold_review_and_marks_row_hold(tmp_path):
     with ShadowStore(tmp_path / "shadow_lab.db") as store:
         store.append_run(_run(), [_row()])
 
         assert store.append_review(
             "shadow-1", 1, action="hold", note="기간 확인 필요", reviewed_at="2026-07-28T10:01:00+09:00"
         ) is True
-        assert store.list_review_rows("shadow-1")[0]["review_state"] == "reviewed"
+        assert store.list_review_rows("shadow-1")[0]["review_state"] == "hold"
 
 
 def test_store_lists_runs_newest_first(tmp_path):
