@@ -2271,6 +2271,31 @@ if view == "검증 실험실":
                 except Exception as error:
                     st.error(f"Shadow 실행을 저장하지 못했습니다: {error}")
 
+        try:
+            with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
+                saved_shadow_runs = shadow_service.list_runs(limit=20)
+        except Exception as error:
+            saved_shadow_runs = []
+            st.warning(f"저장된 Shadow 실행 목록을 읽지 못했습니다: {error}")
+        if saved_shadow_runs:
+            saved_run_options = {
+                f"{run['created_at']} · {run['run_id'][:12]} · {run['summary'].get('row_count', 0)}문장": run["run_id"]
+                for run in saved_shadow_runs
+            }
+            current_run_id = st.session_state.get("shadow_lab_run_id")
+            option_labels = list(saved_run_options)
+            selected_index = next(
+                (index for index, label in enumerate(option_labels) if saved_run_options[label] == current_run_id),
+                0,
+            )
+            selected_saved_label = st.selectbox(
+                "저장된 Shadow 실행 불러오기", option_labels, index=selected_index,
+                key="shadow_saved_run_loader",
+            )
+            selected_saved_run_id = saved_run_options[selected_saved_label]
+            if selected_saved_run_id != current_run_id:
+                st.session_state["shadow_lab_run_id"] = selected_saved_run_id
+                st.rerun()
         shadow_run_id = st.session_state.get("shadow_lab_run_id")
         if shadow_run_id:
             try:
