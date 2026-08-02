@@ -23,3 +23,10 @@ def test_shadow_flow_places_candidate_search_before_evidence_management():
     assert "저장된 Shadow 실행 불러오기" not in source
     assert source.index("##### KOSIS 후보 탐색") < source.index("##### KOSIS 통계표 근거 입력")
     assert source.index("##### KOSIS 통계표 근거 입력") < source.index("##### KOSIS 근거 연결")
+
+def test_shadow_flow_saves_reviewed_evidence_before_value_comparison():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert source.index('"KOSIS 근거 연결 저장"') < source.index('"KOSIS 실제 값 대조"')
+    assert 'item["evidence_id"] == selected_completion["mapping"]["evidence_id"]' in source
+    assert 'item["snapshot_id"] == selected_completion["snapshot"]["snapshot_id"]' in source

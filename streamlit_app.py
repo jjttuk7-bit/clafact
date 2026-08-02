@@ -2562,6 +2562,51 @@ if view == "검증 실험실":
                     st.caption(f"점수 산정: {score_breakdown}")
                     st.caption("검토 근거: " + " · ".join(match_result.reasons))
 
+                    mapping_status = st.selectbox(
+                        "연결 상태", ("candidate", "reviewed", "rejected"),
+                        format_func=lambda status: {
+                            "candidate": "후보", "reviewed": "검토 완료", "rejected": "제외",
+                        }[status],
+                        key=f"kosis_mapping_status_{shadow_run_id}",
+                    )
+                    mapping_note = st.text_area(
+                        "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
+                        key=f"kosis_mapping_note_{shadow_run_id}",
+                    )
+                    if st.button("KOSIS 근거 연결 저장", key=f"kosis_mapping_save_{shadow_run_id}"):
+                        selected_sentence = sentence_options[selected_sentence_label]
+                        selected_evidence = evidence_options[selected_evidence_label]
+                        try:
+                            mapping = KosisShadowMapping(
+                                shadow_run_id=shadow_run_id,
+                                row_index=selected_sentence["row_index"],
+                                table_id=selected_evidence["table_id"],
+                                evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
+                                source_selection=selected_evidence["source_selection"],
+                                note=mapping_note,
+                                status=mapping_status,
+                                match_score=match_result.score,
+                                match_reasons=match_result.reasons,
+                                match_score_breakdown=match_result.score_breakdown,
+                            )
+                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                                inserted = mapping_store.append(mapping)
+                            if inserted:
+                                st.success("KOSIS 근거 연결을 연구 전용 저장소에 기록했습니다.")
+                            else:
+                                st.info("동일한 KOSIS 근거 연결이 이미 기록되어 있습니다.")
+                        except ValueError as error:
+                            st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
+                    selected_evidence_id = selected_evidence.get("evidence_id", selected_evidence["table_id"])
+                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                        mapping_ready = any(
+                            mapping["row_index"] == selected_sentence["row_index"]
+                            and mapping.get("evidence_id", mapping["table_id"]) == selected_evidence_id
+                            and mapping["status"] == "reviewed"
+                            for mapping in mapping_store.list_for_run(shadow_run_id)
+                        )
+                    if not mapping_ready:
+                        st.info("실제 값 대조 전에 이 근거를 ‘검토 완료’로 저장해 주세요.")
                     st.markdown("##### KOSIS 실제 값 대조")
                     with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
                         snapshot_history = snapshot_store.list_for_table(selected_evidence["table_id"])
@@ -2574,7 +2619,7 @@ if view == "검증 실험실":
                             f"kosis_value_comparison_{shadow_run_id}_"
                             f"{selected_sentence['row_index']}_{selected_evidence.get('evidence_id', selected_evidence['table_id'])}"
                         )
-                        if st.button("KOSIS 실제 값 대조", key=f"{comparison_key}_run"):
+                        if mapping_ready and st.button("KOSIS 실제 값 대조", key=f"{comparison_key}_run"):
                             comparison = compare_claim_to_snapshot(
                                 claim_sentence=selected_sentence["sentence"],
                                 article_date=article_date_for_comparison,
@@ -2696,41 +2741,6 @@ if view == "검증 실험실":
                                             st.caption(
                                                 f"선택 조건: {selection_text} · {candidate_reason}"
                                             )
-                    mapping_status = st.selectbox(
-                        "연결 상태", ("candidate", "reviewed", "rejected"),
-                        format_func=lambda status: {
-                            "candidate": "후보", "reviewed": "검토 완료", "rejected": "제외",
-                        }[status],
-                        key=f"kosis_mapping_status_{shadow_run_id}",
-                    )
-                    mapping_note = st.text_area(
-                        "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
-                        key=f"kosis_mapping_note_{shadow_run_id}",
-                    )
-                    if st.button("KOSIS 근거 연결 저장", key=f"kosis_mapping_save_{shadow_run_id}"):
-                        selected_sentence = sentence_options[selected_sentence_label]
-                        selected_evidence = evidence_options[selected_evidence_label]
-                        try:
-                            mapping = KosisShadowMapping(
-                                shadow_run_id=shadow_run_id,
-                                row_index=selected_sentence["row_index"],
-                                table_id=selected_evidence["table_id"],
-                                evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
-                                source_selection=selected_evidence["source_selection"],
-                                note=mapping_note,
-                                status=mapping_status,
-                                match_score=match_result.score,
-                                match_reasons=match_result.reasons,
-                                match_score_breakdown=match_result.score_breakdown,
-                            )
-                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
-                                inserted = mapping_store.append(mapping)
-                            if inserted:
-                                st.success("KOSIS 근거 연결을 연구 전용 저장소에 기록했습니다.")
-                            else:
-                                st.info("동일한 KOSIS 근거 연결이 이미 기록되어 있습니다.")
-                        except ValueError as error:
-                            st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
                 else:
                     st.info("먼저 위의 ‘통계표 근거 객체 저장’에서 KOSIS 통계표를 한 건 이상 저장해 주세요.")
                 st.markdown("##### Claim 완료")
@@ -2759,6 +2769,7 @@ if view == "검증 실험실":
                 except Exception as error:
                     st.warning(f"완료 Claim에 필요한 KOSIS 스냅샷을 읽지 못했습니다: {error}")
 
+                selected_completion = None
                 if completion_options:
                     completion_label = st.selectbox(
                         "완료할 확정 KOSIS 근거", list(completion_options),
@@ -2793,7 +2804,10 @@ if view == "검증 실험실":
                     ], width="stretch", hide_index=True)
                     selected_completed_claims = [
                         item for item in completed_claims
-                        if int(item["row_index"]) == candidate_row["row_index"]
+                        if selected_completion is not None
+                        and int(item["row_index"]) == candidate_row["row_index"]
+                        and item["evidence_id"] == selected_completion["mapping"]["evidence_id"]
+                        and item["snapshot_id"] == selected_completion["snapshot"]["snapshot_id"]
                     ]
                     if selected_completed_claims:
                         selected_completed = selected_completed_claims[-1]
