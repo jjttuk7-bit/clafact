@@ -33,6 +33,8 @@ from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
 from clafact.kosis_candidate_compat import search_candidates_with_context
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
+from clafact.claim_completion import complete_selected_claim
+from clafact.claim_completion_store import ClaimCompletionStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
@@ -2729,6 +2731,72 @@ if view == "검증 실험실":
                             st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
                 else:
                     st.info("먼저 위의 ‘통계표 근거 객체 저장’에서 KOSIS 통계표를 한 건 이상 저장해 주세요.")
+                st.markdown("##### Claim 완료")
+                completed_claims = []
+                try:
+                    with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                        completed_claims = completion_store.list_for_run(shadow_run_id)
+                except Exception as error:
+                    st.warning(f"완료 Claim 기록을 읽지 못했습니다: {error}")
+
+                completion_options = {}
+                try:
+                    with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                        for mapping in guide_mappings:
+                            if int(mapping["row_index"]) != candidate_row["row_index"] or mapping.get("status") != "reviewed":
+                                continue
+                            evidence_id = str(mapping.get("evidence_id") or mapping["table_id"])
+                            for comparison in guide_comparisons:
+                                if int(comparison["row_index"]) != candidate_row["row_index"] or comparison.get("evidence_id") != evidence_id:
+                                    continue
+                                snapshot = snapshot_store.get(str(comparison.get("snapshot_id") or ""))
+                                if snapshot is None:
+                                    continue
+                                label = f"#{candidate_row['row_index']} · {mapping['table_id']} · {comparison.get('snapshot_id')}"
+                                completion_options[label] = {"mapping": mapping, "comparison": comparison, "snapshot": snapshot}
+                except Exception as error:
+                    st.warning(f"완료 Claim에 필요한 KOSIS 스냅샷을 읽지 못했습니다: {error}")
+
+                if completion_options:
+                    completion_label = st.selectbox(
+                        "완료할 확정 KOSIS 근거", list(completion_options),
+                        key=f"claim_completion_evidence_{shadow_run_id}_{candidate_row['row_index']}",
+                    )
+                    selected_completion = completion_options[completion_label]
+                    if st.button("Claim 완료", key=f"claim_completion_save_{shadow_run_id}_{candidate_row['row_index']}"):
+                        try:
+                            completed = complete_selected_claim(
+                                shadow_run_id=shadow_run_id,
+                                row_index=candidate_row["row_index"],
+                                sentence=candidate_row["sentence"],
+                                mapping=selected_completion["mapping"],
+                                comparison=selected_completion["comparison"],
+                                snapshot=selected_completion["snapshot"],
+                            )
+                            with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                                inserted = completion_store.append(completed)
+                            completed_claims = [
+                                item for item in completed_claims
+                                if not (int(item["row_index"]) == completed["row_index"] and item["evidence_id"] == completed["evidence_id"] and item["snapshot_id"] == completed["snapshot_id"])
+                            ] + [completed]
+                            st.success("Claim 완료 기록을 저장했습니다." if inserted else "동일한 Claim 완료 기록을 표시합니다.")
+                        except ValueError as error:
+                            st.error(f"Claim 완료 기록을 저장하지 못했습니다: {error}")
+
+                if completed_claims:
+                    st.markdown("###### Claim 완료 결과")
+                    st.dataframe([
+                        {"문장 번호": item["row_index"], "판정": {"match": "일치", "mismatch": "불일치", "hold": "보류"}.get(item["verdict"], item["verdict"]), "KOSIS 표": item["evidence"]["table_id"], "스냅샷": item["snapshot_id"]}
+                        for item in completed_claims
+                    ], width="stretch", hide_index=True)
+                    selected_completed = completed_claims[-1]
+                    if selected_completed["verdict"] == "hold":
+                        st.warning("선택된 완료 Claim은 근거 부족 또는 비교 불가로 보류입니다.")
+                    else:
+                        st.caption(f"문장 값: {selected_completed['comparison'].get('claim_value', '-') or '-'} · KOSIS 값: {selected_completed['comparison'].get('official_value', '-') or '-'} · 사유: {selected_completed['comparison'].get('reason', '-') or '-'}")
+                    st.link_button("KOSIS 재현 URL 열기", str(selected_completed["evidence"]["source_url"]), key=f"claim_completion_repro_{selected_completed['snapshot_id']}")
+                elif not completion_options:
+                    st.info("현재 문장에 대해 검토 완료된 KOSIS 근거와 실제 값 대조 기록이 모두 필요합니다.")
                 reviewable_rows = [
                     row for row in shadow_run["rows"]
                     if row["review_state"] in {"needs_review", "reviewed", "hold"}
@@ -2785,6 +2853,14 @@ if view == "검증 실험실":
                 except Exception as error:
                     kosis_comparisons_by_row = {}
                     st.warning(f"KOSIS 실제 값 대조 결과를 CSV에 포함하지 못했습니다: {error}")
+                try:
+                    completed_claims_by_row = {}
+                    with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                        for completed in completion_store.list_for_run(shadow_run_id):
+                            completed_claims_by_row.setdefault(int(completed["row_index"]), []).append(completed)
+                except Exception as error:
+                    completed_claims_by_row = {}
+                    st.warning(f"완료 Claim 기록을 CSV에 포함하지 못했습니다: {error}")
                 json_name, csv_name = download_filenames(shadow_run["run_id"])
                 download_columns = st.columns(2)
                 download_columns[0].download_button(
@@ -2793,7 +2869,7 @@ if view == "검증 실험실":
                     use_container_width=True,
                 )
                 download_columns[1].download_button(
-                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row, comparisons_by_row=kosis_comparisons_by_row),
+                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row, comparisons_by_row=kosis_comparisons_by_row, completed_claims_by_row=completed_claims_by_row),
                     file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
                     use_container_width=True,
                 )
