@@ -20,6 +20,7 @@ class CompletedClaim:
     evidence_indicator: str
     evidence_selection: Mapping[str, str]
     snapshot_id: str
+    snapshot: Mapping[str, object]
     comparison: KosisValueComparison
 
     @property
@@ -36,11 +37,12 @@ class CompletedClaim:
             "article_date": self.article_date,
             "evidence": {
                 "table_id": self.table_id,
-                "source_url": self.source_url,
+                "source_url": str(self.snapshot["reproducible_url"]),
                 "indicator": self.evidence_indicator,
                 "selection": dict(self.evidence_selection),
             },
             "snapshot_id": self.snapshot_id,
+            "snapshot": dict(self.snapshot),
             "verdict": self.verdict,
             "comparison": self.comparison.as_dict(),
         }
@@ -80,9 +82,10 @@ def complete_claim_case(
         sentence=sentence,
         article_date=article_date,
         table_id=table_id,
-        source_url=source_url,
+        source_url=snapshot.reproducible_url,
         evidence_indicator=evidence_indicator,
         evidence_selection=dict(evidence_selection),
         snapshot_id=snapshot.snapshot_id,
+        snapshot=snapshot.as_dict(),
         comparison=comparison,
     )
