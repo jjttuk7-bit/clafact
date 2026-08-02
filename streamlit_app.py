@@ -2562,13 +2562,6 @@ if view == "검증 실험실":
                     st.caption(f"점수 산정: {score_breakdown}")
                     st.caption("검토 근거: " + " · ".join(match_result.reasons))
 
-                    mapping_status = st.selectbox(
-                        "연결 상태", ("candidate", "reviewed", "rejected"),
-                        format_func=lambda status: {
-                            "candidate": "후보", "reviewed": "검토 완료", "rejected": "제외",
-                        }[status],
-                        key=f"kosis_mapping_status_{shadow_run_id}",
-                    )
                     mapping_note = st.text_area(
                         "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
                         key=f"kosis_mapping_note_{shadow_run_id}",
@@ -2584,7 +2577,7 @@ if view == "검증 실험실":
                                 evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
                                 source_selection=selected_evidence["source_selection"],
                                 note=mapping_note,
-                                status=mapping_status,
+                                status="reviewed",
                                 match_score=match_result.score,
                                 match_reasons=match_result.reasons,
                                 match_score_breakdown=match_result.score_breakdown,

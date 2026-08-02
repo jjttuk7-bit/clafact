@@ -30,3 +30,9 @@ def test_shadow_flow_saves_reviewed_evidence_before_value_comparison():
     assert source.index('"KOSIS 근거 연결 저장"') < source.index('"KOSIS 실제 값 대조"')
     assert 'item["evidence_id"] == selected_completion["mapping"]["evidence_id"]' in source
     assert 'item["snapshot_id"] == selected_completion["snapshot"]["snapshot_id"]' in source
+
+def test_shadow_evidence_connection_saves_only_reviewed_mapping():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '"연결 상태"' not in source
+    assert 'status="reviewed"' in source
