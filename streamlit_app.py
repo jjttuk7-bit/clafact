@@ -33,6 +33,8 @@ from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
 from clafact.kosis_candidate_compat import search_candidates_with_context
 from clafact.kosis_candidate_run_store import KosisCandidateRunStore
+from clafact.claim_completion import complete_selected_claim
+from clafact.claim_completion_store import ClaimCompletionStore
 from clafact.kosis_definition_candidate import fetch_definition_candidate
 from clafact.kosis_evidence_autofill import autofill_readiness_error, parse_kosis_table_identity
 from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
@@ -1894,357 +1896,6 @@ if view == "검증 실험실":
                 "본문과 발행일을 Shadow 입력에 반영했습니다. 필요하면 수정할 수 있습니다."
             )
 
-        pending_candidate = st.session_state.pop("kosis_evidence_prefill_pending", None)
-        if pending_candidate:
-            st.session_state["kosis_evidence_table_id"] = pending_candidate["table_id"]
-            st.session_state["kosis_evidence_url"] = pending_candidate["url"]
-            if pending_candidate.get("title"):
-                st.session_state["kosis_evidence_title"] = pending_candidate["title"]
-            if pending_candidate.get("indicator"):
-                st.session_state["kosis_evidence_indicator"] = pending_candidate["indicator"]
-                st.session_state["kosis_evidence_candidate_indicator"] = pending_candidate["indicator"]
-            st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. KOSIS 조회·스냅샷 준비를 계속하세요.")
-        st.markdown("##### KOSIS 통계표 근거 입력")
-        with st.expander("통계표 근거 객체 저장", expanded=False):
-            st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
-            autofill_error = autofill_readiness_error(
-                st.session_state.get("kosis_evidence_table_id", ""),
-                st.session_state.get("kosis_evidence_url", ""),
-            )
-            if autofill_error:
-                st.caption(f"자동 채우기 준비 안내: {autofill_error}")
-            if st.button(
-                "KOSIS 조회·스냅샷 준비", key="kosis_evidence_autofill",
-                disabled=autofill_error is not None,
-            ):
-                try:
-                    identity = parse_kosis_table_identity(
-                        st.session_state.get("kosis_evidence_table_id", ""),
-                        st.session_state.get("kosis_evidence_url", ""),
-                    )
-                    query_params = {"recent_n": 1}
-                    rows = create_ui_kosis_client().fetch_data(identity.org_id, identity.table_id, **query_params)
-                    snapshot_retrieved_at = datetime.now().astimezone().isoformat()
-                    preparation = prepare_kosis_snapshot_context(
-                        table_id=identity.table_id,
-                        org_id=identity.org_id,
-                        query_params=query_params,
-                        retrieved_at=snapshot_retrieved_at,
-                        rows=rows,
-                    )
-                    st.session_state["kosis_evidence_snapshot_context"] = preparation.snapshot_context.as_dict()
-                    fields = preparation.fields
-                    structure = preparation.structure
-                    st.session_state['kosis_evidence_structure_type'] = structure.structure_type
-                    st.session_state['kosis_evidence_structure_reason'] = structure.reason
-                    for state_key, value in {
-                        "kosis_evidence_title": fields.title,
-                        "kosis_evidence_org": fields.organization,
-                        "kosis_evidence_indicator": fields.indicator,
-                        "kosis_evidence_dimensions": fields.dimensions,
-                        "kosis_evidence_time": fields.time_dimension,
-                        "kosis_evidence_unit": fields.unit,
-                        "kosis_evidence_selection": fields.source_selection,
-                    }.items():
-                        if state_key == "kosis_evidence_indicator" and st.session_state.get("kosis_evidence_candidate_indicator"):
-                            continue
-                        if value:
-                            st.session_state[state_key] = value
-                    st.success(f"공식 KOSIS API 조회 완료 · 스냅샷 {len(rows)}건 준비됨 · 근거 저장 시 함께 보존됩니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
-                except (RuntimeError, ValueError) as error:
-                    st.session_state.pop("kosis_evidence_snapshot_context", None)
-                    st.error(kosis_retry_message(error))
-            definition_source_url = st.session_state.get("kosis_evidence_url", "")
-            if not definition_source_url:
-                st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")
-            if st.button(
-                "원본 표 설명 후보 가져오기", key="kosis_definition_candidate_fetch",
-                disabled=not bool(definition_source_url),
-            ):
-                try:
-                    candidate = fetch_definition_candidate(definition_source_url)
-                    if candidate is None:
-                        st.info("원본 표 페이지에서 명시적 설명 후보를 찾지 못했습니다. 통계 정의는 직접 입력해 주세요.")
-                    else:
-                        st.session_state["kosis_evidence_definition_candidate_source"] = candidate.source_url
-                        st.session_state["kosis_evidence_definition_candidate_method"] = candidate.method
-                        if not st.session_state.get("kosis_evidence_definition", "").strip():
-                            st.session_state["kosis_evidence_definition"] = candidate.text
-                        st.success("원본 표 설명 후보를 가져왔습니다. 통계 정의 입력란의 내용을 검토·수정한 뒤 저장해 주세요.")
-                except (OSError, ValueError) as error:
-                    st.error(f"원본 표 설명 후보를 가져오지 못했습니다: {error}")
-            k1, k2 = st.columns(2)
-            table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
-            table_url = k2.text_input("원본 URL", key="kosis_evidence_url")
-            title = st.text_input("표 제목", key="kosis_evidence_title")
-            organization = st.text_input("작성 기관", value="국가데이터처", key="kosis_evidence_org")
-            indicator = st.text_input("핵심 지표", key="kosis_evidence_indicator")
-            dimensions = st.text_input("분류 차원 (쉼표)", placeholder="시도, 성별", key="kosis_evidence_dimensions")
-            time_dimension = st.text_input("시간 차원", placeholder="연", key="kosis_evidence_time")
-            unit = st.text_input("단위", placeholder="명", key="kosis_evidence_unit")
-            definition = st.text_area("통계 정의", key="kosis_evidence_definition")
-            definition_candidate_source = st.session_state.get("kosis_evidence_definition_candidate_source", "")
-            if definition_candidate_source:
-                st.caption(f"설명 후보 출처: {definition_candidate_source} · 저장 전 반드시 검토하세요.")
-            selection = st.text_input("선택 항목 (키=값;...)", placeholder="시도=전국;성별=계", key="kosis_evidence_selection")
-            structure_type = st.selectbox(
-                "통계표 구조 유형",
-                ("unknown", "time_series", "regional_comparison", "crosstab", "indicator_bundle"),
-                format_func=lambda value: {
-                    "unknown": "판정 보류", "time_series": "시계열형", "regional_comparison": "지역 비교형",
-                    "crosstab": "교차표형", "indicator_bundle": "지표 묶음형",
-                }[value],
-                key="kosis_evidence_structure_type",
-            )
-            structure_reason = st.session_state.get("kosis_evidence_structure_reason", "")
-            if structure_reason:
-                st.caption(f"자동 판정 근거: {structure_reason}")
-            if st.button("KOSIS 근거 저장", key="kosis_evidence_save"):
-                try:
-                    snapshot_context = st.session_state.get("kosis_evidence_snapshot_context")
-                    snapshot_id = ""
-                    retrieved_at = datetime.now().astimezone().isoformat()
-                    if snapshot_context and snapshot_context["table_id"] == table_id:
-                        retrieved_at = snapshot_context["retrieved_at"]
-                        snapshot = build_evidence_snapshot(**snapshot_context)
-                        with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
-                            snapshot_store.append(snapshot)
-                        snapshot_id = snapshot.snapshot_id
-                    definition_provenance = {}
-                    if definition.strip():
-                        definition_provenance = {
-                            "source_url": st.session_state.get(
-                                "kosis_evidence_definition_candidate_source", table_url
-                            ),
-                            "method": st.session_state.get(
-                                "kosis_evidence_definition_candidate_method", "manual_input"
-                            ),
-                            "approved_at": datetime.now().astimezone().isoformat(),
-                        }
-                    definition_provenance = {}
-                    if definition.strip():
-                        definition_provenance = {
-                            "source_url": st.session_state.get(
-                                "kosis_evidence_definition_candidate_source", table_url
-                            ),
-                            "method": st.session_state.get(
-                                "kosis_evidence_definition_candidate_method", "manual_input"
-                            ),
-                            "approved_at": datetime.now().astimezone().isoformat(),
-                        }
-                    evidence = build_manual_evidence(
-                        table_id=table_id, url=table_url, title=title, organization=organization,
-                        indicator=indicator, dimensions=dimensions, time_dimension=time_dimension,
-                        unit=unit, definition=definition, source_selection=selection,
-                        retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,
-                        definition_provenance=definition_provenance,
-                    )
-                    with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
-                        inserted = evidence_store.append(evidence)
-                    if snapshot_id and inserted:
-                        st.success(f"KOSIS 근거 객체와 조회 스냅샷을 저장했습니다: {evidence.table_id} · {snapshot_id}")
-                    elif snapshot_id:
-                        st.info(f"동일 KOSIS 근거 객체가 이미 있어 객체는 유지했고, 새 조회 스냅샷을 보존했습니다: {snapshot_id}")
-                    elif inserted:
-                        st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
-                    else:
-                        st.info("동일 KOSIS 근거 객체가 이미 저장되어 있습니다.")
-                except ValueError as error:
-                    st.error(f"KOSIS 근거 저장 실패: {error}")
-        with st.expander("KOSIS 근거 객체 레지스트리", expanded=False):
-            with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
-                registered_evidence = evidence_store.list_all()
-            if not registered_evidence:
-                st.caption("저장된 KOSIS 근거 객체가 없습니다. 위 입력 화면에서 근거 객체를 저장하면 이곳에 표시됩니다.")
-            else:
-                snapshot_counts = {}
-                mapping_counts = {}
-                review_counts = {}
-                with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store, \
-                     KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store, \
-                     KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
-                    for registered in registered_evidence:
-                        registered_table_id = registered["table_id"]
-                        snapshot_counts[registered_table_id] = len(snapshot_store.list_for_table(registered_table_id))
-                        registered_evidence_id = registered.get("evidence_id", registered_table_id)
-                        mapping_counts[registered_evidence_id] = len(mapping_store.list_for_evidence(registered_evidence_id))
-                        review_counts[registered_table_id] = len(review_store.list_for_table(registered_table_id))
-                st.dataframe(
-                    build_evidence_registry_rows(
-                        evidence_objects=registered_evidence,
-                        snapshot_counts=snapshot_counts,
-                        mapping_counts=mapping_counts,
-                        review_counts=review_counts,
-                    ),
-                    width="stretch", hide_index=True,
-                )
-                evidence_options = {
-                    format_kosis_evidence_label(item): item
-                    for item in registered_evidence
-                }
-                selected_evidence_label = st.selectbox(
-                    "상세 확인할 근거 객체", list(evidence_options), key="kosis_evidence_registry_selected",
-                )
-                selected_registered_evidence = evidence_options[selected_evidence_label]
-                selected_table_id = selected_registered_evidence["table_id"]
-                with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
-                    selected_reviews = review_store.list_for_table(selected_table_id)
-                case_status = build_evidence_case_status(
-                    evidence=selected_registered_evidence,
-                    snapshot_count=snapshot_counts[selected_table_id],
-                    mapping_count=mapping_counts[selected_registered_evidence.get("evidence_id", selected_table_id)],
-                    pending_review_count=sum(review["status"] == "pending" for review in selected_reviews),
-                )
-                st.markdown("##### 실제 근거 객체 사례 진행도")
-                st.progress(
-                    case_status.completed_steps / case_status.total_steps,
-                    text=f"{case_status.completed_steps} / {case_status.total_steps} 단계 완료",
-                )
-                st.caption(case_status.next_action)
-                st.dataframe([{
-                    "단계": step,
-                    "상태": "완료" if done else "대기",
-                } for step, done in case_status.steps], width="stretch", hide_index=True)
-                st.json(selected_registered_evidence)
-                st.download_button(
-                    "근거 객체 JSON 다운로드",
-                    data=json.dumps(selected_registered_evidence, ensure_ascii=False, indent=2),
-                    file_name=f"{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}-evidence.json",
-                    mime="application/json",
-                    key=f"kosis_evidence_registry_download_{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}",
-                )
-
-        with st.expander("KOSIS 조회 스냅샷 · 개정 이력", expanded=False):
-            snapshot_table_id = st.text_input(
-                "조회할 KOSIS 통계표 ID",
-                value=st.session_state.get("kosis_evidence_table_id", ""),
-                key="kosis_snapshot_table_id",
-            )
-            if snapshot_table_id:
-                with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
-                    snapshot_history = snapshot_store.list_for_table(snapshot_table_id)
-                if not snapshot_history:
-                    st.info("저장된 조회 스냅샷이 없습니다. KOSIS 메타데이터 자동 채우기 후 근거 객체를 저장하면 생성됩니다.")
-                else:
-                    st.caption(f"저장된 조회 스냅샷 {len(snapshot_history)}건 · 최신순")
-                    snapshot_options = {
-                        f"{item['retrieved_at']} · {item['snapshot_id']}": item
-                        for item in snapshot_history
-                    }
-                    selected_snapshot_label = st.selectbox(
-                        "조회·다운로드할 스냅샷", list(snapshot_options),
-                        key=f"kosis_snapshot_selected_{snapshot_table_id}",
-                    )
-                    selected_snapshot = snapshot_options[selected_snapshot_label]
-                    st.caption(
-                        f"재현 URL: {selected_snapshot['reproducible_url']} · "
-                        f"응답 해시: {selected_snapshot['content_hash']}"
-                    )
-                    st.download_button(
-                        "선택 스냅샷 JSON 다운로드",
-                        data=json.dumps(selected_snapshot, ensure_ascii=False, indent=2),
-                        file_name=f"{selected_snapshot['snapshot_id']}.json",
-                        mime="application/json",
-                        key=f"kosis_snapshot_download_{selected_snapshot['snapshot_id']}",
-                    )
-                    if len(snapshot_history) >= 2:
-                        latest_snapshot = snapshot_history[0]
-                        previous_snapshot = snapshot_history[1]
-                        comparison = compare_snapshots(previous_snapshot, latest_snapshot)
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("새 값", comparison.added_count)
-                        c2.metric("변경·개정", comparison.changed_count)
-                        c3.metric("사라진 값", comparison.removed_count)
-                        if comparison.rows:
-                            comparison_rows = [{
-                                "변화": {"added": "추가", "changed": "변경·개정", "removed": "제거"}[row["change_type"]],
-                                "기간": row["period"],
-                                "지표": row["indicator"],
-                                "선택 조건": "; ".join(
-                                    f"{key}={value}" for key, value in row["selection"].items()
-                                ),
-                                "이전 값": row["value_before"],
-                                "현재 값": row["value_after"],
-                                "이전 수정일": row["last_changed_before"],
-                                "현재 수정일": row["last_changed_after"],
-                            } for row in comparison.rows]
-                            st.dataframe(comparison_rows, width="stretch", hide_index=True)
-                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
-                                mapped_sentences = mapping_store.list_for_table(snapshot_table_id)
-                            impacts = find_revision_impacts(
-                                mappings=mapped_sentences,
-                                comparison_rows=comparison.rows,
-                            )
-                            if impacts:
-                                st.warning(f"개정으로 재검토가 권고되는 Shadow 문장 연결 {len(impacts)}건입니다. 운영 판정은 변경하지 않았습니다.")
-                                st.dataframe([{
-                                    "Shadow 실행": impact.shadow_run_id,
-                                    "문장 번호": impact.row_index,
-                                    "기간": impact.period,
-                                    "지표": impact.indicator,
-                                    "이전 값": impact.value_before,
-                                    "현재 값": impact.value_after,
-                                    "연결 점수": impact.match_score if impact.match_score is not None else "-",
-                                    "연결 메모": impact.note,
-                                } for impact in impacts], width="stretch", hide_index=True)
-                                if st.button("개정 재검토 대상 기록", key=f"kosis_revision_enqueue_{latest_snapshot['snapshot_id']}"):
-                                    with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
-                                        reviews = [review_store.enqueue(
-                                            impact,
-                                            before_snapshot_id=previous_snapshot["snapshot_id"],
-                                            after_snapshot_id=latest_snapshot["snapshot_id"],
-                                            detected_at=datetime.now().astimezone().isoformat(),
-                                        ) for impact in impacts]
-                                    st.success(f"개정 검토 큐에 {len(reviews)}건을 기록했습니다. 기존 동일 대상은 중복 생성하지 않습니다.")
-                            elif mapped_sentences:
-                                st.success("이 표에 연결된 Shadow 문장 중, 변경된 선택 조건과 일치하는 재검토 대상은 없습니다.")
-                        else:
-                            st.success("최신 두 스냅샷에서 값과 최종수정일 차이가 없습니다.")
-            else:
-                st.caption("통계표 ID를 입력하면 해당 표의 저장된 조회 스냅샷과 개정 이력을 볼 수 있습니다.")
-
-        if snapshot_table_id:
-            st.markdown("##### KOSIS 개정 검토 큐")
-            with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
-                revision_reviews = review_store.list_for_table(snapshot_table_id)
-            if revision_reviews:
-                st.dataframe([{
-                    "상태": {"pending": "대기", "approved": "승인", "hold": "보류", "ignored": "무시"}.get(review["status"], review["status"]),
-                    "Shadow 실행": review["shadow_run_id"],
-                    "문장 번호": review["row_index"],
-                    "감지 시각": review["detected_at"],
-                    "결정 시각": review["decided_at"] or "-",
-                    "사유": review["note"] or "-",
-                } for review in revision_reviews], width="stretch", hide_index=True)
-                review_options = {
-                    f"{review['review_id']} · #{review['row_index']} · {review['status']}": review
-                    for review in revision_reviews
-                }
-                selected_review_label = st.selectbox(
-                    "결정할 개정 검토 대상", list(review_options),
-                    key=f"kosis_revision_review_target_{snapshot_table_id}",
-                )
-                selected_revision_review = review_options[selected_review_label]
-                review_action = st.selectbox(
-                    "개정 검토 결정", ("approved", "hold", "ignored"),
-                    format_func=lambda action: {"approved": "승인", "hold": "보류", "ignored": "무시"}[action],
-                    key=f"kosis_revision_review_action_{snapshot_table_id}",
-                )
-                review_note = st.text_area(
-                    "개정 검토 사유", placeholder="예: 개정 값 확인 후 문장 판단에 영향 없음",
-                    key=f"kosis_revision_review_note_{snapshot_table_id}",
-                )
-                if st.button("개정 검토 결정 저장", key=f"kosis_revision_review_save_{snapshot_table_id}"):
-                    with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
-                        review_store.decide(
-                            selected_revision_review["review_id"], action=review_action,
-                            note=review_note, decided_at=datetime.now().astimezone().isoformat(),
-                        )
-                    st.success("개정 검토 결정을 연구 전용 이력에 저장했습니다.")
-                    st.rerun()
-            else:
-                st.caption("기록된 개정 검토 대상이 없습니다. 스냅샷 비교에서 재검토 대상을 기록하면 이곳에 표시됩니다.")
-
         shadow_date = st.date_input("Shadow 기사 발행일", key="shadow_lab_date")
         shadow_text = st.text_area(
             "Shadow 분석 기사 본문",
@@ -2506,6 +2157,359 @@ if view == "검증 실험실":
                             file_name="kosis_candidate_search_history.csv", mime="text/csv; charset=utf-8",
                             key=f"kosis_candidate_history_csv_{shadow_run_id}")
 
+                pending_candidate = st.session_state.pop("kosis_evidence_prefill_pending", None)
+                if pending_candidate:
+                    st.session_state["kosis_evidence_table_id"] = pending_candidate["table_id"]
+                    st.session_state["kosis_evidence_url"] = pending_candidate["url"]
+                    if pending_candidate.get("title"):
+                        st.session_state["kosis_evidence_title"] = pending_candidate["title"]
+                    if pending_candidate.get("indicator"):
+                        st.session_state["kosis_evidence_indicator"] = pending_candidate["indicator"]
+                        st.session_state["kosis_evidence_candidate_indicator"] = pending_candidate["indicator"]
+                    st.success("선택한 KOSIS 후보를 근거 입력 칸에 채웠습니다. KOSIS 조회·스냅샷 준비를 계속하세요.")
+                st.markdown("##### KOSIS 통계표 근거 입력")
+                with st.expander("통계표 근거 객체 저장", expanded=False):
+                    st.caption("원본 URL에 orgId·tblId가 있고 KOSIS_API_KEY가 설정된 경우, 공식 API 응답의 제목·지표·차원·주기·단위를 초안으로 채웁니다. 통계 정의는 자동 추정하지 않습니다.")
+                    autofill_error = autofill_readiness_error(
+                        st.session_state.get("kosis_evidence_table_id", ""),
+                        st.session_state.get("kosis_evidence_url", ""),
+                    )
+                    if autofill_error:
+                        st.caption(f"자동 채우기 준비 안내: {autofill_error}")
+                    if st.button(
+                        "KOSIS 조회·스냅샷 준비", key="kosis_evidence_autofill",
+                        disabled=autofill_error is not None,
+                    ):
+                        try:
+                            identity = parse_kosis_table_identity(
+                                st.session_state.get("kosis_evidence_table_id", ""),
+                                st.session_state.get("kosis_evidence_url", ""),
+                            )
+                            query_params = {"recent_n": 1}
+                            rows = create_ui_kosis_client().fetch_data(identity.org_id, identity.table_id, **query_params)
+                            snapshot_retrieved_at = datetime.now().astimezone().isoformat()
+                            preparation = prepare_kosis_snapshot_context(
+                                table_id=identity.table_id,
+                                org_id=identity.org_id,
+                                query_params=query_params,
+                                retrieved_at=snapshot_retrieved_at,
+                                rows=rows,
+                            )
+                            st.session_state["kosis_evidence_snapshot_context"] = preparation.snapshot_context.as_dict()
+                            fields = preparation.fields
+                            structure = preparation.structure
+                            st.session_state['kosis_evidence_structure_type'] = structure.structure_type
+                            st.session_state['kosis_evidence_structure_reason'] = structure.reason
+                            for state_key, value in {
+                                "kosis_evidence_title": fields.title,
+                                "kosis_evidence_org": fields.organization,
+                                "kosis_evidence_indicator": fields.indicator,
+                                "kosis_evidence_dimensions": fields.dimensions,
+                                "kosis_evidence_time": fields.time_dimension,
+                                "kosis_evidence_unit": fields.unit,
+                                "kosis_evidence_selection": fields.source_selection,
+                            }.items():
+                                if state_key == "kosis_evidence_indicator" and st.session_state.get("kosis_evidence_candidate_indicator"):
+                                    continue
+                                if value:
+                                    st.session_state[state_key] = value
+                            st.success(f"공식 KOSIS API 조회 완료 · 스냅샷 {len(rows)}건 준비됨 · 근거 저장 시 함께 보존됩니다. 통계 정의와 적용 범위는 원본 표에서 확인해 보완해 주세요.")
+                        except (RuntimeError, ValueError) as error:
+                            st.session_state.pop("kosis_evidence_snapshot_context", None)
+                            st.error(kosis_retry_message(error))
+                    definition_source_url = st.session_state.get("kosis_evidence_url", "")
+                    if not definition_source_url:
+                        st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")
+                    if st.button(
+                        "원본 표 설명 후보 가져오기", key="kosis_definition_candidate_fetch",
+                        disabled=not bool(definition_source_url),
+                    ):
+                        try:
+                            candidate = fetch_definition_candidate(definition_source_url)
+                            if candidate is None:
+                                st.info("원본 표 페이지에서 명시적 설명 후보를 찾지 못했습니다. 통계 정의는 직접 입력해 주세요.")
+                            else:
+                                st.session_state["kosis_evidence_definition_candidate_source"] = candidate.source_url
+                                st.session_state["kosis_evidence_definition_candidate_method"] = candidate.method
+                                if not st.session_state.get("kosis_evidence_definition", "").strip():
+                                    st.session_state["kosis_evidence_definition"] = candidate.text
+                                st.success("원본 표 설명 후보를 가져왔습니다. 통계 정의 입력란의 내용을 검토·수정한 뒤 저장해 주세요.")
+                        except (OSError, ValueError) as error:
+                            st.error(f"원본 표 설명 후보를 가져오지 못했습니다: {error}")
+                    k1, k2 = st.columns(2)
+                    table_id = k1.text_input("KOSIS 통계표 ID", key="kosis_evidence_table_id")
+                    table_url = k2.text_input("원본 URL", key="kosis_evidence_url")
+                    title = st.text_input("표 제목", key="kosis_evidence_title")
+                    organization = st.text_input("작성 기관", value="국가데이터처", key="kosis_evidence_org")
+                    indicator = st.text_input("핵심 지표", key="kosis_evidence_indicator")
+                    dimensions = st.text_input("분류 차원 (쉼표)", placeholder="시도, 성별", key="kosis_evidence_dimensions")
+                    time_dimension = st.text_input("시간 차원", placeholder="연", key="kosis_evidence_time")
+                    unit = st.text_input("단위", placeholder="명", key="kosis_evidence_unit")
+                    definition = st.text_area("통계 정의", key="kosis_evidence_definition")
+                    definition_candidate_source = st.session_state.get("kosis_evidence_definition_candidate_source", "")
+                    if definition_candidate_source:
+                        st.caption(f"설명 후보 출처: {definition_candidate_source} · 저장 전 반드시 검토하세요.")
+                    selection = st.text_input("선택 항목 (키=값;...)", placeholder="시도=전국;성별=계", key="kosis_evidence_selection")
+                    structure_type = st.selectbox(
+                        "통계표 구조 유형",
+                        ("unknown", "time_series", "regional_comparison", "crosstab", "indicator_bundle"),
+                        format_func=lambda value: {
+                            "unknown": "판정 보류", "time_series": "시계열형", "regional_comparison": "지역 비교형",
+                            "crosstab": "교차표형", "indicator_bundle": "지표 묶음형",
+                        }[value],
+                        key="kosis_evidence_structure_type",
+                    )
+                    structure_reason = st.session_state.get("kosis_evidence_structure_reason", "")
+                    if structure_reason:
+                        st.caption(f"자동 판정 근거: {structure_reason}")
+                    if st.button("KOSIS 근거 저장", key="kosis_evidence_save"):
+                        try:
+                            snapshot_context = st.session_state.get("kosis_evidence_snapshot_context")
+                            snapshot_id = ""
+                            retrieved_at = datetime.now().astimezone().isoformat()
+                            if snapshot_context and snapshot_context["table_id"] == table_id:
+                                retrieved_at = snapshot_context["retrieved_at"]
+                                snapshot = build_evidence_snapshot(**snapshot_context)
+                                with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                                    snapshot_store.append(snapshot)
+                                snapshot_id = snapshot.snapshot_id
+                            definition_provenance = {}
+                            if definition.strip():
+                                definition_provenance = {
+                                    "source_url": st.session_state.get(
+                                        "kosis_evidence_definition_candidate_source", table_url
+                                    ),
+                                    "method": st.session_state.get(
+                                        "kosis_evidence_definition_candidate_method", "manual_input"
+                                    ),
+                                    "approved_at": datetime.now().astimezone().isoformat(),
+                                }
+                            definition_provenance = {}
+                            if definition.strip():
+                                definition_provenance = {
+                                    "source_url": st.session_state.get(
+                                        "kosis_evidence_definition_candidate_source", table_url
+                                    ),
+                                    "method": st.session_state.get(
+                                        "kosis_evidence_definition_candidate_method", "manual_input"
+                                    ),
+                                    "approved_at": datetime.now().astimezone().isoformat(),
+                                }
+                            evidence = build_manual_evidence(
+                                table_id=table_id, url=table_url, title=title, organization=organization,
+                                indicator=indicator, dimensions=dimensions, time_dimension=time_dimension,
+                                unit=unit, definition=definition, source_selection=selection,
+                                retrieved_at=retrieved_at, structure_type=structure_type, snapshot_id=snapshot_id,
+                                definition_provenance=definition_provenance,
+                            )
+                            with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
+                                inserted = evidence_store.append(evidence)
+                            if snapshot_id and inserted:
+                                st.success(f"KOSIS 근거 객체와 조회 스냅샷을 저장했습니다: {evidence.table_id} · {snapshot_id}")
+                            elif snapshot_id:
+                                st.info(f"동일 KOSIS 근거 객체가 이미 있어 객체는 유지했고, 새 조회 스냅샷을 보존했습니다: {snapshot_id}")
+                            elif inserted:
+                                st.success(f"KOSIS 근거 객체를 저장했습니다: {evidence.table_id}")
+                            else:
+                                st.info("동일 KOSIS 근거 객체가 이미 저장되어 있습니다.")
+                        except ValueError as error:
+                            st.error(f"KOSIS 근거 저장 실패: {error}")
+                with st.expander("KOSIS 근거 객체 레지스트리", expanded=False):
+                    with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store:
+                        registered_evidence = evidence_store.list_all()
+                    if not registered_evidence:
+                        st.caption("저장된 KOSIS 근거 객체가 없습니다. 위 입력 화면에서 근거 객체를 저장하면 이곳에 표시됩니다.")
+                    else:
+                        snapshot_counts = {}
+                        mapping_counts = {}
+                        review_counts = {}
+                        with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store, \
+                             KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store, \
+                             KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                            for registered in registered_evidence:
+                                registered_table_id = registered["table_id"]
+                                snapshot_counts[registered_table_id] = len(snapshot_store.list_for_table(registered_table_id))
+                                registered_evidence_id = registered.get("evidence_id", registered_table_id)
+                                mapping_counts[registered_evidence_id] = len(mapping_store.list_for_evidence(registered_evidence_id))
+                                review_counts[registered_table_id] = len(review_store.list_for_table(registered_table_id))
+                        st.dataframe(
+                            build_evidence_registry_rows(
+                                evidence_objects=registered_evidence,
+                                snapshot_counts=snapshot_counts,
+                                mapping_counts=mapping_counts,
+                                review_counts=review_counts,
+                            ),
+                            width="stretch", hide_index=True,
+                        )
+                        evidence_options = {
+                            format_kosis_evidence_label(item): item
+                            for item in registered_evidence
+                        }
+                        selected_evidence_label = st.selectbox(
+                            "상세 확인할 근거 객체", list(evidence_options), key="kosis_evidence_registry_selected",
+                        )
+                        selected_registered_evidence = evidence_options[selected_evidence_label]
+                        selected_table_id = selected_registered_evidence["table_id"]
+                        with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                            selected_reviews = review_store.list_for_table(selected_table_id)
+                        case_status = build_evidence_case_status(
+                            evidence=selected_registered_evidence,
+                            snapshot_count=snapshot_counts[selected_table_id],
+                            mapping_count=mapping_counts[selected_registered_evidence.get("evidence_id", selected_table_id)],
+                            pending_review_count=sum(review["status"] == "pending" for review in selected_reviews),
+                        )
+                        st.markdown("##### 실제 근거 객체 사례 진행도")
+                        st.progress(
+                            case_status.completed_steps / case_status.total_steps,
+                            text=f"{case_status.completed_steps} / {case_status.total_steps} 단계 완료",
+                        )
+                        st.caption(case_status.next_action)
+                        st.dataframe([{
+                            "단계": step,
+                            "상태": "완료" if done else "대기",
+                        } for step, done in case_status.steps], width="stretch", hide_index=True)
+                        st.json(selected_registered_evidence)
+                        st.download_button(
+                            "근거 객체 JSON 다운로드",
+                            data=json.dumps(selected_registered_evidence, ensure_ascii=False, indent=2),
+                            file_name=f"{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}-evidence.json",
+                            mime="application/json",
+                            key=f"kosis_evidence_registry_download_{selected_registered_evidence.get('evidence_id', selected_registered_evidence['table_id'])}",
+                        )
+
+                with st.expander("KOSIS 조회 스냅샷 · 개정 이력", expanded=False):
+                    snapshot_table_id = st.text_input(
+                        "조회할 KOSIS 통계표 ID",
+                        value=st.session_state.get("kosis_evidence_table_id", ""),
+                        key="kosis_snapshot_table_id",
+                    )
+                    if snapshot_table_id:
+                        with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                            snapshot_history = snapshot_store.list_for_table(snapshot_table_id)
+                        if not snapshot_history:
+                            st.info("저장된 조회 스냅샷이 없습니다. KOSIS 메타데이터 자동 채우기 후 근거 객체를 저장하면 생성됩니다.")
+                        else:
+                            st.caption(f"저장된 조회 스냅샷 {len(snapshot_history)}건 · 최신순")
+                            snapshot_options = {
+                                f"{item['retrieved_at']} · {item['snapshot_id']}": item
+                                for item in snapshot_history
+                            }
+                            selected_snapshot_label = st.selectbox(
+                                "조회·다운로드할 스냅샷", list(snapshot_options),
+                                key=f"kosis_snapshot_selected_{snapshot_table_id}",
+                            )
+                            selected_snapshot = snapshot_options[selected_snapshot_label]
+                            st.caption(
+                                f"재현 URL: {selected_snapshot['reproducible_url']} · "
+                                f"응답 해시: {selected_snapshot['content_hash']}"
+                            )
+                            st.download_button(
+                                "선택 스냅샷 JSON 다운로드",
+                                data=json.dumps(selected_snapshot, ensure_ascii=False, indent=2),
+                                file_name=f"{selected_snapshot['snapshot_id']}.json",
+                                mime="application/json",
+                                key=f"kosis_snapshot_download_{selected_snapshot['snapshot_id']}",
+                            )
+                            if len(snapshot_history) >= 2:
+                                latest_snapshot = snapshot_history[0]
+                                previous_snapshot = snapshot_history[1]
+                                comparison = compare_snapshots(previous_snapshot, latest_snapshot)
+                                c1, c2, c3 = st.columns(3)
+                                c1.metric("새 값", comparison.added_count)
+                                c2.metric("변경·개정", comparison.changed_count)
+                                c3.metric("사라진 값", comparison.removed_count)
+                                if comparison.rows:
+                                    comparison_rows = [{
+                                        "변화": {"added": "추가", "changed": "변경·개정", "removed": "제거"}[row["change_type"]],
+                                        "기간": row["period"],
+                                        "지표": row["indicator"],
+                                        "선택 조건": "; ".join(
+                                            f"{key}={value}" for key, value in row["selection"].items()
+                                        ),
+                                        "이전 값": row["value_before"],
+                                        "현재 값": row["value_after"],
+                                        "이전 수정일": row["last_changed_before"],
+                                        "현재 수정일": row["last_changed_after"],
+                                    } for row in comparison.rows]
+                                    st.dataframe(comparison_rows, width="stretch", hide_index=True)
+                                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                                        mapped_sentences = mapping_store.list_for_table(snapshot_table_id)
+                                    impacts = find_revision_impacts(
+                                        mappings=mapped_sentences,
+                                        comparison_rows=comparison.rows,
+                                    )
+                                    if impacts:
+                                        st.warning(f"개정으로 재검토가 권고되는 Shadow 문장 연결 {len(impacts)}건입니다. 운영 판정은 변경하지 않았습니다.")
+                                        st.dataframe([{
+                                            "Shadow 실행": impact.shadow_run_id,
+                                            "문장 번호": impact.row_index,
+                                            "기간": impact.period,
+                                            "지표": impact.indicator,
+                                            "이전 값": impact.value_before,
+                                            "현재 값": impact.value_after,
+                                            "연결 점수": impact.match_score if impact.match_score is not None else "-",
+                                            "연결 메모": impact.note,
+                                        } for impact in impacts], width="stretch", hide_index=True)
+                                        if st.button("개정 재검토 대상 기록", key=f"kosis_revision_enqueue_{latest_snapshot['snapshot_id']}"):
+                                            with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                                                reviews = [review_store.enqueue(
+                                                    impact,
+                                                    before_snapshot_id=previous_snapshot["snapshot_id"],
+                                                    after_snapshot_id=latest_snapshot["snapshot_id"],
+                                                    detected_at=datetime.now().astimezone().isoformat(),
+                                                ) for impact in impacts]
+                                            st.success(f"개정 검토 큐에 {len(reviews)}건을 기록했습니다. 기존 동일 대상은 중복 생성하지 않습니다.")
+                                    elif mapped_sentences:
+                                        st.success("이 표에 연결된 Shadow 문장 중, 변경된 선택 조건과 일치하는 재검토 대상은 없습니다.")
+                                else:
+                                    st.success("최신 두 스냅샷에서 값과 최종수정일 차이가 없습니다.")
+                    else:
+                        st.caption("통계표 ID를 입력하면 해당 표의 저장된 조회 스냅샷과 개정 이력을 볼 수 있습니다.")
+
+                if snapshot_table_id:
+                    st.markdown("##### KOSIS 개정 검토 큐")
+                    with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                        revision_reviews = review_store.list_for_table(snapshot_table_id)
+                    if revision_reviews:
+                        st.dataframe([{
+                            "상태": {"pending": "대기", "approved": "승인", "hold": "보류", "ignored": "무시"}.get(review["status"], review["status"]),
+                            "Shadow 실행": review["shadow_run_id"],
+                            "문장 번호": review["row_index"],
+                            "감지 시각": review["detected_at"],
+                            "결정 시각": review["decided_at"] or "-",
+                            "사유": review["note"] or "-",
+                        } for review in revision_reviews], width="stretch", hide_index=True)
+                        review_options = {
+                            f"{review['review_id']} · #{review['row_index']} · {review['status']}": review
+                            for review in revision_reviews
+                        }
+                        selected_review_label = st.selectbox(
+                            "결정할 개정 검토 대상", list(review_options),
+                            key=f"kosis_revision_review_target_{snapshot_table_id}",
+                        )
+                        selected_revision_review = review_options[selected_review_label]
+                        review_action = st.selectbox(
+                            "개정 검토 결정", ("approved", "hold", "ignored"),
+                            format_func=lambda action: {"approved": "승인", "hold": "보류", "ignored": "무시"}[action],
+                            key=f"kosis_revision_review_action_{snapshot_table_id}",
+                        )
+                        review_note = st.text_area(
+                            "개정 검토 사유", placeholder="예: 개정 값 확인 후 문장 판단에 영향 없음",
+                            key=f"kosis_revision_review_note_{snapshot_table_id}",
+                        )
+                        if st.button("개정 검토 결정 저장", key=f"kosis_revision_review_save_{snapshot_table_id}"):
+                            with KosisRevisionReviewStore(ROOT / "data/research/kosis_revision_review.db") as review_store:
+                                review_store.decide(
+                                    selected_revision_review["review_id"], action=review_action,
+                                    note=review_note, decided_at=datetime.now().astimezone().isoformat(),
+                                )
+                            st.success("개정 검토 결정을 연구 전용 이력에 저장했습니다.")
+                            st.rerun()
+                    else:
+                        st.caption("기록된 개정 검토 대상이 없습니다. 스냅샷 비교에서 재검토 대상을 기록하면 이곳에 표시됩니다.")
+
+
+
                 if guide.screen_hint and guide.screen_hint.step_id == "compare_value":
                     st.info(f"현재 단계: {guide.screen_hint.message}")
                 st.markdown("##### KOSIS 근거 연결")
@@ -2558,6 +2562,44 @@ if view == "검증 실험실":
                     st.caption(f"점수 산정: {score_breakdown}")
                     st.caption("검토 근거: " + " · ".join(match_result.reasons))
 
+                    mapping_note = st.text_area(
+                        "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
+                        key=f"kosis_mapping_note_{shadow_run_id}",
+                    )
+                    if st.button("KOSIS 근거 연결 저장", key=f"kosis_mapping_save_{shadow_run_id}"):
+                        selected_sentence = sentence_options[selected_sentence_label]
+                        selected_evidence = evidence_options[selected_evidence_label]
+                        try:
+                            mapping = KosisShadowMapping(
+                                shadow_run_id=shadow_run_id,
+                                row_index=selected_sentence["row_index"],
+                                table_id=selected_evidence["table_id"],
+                                evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
+                                source_selection=selected_evidence["source_selection"],
+                                note=mapping_note,
+                                status="reviewed",
+                                match_score=match_result.score,
+                                match_reasons=match_result.reasons,
+                                match_score_breakdown=match_result.score_breakdown,
+                            )
+                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                                inserted = mapping_store.append(mapping)
+                            if inserted:
+                                st.success("KOSIS 근거 연결을 연구 전용 저장소에 기록했습니다.")
+                            else:
+                                st.info("동일한 KOSIS 근거 연결이 이미 기록되어 있습니다.")
+                        except ValueError as error:
+                            st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
+                    selected_evidence_id = selected_evidence.get("evidence_id", selected_evidence["table_id"])
+                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                        mapping_ready = any(
+                            mapping["row_index"] == selected_sentence["row_index"]
+                            and mapping.get("evidence_id", mapping["table_id"]) == selected_evidence_id
+                            and mapping["status"] == "reviewed"
+                            for mapping in mapping_store.list_for_run(shadow_run_id)
+                        )
+                    if not mapping_ready:
+                        st.info("실제 값 대조 전에 이 근거를 ‘검토 완료’로 저장해 주세요.")
                     st.markdown("##### KOSIS 실제 값 대조")
                     with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
                         snapshot_history = snapshot_store.list_for_table(selected_evidence["table_id"])
@@ -2570,7 +2612,7 @@ if view == "검증 실험실":
                             f"kosis_value_comparison_{shadow_run_id}_"
                             f"{selected_sentence['row_index']}_{selected_evidence.get('evidence_id', selected_evidence['table_id'])}"
                         )
-                        if st.button("KOSIS 실제 값 대조", key=f"{comparison_key}_run"):
+                        if mapping_ready and st.button("KOSIS 실제 값 대조", key=f"{comparison_key}_run"):
                             comparison = compare_claim_to_snapshot(
                                 claim_sentence=selected_sentence["sentence"],
                                 article_date=article_date_for_comparison,
@@ -2692,43 +2734,85 @@ if view == "검증 실험실":
                                             st.caption(
                                                 f"선택 조건: {selection_text} · {candidate_reason}"
                                             )
-                    mapping_status = st.selectbox(
-                        "연결 상태", ("candidate", "reviewed", "rejected"),
-                        format_func=lambda status: {
-                            "candidate": "후보", "reviewed": "검토 완료", "rejected": "제외",
-                        }[status],
-                        key=f"kosis_mapping_status_{shadow_run_id}",
-                    )
-                    mapping_note = st.text_area(
-                        "연결 메모", placeholder="예: 문장의 연도·단위·지역 조건과 일치 여부",
-                        key=f"kosis_mapping_note_{shadow_run_id}",
-                    )
-                    if st.button("KOSIS 근거 연결 저장", key=f"kosis_mapping_save_{shadow_run_id}"):
-                        selected_sentence = sentence_options[selected_sentence_label]
-                        selected_evidence = evidence_options[selected_evidence_label]
-                        try:
-                            mapping = KosisShadowMapping(
-                                shadow_run_id=shadow_run_id,
-                                row_index=selected_sentence["row_index"],
-                                table_id=selected_evidence["table_id"],
-                                evidence_id=selected_evidence.get("evidence_id", selected_evidence["table_id"]),
-                                source_selection=selected_evidence["source_selection"],
-                                note=mapping_note,
-                                status=mapping_status,
-                                match_score=match_result.score,
-                                match_reasons=match_result.reasons,
-                                match_score_breakdown=match_result.score_breakdown,
-                            )
-                            with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
-                                inserted = mapping_store.append(mapping)
-                            if inserted:
-                                st.success("KOSIS 근거 연결을 연구 전용 저장소에 기록했습니다.")
-                            else:
-                                st.info("동일한 KOSIS 근거 연결이 이미 기록되어 있습니다.")
-                        except ValueError as error:
-                            st.error(f"KOSIS 근거 연결을 저장하지 못했습니다: {error}")
                 else:
                     st.info("먼저 위의 ‘통계표 근거 객체 저장’에서 KOSIS 통계표를 한 건 이상 저장해 주세요.")
+                st.markdown("##### Claim 완료")
+                completed_claims = []
+                try:
+                    with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                        completed_claims = completion_store.list_for_run(shadow_run_id)
+                except Exception as error:
+                    st.warning(f"완료 Claim 기록을 읽지 못했습니다: {error}")
+
+                completion_options = {}
+                try:
+                    with KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store:
+                        for mapping in guide_mappings:
+                            if int(mapping["row_index"]) != candidate_row["row_index"] or mapping.get("status") != "reviewed":
+                                continue
+                            evidence_id = str(mapping.get("evidence_id") or mapping["table_id"])
+                            for comparison in guide_comparisons:
+                                if int(comparison["row_index"]) != candidate_row["row_index"] or comparison.get("evidence_id") != evidence_id:
+                                    continue
+                                snapshot = snapshot_store.get(str(comparison.get("snapshot_id") or ""))
+                                if snapshot is None:
+                                    continue
+                                label = f"#{candidate_row['row_index']} · {evidence_id} · {mapping['table_id']} · {comparison.get('snapshot_id')}"
+                                completion_options[label] = {"mapping": mapping, "comparison": comparison, "snapshot": snapshot}
+                except Exception as error:
+                    st.warning(f"완료 Claim에 필요한 KOSIS 스냅샷을 읽지 못했습니다: {error}")
+
+                selected_completion = None
+                if completion_options:
+                    completion_label = st.selectbox(
+                        "완료할 확정 KOSIS 근거", list(completion_options),
+                        key=f"claim_completion_evidence_{shadow_run_id}_{candidate_row['row_index']}",
+                    )
+                    selected_completion = completion_options[completion_label]
+                    if st.button("Claim 완료", key=f"claim_completion_save_{shadow_run_id}_{candidate_row['row_index']}"):
+                        try:
+                            completed = complete_selected_claim(
+                                shadow_run_id=shadow_run_id,
+                                row_index=candidate_row["row_index"],
+                                sentence=candidate_row["sentence"],
+                                mapping=selected_completion["mapping"],
+                                comparison=selected_completion["comparison"],
+                                snapshot=selected_completion["snapshot"],
+                            )
+                            with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                                inserted = completion_store.append(completed)
+                            completed_claims = [
+                                item for item in completed_claims
+                                if not (int(item["row_index"]) == completed["row_index"] and item["evidence_id"] == completed["evidence_id"] and item["snapshot_id"] == completed["snapshot_id"])
+                            ] + [completed]
+                            st.success("Claim 완료 기록을 저장했습니다." if inserted else "동일한 Claim 완료 기록을 표시합니다.")
+                        except ValueError as error:
+                            st.error(f"Claim 완료 기록을 저장하지 못했습니다: {error}")
+
+                if completed_claims:
+                    st.markdown("###### Claim 완료 결과")
+                    st.dataframe([
+                        {"문장 번호": item["row_index"], "판정": {"match": "일치", "mismatch": "불일치", "hold": "보류"}.get(item["verdict"], item["verdict"]), "KOSIS 표": item["evidence"]["table_id"], "스냅샷": item["snapshot_id"]}
+                        for item in completed_claims
+                    ], width="stretch", hide_index=True)
+                    selected_completed_claims = [
+                        item for item in completed_claims
+                        if selected_completion is not None
+                        and int(item["row_index"]) == candidate_row["row_index"]
+                        and item["evidence_id"] == selected_completion["mapping"]["evidence_id"]
+                        and item["snapshot_id"] == selected_completion["snapshot"]["snapshot_id"]
+                    ]
+                    if selected_completed_claims:
+                        selected_completed = selected_completed_claims[-1]
+                        if selected_completed["verdict"] == "hold":
+                            st.warning("선택된 완료 Claim은 근거 부족 또는 비교 불가로 보류입니다.")
+                        else:
+                            st.caption(f"문장 값: {selected_completed['comparison'].get('claim_value', '-') or '-'} · KOSIS 값: {selected_completed['comparison'].get('official_value', '-') or '-'} · 사유: {selected_completed['comparison'].get('reason', '-') or '-'}")
+                        st.link_button("KOSIS 재현 URL 열기", str(selected_completed["evidence"]["source_url"]), key=f"claim_completion_repro_{selected_completed['snapshot_id']}")
+                    else:
+                        st.caption("현재 선택한 문장의 완료 Claim 기록은 없습니다.")
+                elif not completion_options:
+                    st.info("현재 문장에 대해 검토 완료된 KOSIS 근거와 실제 값 대조 기록이 모두 필요합니다.")
                 reviewable_rows = [
                     row for row in shadow_run["rows"]
                     if row["review_state"] in {"needs_review", "reviewed", "hold"}
@@ -2785,6 +2869,14 @@ if view == "검증 실험실":
                 except Exception as error:
                     kosis_comparisons_by_row = {}
                     st.warning(f"KOSIS 실제 값 대조 결과를 CSV에 포함하지 못했습니다: {error}")
+                try:
+                    completed_claims_by_row = {}
+                    with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                        for completed in completion_store.list_for_run(shadow_run_id):
+                            completed_claims_by_row.setdefault(int(completed["row_index"]), []).append(completed)
+                except Exception as error:
+                    completed_claims_by_row = {}
+                    st.warning(f"완료 Claim 기록을 CSV에 포함하지 못했습니다: {error}")
                 json_name, csv_name = download_filenames(shadow_run["run_id"])
                 download_columns = st.columns(2)
                 download_columns[0].download_button(
@@ -2793,7 +2885,7 @@ if view == "검증 실험실":
                     use_container_width=True,
                 )
                 download_columns[1].download_button(
-                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row, comparisons_by_row=kosis_comparisons_by_row),
+                    "CSV 다운로드", data=export_shadow_run_csv(shadow_run, mappings_by_row=kosis_mappings_by_row, comparisons_by_row=kosis_comparisons_by_row, completed_claims_by_row=completed_claims_by_row),
                     file_name=csv_name, mime="text/csv; charset=utf-8", key=f"shadow_csv_{shadow_run_id}",
                     use_container_width=True,
                 )

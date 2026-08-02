@@ -17,6 +17,8 @@ SHADOW_CSV_COLUMNS = (
     "kosis_match_score", "kosis_match_reasons", "kosis_score_breakdown", "kosis_source_selection", "kosis_mapping_note",
     "kosis_value_comparison_status", "kosis_value_comparison_reason", "kosis_value_comparison_gates", "kosis_claim_value",
     "kosis_official_value", "kosis_claim_period", "kosis_snapshot_id",
+    "claim_completion_verdict", "claim_completion_snapshot_id", "claim_completion_table_id",
+    "claim_completion_reproducible_url",
 )
 
 
@@ -72,6 +74,25 @@ def _flatten_kosis_value_comparisons(comparisons: list[Mapping[str, Any]]) -> di
         "kosis_snapshot_id": values("snapshot_id"),
     }
 
+def _flatten_completed_claims(completed_claims: list[Mapping[str, Any]]) -> dict[str, str]:
+    """Return portable evidence fields from explicitly completed Claims."""
+    def values(key: str) -> str:
+        return " | ".join(str(claim.get(key, "") or "") for claim in completed_claims)
+
+    def evidence_values(key: str) -> str:
+        return " | ".join(
+            str(claim.get("evidence", {}).get(key, "") or "")
+            for claim in completed_claims
+            if isinstance(claim.get("evidence"), Mapping)
+        )
+
+    return {
+        "claim_completion_verdict": values("verdict"),
+        "claim_completion_snapshot_id": values("snapshot_id"),
+        "claim_completion_table_id": evidence_values("table_id"),
+        "claim_completion_reproducible_url": evidence_values("source_url"),
+    }
+
 def _flatten_kosis_mappings(mappings: list[Mapping[str, Any]]) -> dict[str, str]:
     """Return spreadsheet cells for zero or more research-only KOSIS mappings."""
 
@@ -114,12 +135,14 @@ def export_shadow_run_csv(
     run: Mapping[str, Any] | None, *,
     mappings_by_row: Mapping[int, list[Mapping[str, Any]]] | None = None,
     comparisons_by_row: Mapping[int, list[Mapping[str, Any]]] | None = None,
+    completed_claims_by_row: Mapping[int, list[Mapping[str, Any]]] | None = None,
 ) -> bytes:
     """행 단위 분석용, Excel 안전 UTF-8 BOM CSV를 반환한다."""
     if run is None:
         raise KeyError("Shadow 실행을 찾을 수 없습니다")
     mappings_by_row = mappings_by_row or {}
     comparisons_by_row = comparisons_by_row or {}
+    completed_claims_by_row = completed_claims_by_row or {}
     reviews_by_row: dict[int, list[dict[str, Any]]] = {}
     for review in run.get("reviews", []):
         reviews_by_row.setdefault(int(review["row_index"]), []).append(review)
@@ -132,6 +155,7 @@ def export_shadow_run_csv(
         reviews = reviews_by_row.get(int(row["row_index"]), [])
         flattened = _flatten_kosis_mappings(mappings_by_row.get(int(row["row_index"]), []))
         flattened.update(_flatten_kosis_value_comparisons(comparisons_by_row.get(int(row["row_index"]), [])))
+        flattened.update(_flatten_completed_claims(completed_claims_by_row.get(int(row["row_index"]), [])))
         flattened.update({
             "run_id": run["run_id"],
             "created_at": run["created_at"],
