@@ -2752,7 +2752,7 @@ if view == "검증 실험실":
                                 snapshot = snapshot_store.get(str(comparison.get("snapshot_id") or ""))
                                 if snapshot is None:
                                     continue
-                                label = f"#{candidate_row['row_index']} · {mapping['table_id']} · {comparison.get('snapshot_id')}"
+                                label = f"#{candidate_row['row_index']} · {evidence_id} · {mapping['table_id']} · {comparison.get('snapshot_id')}"
                                 completion_options[label] = {"mapping": mapping, "comparison": comparison, "snapshot": snapshot}
                 except Exception as error:
                     st.warning(f"완료 Claim에 필요한 KOSIS 스냅샷을 읽지 못했습니다: {error}")
@@ -2789,12 +2789,19 @@ if view == "검증 실험실":
                         {"문장 번호": item["row_index"], "판정": {"match": "일치", "mismatch": "불일치", "hold": "보류"}.get(item["verdict"], item["verdict"]), "KOSIS 표": item["evidence"]["table_id"], "스냅샷": item["snapshot_id"]}
                         for item in completed_claims
                     ], width="stretch", hide_index=True)
-                    selected_completed = completed_claims[-1]
-                    if selected_completed["verdict"] == "hold":
-                        st.warning("선택된 완료 Claim은 근거 부족 또는 비교 불가로 보류입니다.")
+                    selected_completed_claims = [
+                        item for item in completed_claims
+                        if int(item["row_index"]) == candidate_row["row_index"]
+                    ]
+                    if selected_completed_claims:
+                        selected_completed = selected_completed_claims[-1]
+                        if selected_completed["verdict"] == "hold":
+                            st.warning("선택된 완료 Claim은 근거 부족 또는 비교 불가로 보류입니다.")
+                        else:
+                            st.caption(f"문장 값: {selected_completed['comparison'].get('claim_value', '-') or '-'} · KOSIS 값: {selected_completed['comparison'].get('official_value', '-') or '-'} · 사유: {selected_completed['comparison'].get('reason', '-') or '-'}")
+                        st.link_button("KOSIS 재현 URL 열기", str(selected_completed["evidence"]["source_url"]), key=f"claim_completion_repro_{selected_completed['snapshot_id']}")
                     else:
-                        st.caption(f"문장 값: {selected_completed['comparison'].get('claim_value', '-') or '-'} · KOSIS 값: {selected_completed['comparison'].get('official_value', '-') or '-'} · 사유: {selected_completed['comparison'].get('reason', '-') or '-'}")
-                    st.link_button("KOSIS 재현 URL 열기", str(selected_completed["evidence"]["source_url"]), key=f"claim_completion_repro_{selected_completed['snapshot_id']}")
+                        st.caption("현재 선택한 문장의 완료 Claim 기록은 없습니다.")
                 elif not completion_options:
                     st.info("현재 문장에 대해 검토 완료된 KOSIS 근거와 실제 값 대조 기록이 모두 필요합니다.")
                 reviewable_rows = [
