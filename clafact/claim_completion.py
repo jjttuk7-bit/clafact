@@ -89,3 +89,43 @@ def complete_claim_case(
         snapshot=snapshot.as_dict(),
         comparison=comparison,
     )
+
+
+def complete_selected_claim(
+    *,
+    shadow_run_id: str,
+    row_index: int,
+    sentence: str,
+    mapping: Mapping[str, object],
+    comparison: Mapping[str, object],
+    snapshot: Mapping[str, object],
+) -> dict[str, object]:
+    """Freeze a user-selected persisted evidence result without refetching KOSIS."""
+    evidence_id = str(mapping.get("evidence_id") or mapping.get("table_id") or "").strip()
+    table_id = str(mapping.get("table_id") or "").strip()
+    snapshot_id = str(snapshot.get("snapshot_id") or "").strip()
+    source_url = str(snapshot.get("reproducible_url") or "").strip()
+    if not shadow_run_id.strip() or row_index < 0 or not sentence.strip():
+        raise ValueError("selected Shadow sentence is required")
+    if not evidence_id or not table_id:
+        raise ValueError("selected KOSIS evidence is required")
+    if not snapshot_id or not source_url:
+        raise ValueError("selected KOSIS snapshot is required")
+    status = str(comparison.get("status") or "")
+    verdict = status if status in {"match", "mismatch"} else "hold"
+    return {
+        "shadow_run_id": shadow_run_id,
+        "row_index": row_index,
+        "sentence": sentence,
+        "evidence_id": evidence_id,
+        "snapshot_id": snapshot_id,
+        "verdict": verdict,
+        "evidence": {
+            "table_id": table_id,
+            "source_url": source_url,
+            "indicator": mapping.get("indicator", ""),
+            "selection": dict(mapping.get("source_selection", {})),
+        },
+        "comparison": dict(comparison),
+        "snapshot": dict(snapshot),
+    }
