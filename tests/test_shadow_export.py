@@ -136,3 +136,25 @@ def test_csv_export_includes_actual_kosis_value_comparison(tmp_path):
     assert row["kosis_claim_value"] == "2.4%"
     assert row["kosis_snapshot_id"] == "kosis-snapshot-1"
     assert row["kosis_value_comparison_gates"] == "기간: 통과(2025-10 일치)"
+
+def test_csv_export_includes_completed_claim_verdict_and_reproducible_evidence(tmp_path):
+    completed_claims_by_row = {1: [{
+        "verdict": "mismatch",
+        "snapshot_id": "kosis-completed-1",
+        "evidence_id": "DT_CPI_MONTH:total",
+        "evidence": {
+            "table_id": "DT_CPI_MONTH",
+            "source_url": "https://kosis.kr/reproducible",
+        },
+    }]}
+    with _saved_run(tmp_path) as service:
+        payload = export_shadow_run_csv(
+            service.get_run("shadow-export-1"),
+            completed_claims_by_row=completed_claims_by_row,
+        )
+
+    row = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))[0]
+    assert row["claim_completion_verdict"] == "mismatch"
+    assert row["claim_completion_snapshot_id"] == "kosis-completed-1"
+    assert row["claim_completion_table_id"] == "DT_CPI_MONTH"
+    assert row["claim_completion_reproducible_url"] == "https://kosis.kr/reproducible"
