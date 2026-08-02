@@ -33,3 +33,43 @@ def test_turns_non_comparable_selected_evidence_into_hold():
     )
 
     assert completed["verdict"] == "hold"
+
+
+def test_rejects_comparison_from_a_different_snapshot():
+    try:
+        complete_selected_claim(
+            shadow_run_id="shadow-1",
+            row_index=1,
+            sentence="2024년 전국 출생아 수는 230,028명이다.",
+            mapping={"evidence_id": "DT_1B8000F:births", "table_id": "DT_1B8000F"},
+            comparison={"status": "match", "snapshot_id": "kosis-other"},
+            snapshot={
+                "snapshot_id": "kosis-1",
+                "table_id": "DT_1B8000F",
+                "reproducible_url": "https://kosis.kr/repro",
+            },
+        )
+    except ValueError as error:
+        assert "snapshot" in str(error)
+    else:
+        raise AssertionError("a completion must bind comparison and snapshot IDs")
+
+
+def test_rejects_snapshot_from_a_different_evidence_table():
+    try:
+        complete_selected_claim(
+            shadow_run_id="shadow-1",
+            row_index=1,
+            sentence="2024년 전국 출생아 수는 230,028명이다.",
+            mapping={"evidence_id": "DT_1B8000F:births", "table_id": "DT_1B8000F"},
+            comparison={"status": "match", "snapshot_id": "kosis-1"},
+            snapshot={
+                "snapshot_id": "kosis-1",
+                "table_id": "DT_OTHER",
+                "reproducible_url": "https://kosis.kr/repro",
+            },
+        )
+    except ValueError as error:
+        assert "table" in str(error)
+    else:
+        raise AssertionError("a completion must bind evidence and snapshot table IDs")

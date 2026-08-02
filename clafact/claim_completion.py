@@ -105,12 +105,18 @@ def complete_selected_claim(
     table_id = str(mapping.get("table_id") or "").strip()
     snapshot_id = str(snapshot.get("snapshot_id") or "").strip()
     source_url = str(snapshot.get("reproducible_url") or "").strip()
+    comparison_snapshot_id = str(comparison.get("snapshot_id") or "").strip()
+    snapshot_table_id = str(snapshot.get("table_id") or "").strip()
     if not shadow_run_id.strip() or row_index < 0 or not sentence.strip():
         raise ValueError("selected Shadow sentence is required")
     if not evidence_id or not table_id:
         raise ValueError("selected KOSIS evidence is required")
     if not snapshot_id or not source_url:
         raise ValueError("selected KOSIS snapshot is required")
+    if comparison_snapshot_id and comparison_snapshot_id != snapshot_id:
+        raise ValueError("comparison snapshot does not match selected snapshot")
+    if snapshot_table_id and snapshot_table_id != table_id:
+        raise ValueError("selected snapshot table does not match selected evidence table")
     status = str(comparison.get("status") or "")
     verdict = status if status in {"match", "mismatch"} else "hold"
     return {
