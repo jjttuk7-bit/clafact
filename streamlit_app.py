@@ -2352,7 +2352,7 @@ if view == "검증 실험실":
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}"] = candidate_row["row_index"]
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
-                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": confirmed_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": confirmed_profile.__dict__, "claim_subject": confirmed_claim_card.subject} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                             candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], claim_index=claim_index, sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
@@ -2366,8 +2366,20 @@ if view == "검증 실험실":
                     semantic_cards_by_table = {
                         str(card.get("table_id") or ""): card for card in semantic_catalog_cards
                     }
+                    profile_comparison = confirmed_profile.comparison or "미확정"
+                    profile_population = confirmed_profile.population or "미확정"
+                    profile_subject = confirmed_claim_card.subject or "미지정"
+                    st.caption(
+                        "후보 탐색에 사용한 Claim 조건 · "
+                        f"지표={confirmed_profile.indicator or '미확정'} · "
+                        f"시점={confirmed_claim_card.period or '미확정'} · "
+                        f"단위={confirmed_profile.unit or '미확정'} · "
+                        f"비교방식={profile_comparison} · "
+                        f"지역={confirmed_profile.region or '미확정'} · "
+                        f"모집단={profile_population} · 품목={profile_subject}"
+                    )
                     candidate_labels = {
-                        f"{rank}위 · {candidate.hit.tbl_name} (적합도 {getattr(candidate, 'fit_score', candidate.score)}점)": candidate
+                        f"{rank}위 · {candidate.hit.tbl_name} (후보 조건 충족도 {getattr(candidate, 'fit_score', candidate.score)}/100)": candidate
                         for rank, candidate in enumerate(candidate_results, start=1)
                     }
                     selected_candidate_label = st.selectbox(
@@ -2398,7 +2410,7 @@ if view == "검증 실험실":
                         fit_score = getattr(candidate, "fit_score", candidate.score)
                         max_score = getattr(candidate, "max_score", 0)
                         st.markdown(
-                            f"**{rank}위 · {hit.tbl_name}** — 적합도 {fit_score}점"
+                            f"**{rank}위 · {hit.tbl_name}** — 후보 조건 충족도 {fit_score}/100"
                             + (f" · 선택 항목: {selected_item}" if selected_item else "")
                         )
                         st.caption("재사용 Semantic Card" if model["is_reused"] else "새 Semantic Card 초안 · 확인 후에만 저장")
@@ -2407,6 +2419,7 @@ if view == "검증 실험실":
                         score_breakdown = " · ".join(getattr(candidate, "score_breakdown", ())) or "산정 내역 없음"
                         st.caption(f"점수 산정: {score_breakdown}")
                         st.caption(f"일치: {reasons}" + (f" · 감점: {penalties}" if penalties else ""))
+                        st.caption("의미: 후보 조건 충족도는 현재 확인 가능한 Claim 조건과 표 정보의 일치 정도입니다. 정답 확률이나 최종 판정이 아닙니다. 표 내부 좌표와 KOSIS 원본값 대조가 남아 있습니다.")
                         st.dataframe([
                             {"Semantic 축": axis, "Card 값": detail["value"] or "-", "상태": detail["status"]}
                             for axis, detail in model["axes"].items()

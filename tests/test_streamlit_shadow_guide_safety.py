@@ -152,3 +152,12 @@ def test_shadow_claim_flow_uses_atomic_claim_selection_when_available():
     assert '"검증할 Atomic Claim"' in source
     assert "claim_index" in source
     assert "atomic_subject" in source
+
+
+def test_candidate_score_is_explained_as_condition_coverage_with_claim_inputs():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "후보 조건 충족도" in source
+    assert "후보 탐색에 사용한 Claim 조건" in source
+    assert "정답 확률이나 최종 판정이 아닙니다" in source
+    assert '"claim_subject": confirmed_claim_card.subject' in source
