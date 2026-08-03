@@ -28,3 +28,17 @@ def test_store_rejects_unconfirmed_card(tmp_path):
             assert "confirmed" in str(error)
         else:
             raise AssertionError("unconfirmed Claim Card must not be persisted")
+
+
+def test_store_keeps_multiple_claim_cards_for_one_parent_sentence(tmp_path):
+    first = review_claim_card(_confirmed_card(), claim_value_raw="-34.5%")
+    second = review_claim_card(_confirmed_card(), claim_value_raw="-40.5%")
+
+    with ClaimCardStore(tmp_path / "cards.db") as store:
+        assert store.upsert("run-1", 11, first, claim_index=1) is True
+        assert store.upsert("run-1", 11, second, claim_index=2) is True
+        first_payload = store.get("run-1", 11, claim_index=1)
+        second_payload = store.get("run-1", 11, claim_index=2)
+
+    assert first_payload["claim_value_raw"] == "-34.5%"
+    assert second_payload["claim_value_raw"] == "-40.5%"
