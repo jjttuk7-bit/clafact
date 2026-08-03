@@ -106,6 +106,25 @@ def _snapshot_values(record: Mapping[str, Any] | object) -> set[str]:
     return values
 
 
+
+def semantic_card_catalog_summary(
+    cards: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...], *,
+    current_run_confirmed_table_ids: tuple[str, ...] | list[str] = (),
+    reused_table_ids: tuple[str, ...] | list[str] = (),
+    pending_count: int = 0,
+) -> dict[str, int]:
+    """Return clear growth-Catalog metrics without coupling UI helpers to SQLite."""
+    confirmed = {str(card.get("table_id") or "").strip() for card in cards}
+    confirmed.discard("")
+    current = {str(table_id).strip() for table_id in current_run_confirmed_table_ids}
+    reused = {str(table_id).strip() for table_id in reused_table_ids}
+    return {
+        "catalog_card_count": len(confirmed),
+        "current_run_new_card_count": len(current - reused),
+        "current_run_reused_card_count": len(current & reused),
+        "pending_card_count": max(0, int(pending_count)),
+    }
+
 def current_semantic_summary(
     run: Mapping[str, Any], *, candidate_searches: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
     mappings: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],

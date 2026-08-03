@@ -35,7 +35,7 @@ def test_candidate_apply_guides_to_kosis_snapshot_preparation():
 
 def test_candidate_apply_clears_stale_snapshot_before_setting_prefill():
     source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
-    candidate_apply_scope = source[source.index('if st.button("선택 후보를 근거 입력에 적용"'):]
+    candidate_apply_scope = source[source.index('if st.button("Semantic Card 확인·저장"'):]
 
     clear_snapshot_index = candidate_apply_scope.index(
         'st.session_state.pop("kosis_evidence_snapshot_context", None)'

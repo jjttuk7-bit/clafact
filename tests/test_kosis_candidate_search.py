@@ -114,3 +114,20 @@ def test_returns_no_candidates_when_profile_has_no_supported_indicator():
             raise AssertionError("unsupported claim must not call KOSIS search")
 
     assert suggest_kosis_candidates("경제가 어렵다는 평가가 나왔다.", FakeIndex()) == []
+
+def test_candidate_scores_region_and_population_as_independent_axes():
+    sentence = "2025년 3월 서울 청년층 실업률은 7.5%였다."
+    matching = evaluate_kosis_candidate(
+        sentence,
+        TableHit("SEOUL_YOUTH", "101", "서울 청년층 월별 실업률", "경제활동인구조사", 0.2),
+    )
+    incompatible = evaluate_kosis_candidate(
+        sentence,
+        TableHit("NATIONAL_TOTAL", "101", "전국 전체 월별 실업률", "경제활동인구조사", 1.0),
+    )
+
+    assert matching.score > incompatible.score
+    assert "+10 지역 서울 일치" in matching.score_breakdown
+    assert "+10 모집단 청년층 일치" in matching.score_breakdown
+    assert "지역 서울 표현 없음" in incompatible.penalties
+    assert "모집단 청년층 표현 없음" in incompatible.penalties

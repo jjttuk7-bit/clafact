@@ -135,6 +135,18 @@ def evaluate_kosis_candidate(
         else:
             penalties.append(f"{profile.comparison} 표현 없음")
 
+    candidate_text = _compact(" ".join((hit.tbl_name, hit.survey, *item_names)))
+    for axis_name, value in (("지역", profile.region), ("모집단", profile.population)):
+        if not value:
+            continue
+        max_score += 10
+        if _compact(value) in candidate_text:
+            score += 10
+            reasons.append(f"{axis_name} {value} 일치")
+            score_breakdown.append(f"+10 {axis_name} {value} 일치")
+        else:
+            penalties.append(f"{axis_name} {value} 표현 없음")
+
     selected_item = _select_official_item(item_names, profile)
     official_items = " ".join(item_names)
     if selected_item and profile.indicator and _compact(profile.indicator) in _compact(selected_item):

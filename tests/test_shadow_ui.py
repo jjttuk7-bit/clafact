@@ -1,4 +1,4 @@
-from clafact.shadow_ui import current_semantic_summary, download_filenames, e2e_semantic_summary, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, llm_attempt_summary, validate_shadow_input
+from clafact.shadow_ui import semantic_card_catalog_summary, current_semantic_summary, download_filenames, e2e_semantic_summary, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, llm_attempt_summary, validate_shadow_input
 
 
 def test_shadow_database_path_is_research_only(tmp_path):
@@ -146,4 +146,19 @@ def test_e2e_semantic_summary_deduplicates_candidate_components_and_tracks_evide
         "mismatch_count": 1,
         "unverifiable_count": 1,
         "evidence_backed_count": 2,
+    }
+
+def test_semantic_card_catalog_summary_separates_new_reused_and_pending_cards():
+    summary = semantic_card_catalog_summary(
+        cards=[{"table_id": "DT_1"}, {"table_id": "DT_2"}, {"table_id": "DT_3"}],
+        current_run_confirmed_table_ids=("DT_2", "DT_4"),
+        reused_table_ids=("DT_2",),
+        pending_count=3,
+    )
+
+    assert summary == {
+        "catalog_card_count": 3,
+        "current_run_new_card_count": 1,
+        "current_run_reused_card_count": 1,
+        "pending_card_count": 3,
     }

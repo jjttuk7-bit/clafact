@@ -18,6 +18,22 @@ _INDICATOR_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("무역", "수입액", ("수입액", "수입")),
 )
 _ANAPHORIC_PATTERN = re.compile(r"이\s*같은|이같은|해당|그(?:는|이|러한|같은)")
+_REGION_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("서울", ("서울특별시", "서울")), ("부산", ("부산광역시", "부산")),
+    ("대구", ("대구광역시", "대구")), ("인천", ("인천광역시", "인천")),
+    ("광주", ("광주광역시", "광주")), ("대전", ("대전광역시", "대전")),
+    ("울산", ("울산광역시", "울산")), ("세종", ("세종특별자치시", "세종")),
+    ("경기", ("경기도", "경기")), ("강원", ("강원특별자치도", "강원도", "강원")),
+    ("충북", ("충청북도", "충북")), ("충남", ("충청남도", "충남")),
+    ("전북", ("전북특별자치도", "전라북도", "전북")), ("전남", ("전라남도", "전남")),
+    ("경북", ("경상북도", "경북")), ("경남", ("경상남도", "경남")),
+    ("제주", ("제주특별자치도", "제주도", "제주")), ("전국", ("전국",)),
+)
+_POPULATION_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("청년층", ("청년층", "청년")), ("여성", ("여성", "여자")),
+    ("남성", ("남성", "남자")), ("고령층", ("고령층", "고령자", "노인")),
+    ("15~29세", ("15~29세", "15~29 세")),
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +45,8 @@ class ClaimProfile:
     period: str = ""
     comparison: str = ""
     unit: str = ""
+    region: str = ""
+    population: str = ""
     search_query: str = ""
     context_inherited: bool = False
 
@@ -73,18 +91,32 @@ def _detect_unit(sentence: str) -> str:
     return ""
 
 
+def _detect_alias(sentence: str, aliases: tuple[tuple[str, tuple[str, ...]], ...]) -> str:
+    compact = "".join(sentence.split())
+    for canonical, values in aliases:
+        if any("".join(value.split()) in compact for value in values):
+            return canonical
+    return ""
+
+
 def build_claim_profile(sentence: str, *, previous: ClaimProfile | None = None) -> ClaimProfile:
     """Extract a supported numeric-claim profile without asserting factual truth."""
     topic, indicator = _detect_topic_indicator(sentence)
+    region = _detect_alias(sentence, _REGION_ALIASES)
+    population = _detect_alias(sentence, _POPULATION_ALIASES)
     inherited = False
     if indicator in ("", "물가", "인구", "고용") and previous and previous.indicator and _ANAPHORIC_PATTERN.search(sentence):
         topic, indicator, inherited = previous.topic, previous.indicator, True
+        region = region or previous.region
+        population = population or previous.population
     return ClaimProfile(
         topic=topic,
         indicator=indicator,
         period=_detect_period(sentence),
         comparison=_detect_comparison(sentence),
         unit=_detect_unit(sentence),
+        region=region,
+        population=population,
         search_query=indicator,
         context_inherited=inherited,
     )
@@ -95,5 +127,6 @@ def profile_summary(profile: ClaimProfile) -> str:
     suffix = " · 앞 문장 문맥 보완" if profile.context_inherited else ""
     return (
         f"주제: {profile.topic} · 지표: {profile.indicator} · 시간: {profile.period} "
-        f"· 비교: {profile.comparison} · 단위: {profile.unit}{suffix}"
+        f"· 비교: {profile.comparison} · 단위: {profile.unit} · 지역: {profile.region} "
+        f"· 모집단: {profile.population}{suffix}"
     )

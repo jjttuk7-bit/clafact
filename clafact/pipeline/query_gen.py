@@ -71,9 +71,16 @@ def make_query(sentence: str, aliases: AliasDict | None = None,
     """
     aliases = aliases if aliases is not None else AliasDict()
     text = aliases.substitute(sentence)          # ① 기사어 → 통계어
-    compound_terms = [f"{m.group(1)}인가구" for m in RE_COMPOUND_NUM_NOUN.finditer(text)]
-    if compound_terms:
-        return compound_terms[0]  # KOSIS 통합검색은 모집단 핵심어 단독 질의가 가장 안정적
+    compound_matches = list(RE_COMPOUND_NUM_NOUN.finditer(text))
+    compound_terms = [f"{match.group(1)}인가구" for match in compound_matches]
+    if compound_matches:
+        # 모집단 핵심어는 단독 질의가 안정적이되, 앞에 명시된 지역 문맥은 잃지 않는다.
+        leading_context = text[:compound_matches[0].start()]
+        context_terms = [
+            token for raw in RE_TOKEN.findall(leading_context)
+            if len(token := _strip_josa(raw)) >= 2 and not _is_noise(token)
+        ]
+        return " ".join([*context_terms, *compound_terms])
     text = RE_DATE.sub(" ", text)                # ② 날짜 → 수량스팬 순서로 제거
     text = RE_QTY_SPAN.sub(" ", text)            #    '150만 가구'는 지우되 '가구'는 살림
 

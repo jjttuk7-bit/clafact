@@ -39,6 +39,15 @@ def test_distinguishes_employment_rate_from_employed_people():
     assert rate.indicator == "고용률"
     assert people.indicator == "취업자 수"
 
+def test_extracts_region_and_population_as_independent_claim_axes():
+    profile = build_claim_profile("2025년 3월 서울 청년층 실업률은 7.5%였다.")
+
+    assert profile.region == "서울"
+    assert profile.population == "청년층"
+    assert "지역: 서울" in profile_summary(profile)
+    assert "모집단: 청년층" in profile_summary(profile)
+
+
 def test_inherits_indicator_for_anaphoric_followup_sentence():
     previous = build_claim_profile("10월 소비자물가가 2.4% 상승했다.")
     profile = build_claim_profile("이같은 물가 상승률은 15개월 만에 가장 높다.", previous=previous)
@@ -54,5 +63,5 @@ def test_formats_profile_summary_with_context_provenance():
     profile = build_claim_profile("이같은 물가 상승률은 15개월 만에 가장 높다.", previous=previous)
 
     assert profile_summary(profile) == (
-        "주제: 물가 · 지표: 소비자물가 · 시간:  · 비교:  · 단위:  · 앞 문장 문맥 보완"
+        "주제: 물가 · 지표: 소비자물가 · 시간:  · 비교:  · 단위:  · 지역:  · 모집단:  · 앞 문장 문맥 보완"
     )
