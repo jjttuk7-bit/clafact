@@ -141,3 +141,34 @@ def test_multi_year_duration_is_contextual_not_a_bare_numeric_value():
     assert extract_quantities(sentence) == []
     assert not has_extractable_unit_quantity(sentence)
     assert not has_numeric_expression(sentence)
+
+
+def test_period_ignores_index_base_year_equals_form():
+    """유래(2026-08-02 실측): '115.71(2020년=100)'의 2020년은 관측 시점이 아니라
+    지수 기준연도다. 지우지 않으면 실제 시점('지난달')을 무시하고 2020으로 조회한다."""
+    sentence = "지난달 소비자물가지수는 115.71(2020년=100)로 전년 동월 대비 2.2% 상승했다."
+    assert normalize_period(sentence, "2025-02-05") == "2025-01"
+
+
+def test_period_ignores_index_base_year_phrase_form():
+    """'2020년을 100으로 본' 형태도 같은 기준연도 표기다."""
+    sentence = "5월 소비자 물가 지수는 116.27(2020년을 100으로 본 상대적 지수)로 올랐다."
+    assert normalize_period(sentence, "2025-06-04") == "2025-05"
+
+
+def test_period_ignores_record_comparison_anchor():
+    """유래(2026-08-02 실측): '2023년 12월(4.2%) 이후 최대치'의 연월은 주장의 관측
+    시점이 아니라 비교 대상 기록의 시점이다. 실제 시점은 '지난달'이어야 한다."""
+    sentence = "지난달 가공식품 물가는 전년 대비 3.1% 올랐는데, 이 같은 상승 폭은 2023년 12월(4.2%) 이후 최대치다."
+    assert normalize_period(sentence, "2025-04-03") == "2025-03"
+
+
+def test_period_record_comparison_anchor_with_gap_words():
+    """'이후'와 최상급 표현 사이에 '1년 4개월 만에' 같은 어구가 끼어도 앵커로 인식한다."""
+    sentence = "지난달 가공식품 물가는 4.1% 올라 2023년 12월(4.2%) 이후 1년 4개월 만에 가장 높은 상승률을 기록했다."
+    assert normalize_period(sentence, "2025-05-06") == "2025-04"
+
+
+def test_period_bare_month_uses_article_year():
+    """연도 미지정 월은 분기 단독 규칙과 동일하게 작성 연도로 가정한다."""
+    assert normalize_period("5월 수출이 늘었다.", "2025-06-04") == "2025-05"

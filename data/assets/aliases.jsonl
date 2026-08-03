@@ -3,3 +3,5 @@
 {"entry_id": "A1-0003", "alias": "일자리 부족", "canonical": "실업률 경제활동인구조사", "tbl_id": "DT_1DA7002", "item_path": "경제활동인구조사 > 실업률", "origin": "seed-manual", "created": "2026-07-13", "verified_count": 0}
 {"entry_id": "A1-0004", "alias": "일자리를 구하지 못한", "canonical": "실업률 경제활동인구", "tbl_id": "DT_1DA7002", "item_path": "", "origin": "EXP-001", "created": "2026-07-14", "verified_count": 0}
 {"entry_id": "A1-0005", "alias": "새로 태어난 아기", "canonical": "출생아 인구동향", "tbl_id": "DT_1B8000F", "item_path": "", "origin": "EXP-001", "created": "2026-07-14", "verified_count": 0}
+{"entry_id": "A1-0006", "alias": "소비자 물가 상승률", "canonical": "소비자물가지수 등락률", "tbl_id": "DT_1J22042", "item_path": "소비자물가지수 > 전년동월비", "origin": "E2E-20 mapping evaluation", "created": "2026-08-02", "verified_count": 1}
+{"entry_id": "A1-0007", "alias": "건설업 취업자", "canonical": "산업별 취업자", "tbl_id": "DT_1DA7E06S_NEW", "item_path": "경제활동인구조사 > 산업별 취업자", "origin": "E2E-20 mapping evaluation", "created": "2026-08-02", "verified_count": 1}

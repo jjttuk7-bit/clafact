@@ -48,7 +48,7 @@ def main() -> int:
         print("  → clafact/.env 파일을 만들고 KOSIS_API_KEY=<발급키> 를 넣어주세요")
         return 1
 
-    # 호출 예산 현황 (문서 19 §5.2) — 개발 계정 1,000회는 금방 녹는다
+    # 호출 예산 현황 — CallBudget의 자체 안전 상한 소진 여부 (KOSIS 공식 총량 한도 아님, throttle.py 참고)
     budget = CallBudget(ROOT / "data/cache/call_budget.json")
     b = budget.stats()
     print(f"⓪ 호출 예산: {b['used']}/{b['limit']} 사용 · 남음 {b['remaining']}회"

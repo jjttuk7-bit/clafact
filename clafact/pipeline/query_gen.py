@@ -21,6 +21,8 @@ RE_DATE = re.compile(r"\d{0,4}\s*년|\d{1,2}\s*월|\d{1,2}\s*일|[1-4]\s*분기"
 #      '1인 가구'(주제)의 '가구'는 핵심어다. 숫자에 붙은 단위만 스팬으로 제거해 주제어를 살린다.
 _UNITS = "%p|%|퍼센트|포인트|명|가구|건|개(?!월|년)|원|배|위|톤|호|인|세대|세"
 RE_QTY_SPAN = re.compile(rf"\d[\d,.]*\s*[천만억조]?\s*(?:{_UNITS})?")
+# 수치+단위처럼 보이지만 통계 모집단을 뜻하는 복합명사는 검색어에서 보존한다.
+RE_COMPOUND_NUM_NOUN = re.compile(r"(\d+)\s*인\s*가구")
 
 # 2글자 이상 한글/영문 토큰 (조사가 붙은 어절 단위)
 RE_TOKEN = re.compile(r"[가-힣A-Za-z]{2,}")
@@ -69,6 +71,9 @@ def make_query(sentence: str, aliases: AliasDict | None = None,
     """
     aliases = aliases if aliases is not None else AliasDict()
     text = aliases.substitute(sentence)          # ① 기사어 → 통계어
+    compound_terms = [f"{m.group(1)}인가구" for m in RE_COMPOUND_NUM_NOUN.finditer(text)]
+    if compound_terms:
+        return compound_terms[0]  # KOSIS 통합검색은 모집단 핵심어 단독 질의가 가장 안정적
     text = RE_DATE.sub(" ", text)                # ② 날짜 → 수량스팬 순서로 제거
     text = RE_QTY_SPAN.sub(" ", text)            #    '150만 가구'는 지우되 '가구'는 살림
 
@@ -81,7 +86,7 @@ def make_query(sentence: str, aliases: AliasDict | None = None,
         seen.add(tok)
         terms.append(tok)
 
-    for t in (extra_terms or []):                # 지표·모집단 힌트(LLM 슬롯) 추가 여지
+    for t in [*(extra_terms or []), *compound_terms]:  # 지표·모집단 힌트 보존
         if t and t not in seen:
             seen.add(t)
             terms.append(t)

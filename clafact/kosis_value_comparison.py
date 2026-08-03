@@ -50,6 +50,9 @@ def _normalize_period(value: object) -> str:
     match = re.fullmatch(r"(\d{4})[.-](\d{1,2})", period)
     if match:
         return f"{match.group(1)}-{int(match.group(2)):02d}"
+    compact_month = re.fullmatch(r"(\d{4})(\d{2})", period)
+    if compact_month:
+        return f"{compact_month.group(1)}-{compact_month.group(2)}"
     return period.replace(".", "-")
 
 

@@ -22,6 +22,8 @@ from clafact.throttle import CallBudget, RateLimiter, backoff_delays
 
 BASE_URL = "https://kosis.kr/openapi/Param/statisticsParameterData.do"
 SEARCH_URL = "https://kosis.kr/openapi/statisticsSearch.do"  # KOSIS 통합검색 (경로 C)
+TABLE_METADATA_URL = "https://kosis.kr/openapi/statisticsData.do"
+STATISTICS_LIST_URL = "https://kosis.kr/openapi/statisticsList.do"
 
 
 def parse_json_tolerant(text: str):
@@ -47,19 +49,25 @@ def build_query(org_id: str, tbl_id: str, api_key: str = KEY_PLACEHOLDER, **para
     """통계자료 API 쿼리 파라미터 — 실 호출과 재현 URL 이 **같은 함수**를 쓴다.
 
     둘을 따로 만들면 언젠가 어긋나고, 그러면 "재현 URL"이 거짓말이 된다.
-    형식은 2026-07-14 실 API 스모크 테스트로 검증됨 (문서 16):
-      objL1~objL8 을 빈 값이라도 전부 포함 + newEstPrdCnt 지정 (누락 시 err 21)
+    형식은 KOSIS 공유서비스 개발가이드 기준:
+      objL1~objL8 을 빈 값이라도 전부 포함하고, 특정 시점(startPrdDe/endPrdDe) 또는 최신 시점(newEstPrdCnt) 중 하나를 지정
     """
-    return {
+    query = {
         "method": "getList", "apiKey": api_key,
         "itmId": params.get("itm_id", "ALL"),
         **{f"objL{level}": params.get(f"obj_l{level}", "ALL" if level == 1 else "")
            for level in range(1, 9)},
         "format": "json", "jsonVD": "Y",
         "prdSe": params.get("prd_se", "Y"),
-        "newEstPrdCnt": str(params.get("recent_n", 5)),
         "orgId": org_id, "tblId": tbl_id,
     }
+    period = str(params.get("prd_de", "")).replace("-", "")
+    if period:
+        query["startPrdDe"] = period
+        query["endPrdDe"] = period
+    else:
+        query["newEstPrdCnt"] = str(params.get("recent_n", 5))
+    return query
 
 
 def build_url(org_id: str, tbl_id: str, api_key: str = KEY_PLACEHOLDER, **params) -> str:
@@ -272,7 +280,32 @@ class HttpKosisClient:
                           resultCount: int = 10) -> list[dict]:
         """통합검색(경로 C) — 검색어로 28만 표 RANK 검색 → 후보 행 리스트."""
         url = build_search_url(searchNm, self.api_key, sort=sort, result_count=resultCount)
-        data = self._call(url, f"search {searchNm[:20]}")
+        try:
+            data = self._call(url, f"search {searchNm[:20]}")
+        except KosisApiError as error:
+            if error.code == "30":  # 검색 결과 없음은 평가·UI에서 정상적인 빈 후보
+                return []
+            raise
+        return data if isinstance(data, list) else []
+
+    def fetch_statistics_list(self, view_code: str, parent_id: str) -> list[dict]:
+        """KOSIS 목록 트리의 한 노드를 조회한다."""
+        query = {
+            "method": "getList", "apiKey": self.api_key, "vwCd": view_code,
+            "parentListId": parent_id, "format": "json", "content": "json",
+        }
+        url = f"{STATISTICS_LIST_URL}?{urllib.parse.urlencode(query)}"
+        data = self._call(url, f"catalog {view_code} {parent_id}")
+        return data if isinstance(data, list) else []
+
+    def fetch_table_items(self, org_id: str, tbl_id: str) -> list[dict]:
+        """통계표의 분류·항목 메타를 공통 재시도·예산 경로로 조회한다."""
+        query = {
+            "method": "getMeta", "type": "ITM", "apiKey": self.api_key,
+            "orgId": org_id, "tblId": tbl_id, "format": "json", "content": "json",
+        }
+        url = f"{TABLE_METADATA_URL}?{urllib.parse.urlencode(query)}"
+        data = self._call(url, f"metadata {tbl_id}")
         return data if isinstance(data, list) else []
 
 

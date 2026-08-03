@@ -27,6 +27,7 @@ from clafact.assets.rules import RuleRegistry
 from clafact.assets import goldenset
 from clafact import goldenset as research_goldenset
 from clafact.eval import harness
+from clafact.e2e_shadow import e2e_comparisons_by_row
 from clafact.kosis import HttpKosisClient, KosisApiError, KosisConnectionError
 from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
@@ -2877,6 +2878,14 @@ if view == "검증 실험실":
                 except Exception as error:
                     completed_claims_by_row = {}
                     st.warning(f"완료 Claim 기록을 CSV에 포함하지 못했습니다: {error}")
+                e2e_verdict_path = ROOT / "reports" / "e2e_snapshot_verdict_latest.json"
+                if e2e_verdict_path.exists():
+                    try:
+                        e2e_verdicts = json.loads(e2e_verdict_path.read_text(encoding="utf-8"))
+                        for row_index, comparisons in e2e_comparisons_by_row(shadow_run, e2e_verdicts).items():
+                            kosis_comparisons_by_row.setdefault(row_index, []).extend(comparisons)
+                    except (OSError, json.JSONDecodeError) as error:
+                        st.warning(f"최신 E2E 판정을 CSV에 포함하지 못했습니다: {error}")
                 json_name, csv_name = download_filenames(shadow_run["run_id"])
                 download_columns = st.columns(2)
                 download_columns[0].download_button(

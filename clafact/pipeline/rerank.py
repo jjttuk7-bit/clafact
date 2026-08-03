@@ -33,6 +33,19 @@ INTL_VW = {"MT_RTITLE"}          # 국제기구별 통계
 REGION_VW = {"MT_GTITLE01"}      # e-지방지표 등 지역지표
 DOMESTIC_VW = {"MT_ZTITLE"}      # 주제별 국내 통계
 
+# 실적(조사) 통계가 아니라 추계·전망 통계 — 확정된 과거 실적 주장의 근거가 될 수 없다
+# (실측 2026-08-02: '혼인 건수'·'다문화 혼인 비중' 실적 주장이 미래 시나리오 추계표인
+# '장래인구추계'로 매핑됐다. 두 표 모두 '인구' 키워드가 겹쳐 리랭커가 구분하지 못했다).
+RE_PROJECTION_TBL = re.compile(r"장래|추계")
+RE_CLAIM_FORECAST = re.compile(r"전망|추계|예측|시나리오")
+
+# 표 제목 맨 앞의 '~별' 세부 분류축 — 주장에 언급되지 않은 축이면 총괄표가 아니라
+# 불필요하게 잘게 쪼갠 표일 가능성이 높다(실측: '취업자 수' 단순 주장이 '취업시간별
+# 취업자'로 매핑되어, 사실상 맞는 값인데도 축 불일치로 오분류될 위험이 있었다).
+# 지역축(시도·지역·행정구역)은 ② 지역표 규칙이 이미 다루므로 여기서는 제외한다.
+RE_LEADING_BREAKDOWN_AXIS = re.compile(r"^([가-힣()·]+?)별\s")
+REGION_AXIS_TOKENS = ("시도", "지역", "행정구역", "시군구")
+
 
 def _covers(row: dict, period: str) -> bool | None:
     """수록기간이 주장 시점을 포함하는가. 정보 없으면 None(판단 보류)."""
@@ -114,6 +127,24 @@ def score_row(row: dict, sentence: str, period: str = "") -> tuple[float, list[s
     elif cov is True:
         score += 1.0
         why.append("수록기간 커버")
+
+    # ⑥ 실적 통계 vs 추계·전망 통계 — 확정 실적 주장은 추계표로 검증할 수 없다
+    if RE_PROJECTION_TBL.search(doc):
+        if RE_CLAIM_FORECAST.search(sentence):
+            score += 1.0
+            why.append("전망 주장 ↔ 추계 통계 일치")
+        else:
+            score -= 4.0
+            why.append("실적 주장인데 추계·전망 통계")
+
+    # ⑦ 주장에 없는 세부 분류축 — 표 제목이 'OOO별'로 시작하는데 그 축이 주장에
+    # 없으면 총괄표가 아니라 불필요하게 세분화된 표일 가능성이 높다
+    axis_match = RE_LEADING_BREAKDOWN_AXIS.match(tbl)
+    if axis_match:
+        axis = axis_match.group(1)
+        if not any(token in axis for token in REGION_AXIS_TOKENS) and axis not in sentence:
+            score -= 3.0
+            why.append(f"주장에 없는 세부 분류축({axis}) 표 — 총괄표 아님")
 
     return score, why
 

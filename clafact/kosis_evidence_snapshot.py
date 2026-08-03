@@ -43,14 +43,24 @@ def _selection(row: Mapping[str, object]) -> dict[str, str]:
     return selection
 
 
+def _selection_codes(row: Mapping[str, object]) -> dict[str, str]:
+    return {
+        f"C{level}": str(row.get(f"C{level}", "")).strip()
+        for level in range(1, 9)
+        if str(row.get(f"C{level}", "")).strip()
+    }
+
+
 def _record(row: Mapping[str, object]) -> dict[str, object]:
     return {
         "period": str(row.get("PRD_DE", "")).strip(),
         "value": str(row.get("DT", "")).strip(),
         "unit": str(row.get("UNIT_NM", "")).strip(),
         "indicator": str(row.get("ITM_NM", "")).strip(),
+        "indicator_code": str(row.get("ITM_ID", "")).strip(),
         "last_changed_at": str(row.get("LST_CHN_DE", "")).strip(),
         "selection": _selection(row),
+        "selection_codes": _selection_codes(row),
     }
 
 

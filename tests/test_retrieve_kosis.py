@@ -37,6 +37,38 @@ def test_tolerant_parser_fixes_unquoted_keys():
         [{"ORG_ID": "101", "TBL_ID": "DT_X"}]
 
 
+def test_http_client_fetches_table_items_metadata_with_tolerant_parser():
+    """통계표 분류·항목 메타도 공통 KOSIS 호출 경로로 가져온다."""
+    import urllib.parse
+    import urllib.request
+    d = Path(__import__("tempfile").mkdtemp())
+    orig = urllib.request.urlopen
+    urls = []
+    try:
+        client = HttpKosisClient(
+            api_key="DUMMY", budget=CallBudget(d / "b.json", limit=10),
+            rate_limiter=RateLimiter(600),
+        )
+
+        class Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(url, **kwargs):
+            urls.append(url)
+            return Resp(b'[{OBJ_ID:"I",ITM_ID:"Q87",ITM_NM:"target"}]')
+
+        urllib.request.urlopen = urlopen
+        rows = client.fetch_table_items("101", "DT_X")
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(urls[0]).query)
+        assert rows == [{"OBJ_ID": "I", "ITM_ID": "Q87", "ITM_NM": "target"}]
+        assert query["method"] == ["getMeta"] and query["type"] == ["ITM"]
+        assert query["orgId"] == ["101"] and query["tblId"] == ["DT_X"]
+    finally:
+        urllib.request.urlopen = orig
+        __import__("shutil").rmtree(d)
+
+
 # ── 시점 필터 ──────────────────────────────────────────────
 def test_period_filter_keeps_when_unknown():
     """수록기간 모르면 후보 유지 (못 재는 걸로 버리지 않음)."""

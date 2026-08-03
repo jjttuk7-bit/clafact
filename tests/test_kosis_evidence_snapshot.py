@@ -18,3 +18,17 @@ def test_snapshot_preserves_reproducible_request_values_and_revision():
     assert snapshot.records[0]["value"] == "50000000"
     assert snapshot.records[0]["last_changed_at"] == "2026-06-30"
     assert len(snapshot.content_hash) == 64
+
+
+def test_snapshot_preserves_dimension_codes_with_selection_labels():
+    snapshot = build_evidence_snapshot(
+        org_id="101", table_id="DT_X", query_params={}, retrieved_at="2026-08-03",
+        rows=[{
+            "PRD_DE": "2025-05", "DT": "109.67", "ITM_ID": "T", "ITM_NM": "소비자물가지수",
+            "C1": "T10", "C1_OBJ_NM": "시도별", "C1_NM": "전국",
+            "C2": "B01A01402", "C2_OBJ_NM": "품목별", "C2_NM": "분유",
+        }],
+    )
+
+    assert snapshot.records[0]["selection_codes"] == {"C1": "T10", "C2": "B01A01402"}
+    assert snapshot.records[0]["indicator_code"] == "T"

@@ -41,12 +41,15 @@ def test_real_key_only_used_when_explicitly_passed():
 
 # ── 실 호출과 재현 URL 이 같은 코드 경로인가 ──────────────────
 def test_build_query_matches_verified_format():
-    """2026-07-14 실 API 검증 형식 — objL1~8 전부 + newEstPrdCnt (누락 시 err 21)."""
+    """objL1~8은 항상 넣고, 시점기준과 최신자료기준은 택일한다."""
     q = build_query("101", "DT_1EA1019", prd_de="2024")
     for i in range(1, 9):
         assert f"objL{i}" in q, f"objL{i} 누락 — err 21 발생 형식"
-    assert q["newEstPrdCnt"], "newEstPrdCnt 누락 — err 21 발생 형식"
-    assert q["orgId"] == "101" and q["tblId"] == "DT_1EA1019"
+    assert q["startPrdDe"] == "2024" and q["endPrdDe"] == "2024"
+    assert "newEstPrdCnt" not in q
+    recent = build_query("101", "DT_1EA1019")
+    assert recent["newEstPrdCnt"]
+    assert recent["orgId"] == "101" and recent["tblId"] == "DT_1EA1019"
 
 
 # ── 판정에 감사 추적이 붙는가 ────────────────────────────────

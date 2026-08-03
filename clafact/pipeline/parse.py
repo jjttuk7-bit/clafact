@@ -102,6 +102,7 @@ RE_REL_M = re.compile(r"(올해|금년|지난해|작년|전년|재작년|내년)
 RE_REL_Y = re.compile(r"올해|금년|지난해|작년|전년(?!\s*동기)|재작년|내년")
 RE_LAST_MONTH = re.compile(r"지난달|지난 달|전월")
 RE_Q_ONLY = re.compile(r"([1-4])분기")
+RE_M_ONLY = re.compile(r"(\d{1,2})월")
 
 # 비교 '기준'을 가리키는 어구 — 주장의 시점이 아니다.
 # "지난달 물가가 **작년 같은 달보다** 2.2% 올랐다"에서 시점은 지난달이지 작년이 아니다.
@@ -110,6 +111,24 @@ RE_Q_ONLY = re.compile(r"([1-4])분기")
 RE_BASELINE = re.compile(
     r"전년\s*동월\s*대비|전년\s*동기\s*대비|전년\s*대비|작년\s*같은\s*달(보다)?|"
     r"지난해\s*같은\s*(달|기간|분기)(보다)?|작년\s*동월(보다)?|작년보다|지난해보다")
+
+# 지수 기준연도 표기 — 주장의 관측 시점이 아니라 지수의 기준점이다.
+# "115.71(2020년=100)"에서 '2020년'은 관측 시점이 아니라 지수 기준연도다.
+# 제거하지 않으면 RE_ABS_Y가 이를 가로채 실제 관측 시점('지난달' 등)을 무시한다
+# (실측 2026-08-02: 소비자물가지수 claim 5건 전부가 이 문제로 잘못된 연도를 조회했다).
+RE_INDEX_BASE_YEAR = re.compile(
+    r"\d{4}\s*년(?:\s*을\s*100\s*(?:으로|으로\s*본)?|\s*=\s*100)")
+
+# 기록 비교 앵커 — "2023년 12월(4.2%) 이후 최대치"에서 연월은 주장의 관측 시점이
+# 아니라 비교 대상 기록의 시점이다. 제거하지 않으면 RE_ABS_YM이 이를 관측 시점으로
+# 오인해 실제 시점('지난달' 등)을 무시한다(위와 같은 2026-08-02 실측에서 발견).
+RE_RECORD_ANCHOR = re.compile(
+    r"\d{4}\s*년(?:\s*\d{1,2}\s*월)?\s*(?:\([^)]*\)\s*)?"
+    r"(?=이후.{0,20}?(?:최대|최고|최저|최소|가장|역대))")
+
+# "2013년 관련 통계 작성 이래"의 연도는 시계열 시작점이지 관측 시점이 아니다.
+RE_SERIES_START_ANCHOR = re.compile(
+    r"(?:지난\s*)?\d{4}\s*년\s*관련\s*통계\s*작성\s*이래")
 
 
 def _to_date(article_date) -> date:
@@ -130,6 +149,10 @@ def normalize_period(sentence: str, article_date) -> str:
     base = _to_date(article_date)
     # 비교 기준 어구를 먼저 제거 — 주장의 시점과 비교 대상 시점을 혼동하지 않기 위해
     sentence = RE_BASELINE.sub(" ", sentence)
+    # 지수 기준연도·기록 비교 앵커도 같은 이유로 먼저 제거한다 — 관측 시점이 아니다
+    sentence = RE_INDEX_BASE_YEAR.sub(" ", sentence)
+    sentence = RE_RECORD_ANCHOR.sub(" ", sentence)
+    sentence = RE_SERIES_START_ANCHOR.sub(" ", sentence)
 
     if m := RE_ABS_YM.search(sentence):
         return f"{m.group(1)}-{int(m.group(2)):02d}"
@@ -150,6 +173,8 @@ def normalize_period(sentence: str, article_date) -> str:
         return f"{y}-{mth:02d}"
     if m := RE_Q_ONLY.search(sentence):
         return f"{base.year}-Q{m.group(1)}"  # 연도 미지정 분기는 작성 연도로 가정
+    if m := RE_M_ONLY.search(sentence):
+        return f"{base.year}-{int(m.group(1)):02d}"  # 연도 미지정 월은 작성 연도로 가정
     return ""
 
 

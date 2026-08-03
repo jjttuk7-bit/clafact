@@ -87,3 +87,15 @@ def test_does_not_compare_percentage_point_to_percent_rate():
     assert result.status == "not_comparable"
     assert "값 성격" in result.reason or "단위" in result.reason
     assert any(not gate["passed"] for gate in result.gate_results)
+
+def test_accepts_kosis_compact_month_period_in_snapshot():
+    result = compare_claim_to_snapshot(
+        claim_sentence="지난달 소비자 물가가 지난해 같은 달 대비 2.4% 상승했다.",
+        article_date="2025-11-04",
+        evidence_indicator="전년동월비(%)",
+        evidence_selection={"지수종류": "총지수"},
+        snapshot=_snapshot([_record(period="202510")]),
+    )
+
+    assert result.status == "match"
+    assert result.official_period == "2025-10"

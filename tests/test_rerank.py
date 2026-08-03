@@ -81,3 +81,42 @@ def test_rerank_prefers_youth_table_for_youth_unemployment_claim():
         {"TBL_ID": "YOUTH", "TBL_NM": "청년층 실업률", "STAT_NM": "경제활동인구조사"},
     ]
     assert rerank_rows(rows, "3분기 청년 실업률은 5.1%다.")[0]["TBL_ID"] == "YOUTH"
+
+
+def test_projection_table_demoted_for_realized_claim():
+    """유래(2026-08-02 실측): '혼인 건수' 실적 주장이 미래 시나리오 추계표
+    '장래인구추계'로 매핑됐다. 실적 조사표가 있으면 추계표보다 앞서야 한다."""
+    rows = [
+        {"TBL_ID": "PROJECTION", "TBL_NM": "장래 인구변동요인(출생, 사망, 국제이동) / 전국",
+         "STAT_NM": "장래인구추계"},
+        {"TBL_ID": "SURVEY", "TBL_NM": "인구동향조사 - 혼인·이혼", "STAT_NM": "인구동향조사"},
+    ]
+    ranked = rerank_rows(rows, "작년 한 해 혼인 건수는 22만2422건으로 전년 대비 14.9% 늘었다.")
+    assert ranked[0]["TBL_ID"] == "SURVEY"
+
+
+def test_projection_table_preferred_for_forecast_claim():
+    """반대로 '전망'을 말하는 주장에서는 추계표가 감점되지 않아야 한다."""
+    row = {"TBL_ID": "PROJECTION", "TBL_NM": "장래 인구변동요인 / 전국", "STAT_NM": "장래인구추계"}
+    s_forecast, _ = score_row(row, "2035년 인구는 전망치 기준 4800만명이다.")
+    s_realized, _ = score_row(row, "작년 인구는 5100만명이었다.")
+    assert s_forecast > s_realized
+
+
+def test_unrequested_breakdown_axis_demoted():
+    """유래(2026-08-02 실측): '취업자 수' 단순 주장이 '취업시간별 취업자'로
+    매핑됐다. 주장에 없는 세부 분류축 표는 총괄표보다 낮아야 한다."""
+    rows = [
+        {"TBL_ID": "BY_HOURS", "TBL_NM": "취업시간별 취업자", "STAT_NM": "경제활동인구조사"},
+        {"TBL_ID": "TOTAL", "TBL_NM": "성별 경제활동인구 총괄", "STAT_NM": "경제활동인구조사"},
+    ]
+    s_hours, why_hours = score_row(rows[0], "지난달 취업자 수는 2804만1000명으로 감소했다.")
+    assert any("세부 분류축" in w for w in why_hours)
+    assert s_hours < 3.0
+
+
+def test_region_axis_not_treated_as_unrequested_breakdown():
+    """지역축(시도 등)은 ② 지역표 규칙이 이미 다루므로 ⑦에서 이중 감점하지 않는다."""
+    row = {"TBL_ID": "REGION", "TBL_NM": "행정구역(시도)별 경제활동인구", "STAT_NM": "경제활동인구조사"}
+    _, why = score_row(row, "서울의 고용률은 63.6%였다.")
+    assert not any("세부 분류축" in w for w in why)
