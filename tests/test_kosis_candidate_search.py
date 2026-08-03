@@ -1,4 +1,5 @@
 from clafact.kosis_candidate_search import evaluate_kosis_candidate, suggest_kosis_candidates
+from clafact.claim_profile import ClaimProfile
 from clafact.pipeline.retrieve import TableHit
 
 
@@ -131,3 +132,20 @@ def test_candidate_scores_region_and_population_as_independent_axes():
     assert "+10 모집단 청년층 일치" in matching.score_breakdown
     assert "지역 서울 표현 없음" in incompatible.penalties
     assert "모집단 청년층 표현 없음" in incompatible.penalties
+
+
+def test_search_uses_explicit_confirmed_profile_instead_of_reextracting_sentence():
+    class FakeIndex:
+        last_query = ""
+
+        def search(self, query: str, top_k: int):
+            self.last_query = query
+            return [TableHit("DT_RATE", "101", "월별 실업률", "경제활동인구조사", 1.0)]
+
+    index = FakeIndex()
+    profile = ClaimProfile(topic="고용", indicator="실업률", period="월", search_query="실업률")
+
+    candidates = suggest_kosis_candidates("원문에 지표가 생략된 문장", index, profile=profile)
+
+    assert index.last_query == "실업률"
+    assert candidates[0].hit.tbl_id == "DT_RATE"

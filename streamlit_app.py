@@ -30,6 +30,9 @@ from clafact.eval import harness
 from clafact.e2e_shadow import e2e_comparisons_by_row
 from clafact.kosis import HttpKosisClient, KosisApiError, KosisConnectionError
 from clafact.claim_profile import build_claim_profile, profile_summary
+from clafact.claim_card import ClaimCard, build_claim_card, claim_profile_from_card, review_claim_card
+from clafact.claim_card_store import ClaimCardStore
+from clafact.pipeline.parse import extract_quantities
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
 from clafact.kosis_candidate_compat import search_candidates_with_context
@@ -2217,9 +2220,9 @@ if view == "검증 실험실":
                             key=f"goldenset_validation_download_{shadow_run_id}",
                         )
 
-                st.markdown("##### KOSIS 후보 탐색")
+                st.markdown("##### 1. Claim 표준 구조화")
                 candidate_sentence_label = st.selectbox(
-                    "후보를 찾을 Shadow 문장", list(candidate_sentence_options),
+                    "Claim으로 구조화할 Shadow 문장", list(candidate_sentence_options),
                     key=candidate_selection_key,
                 )
                 candidate_row = candidate_sentence_options[candidate_sentence_label]
@@ -2231,20 +2234,90 @@ if view == "검증 실험실":
                         previous_profile = candidate_previous_profile
                         break
                 candidate_sentence = candidate_row["sentence"]
-                candidate_profile = build_claim_profile(candidate_sentence, previous=previous_profile)
-                st.caption(f"주장 프로필: {profile_summary(candidate_profile)}")
-                if candidate_profile.context_inherited:
-                    st.info("앞 문장의 지표를 이어받아 KOSIS 후보를 탐색합니다.")
+                claim_card_draft = build_claim_card(
+                    candidate_sentence,
+                    str(shadow_date),
+                    previous_profile=previous_profile,
+                )
+                with ClaimCardStore(ROOT / "data/research/claim_card.db") as claim_card_store:
+                    saved_claim_payload = claim_card_store.get(shadow_run_id, candidate_row["row_index"])
+                saved_claim_card = ClaimCard.from_dict(saved_claim_payload) if saved_claim_payload else None
+                review_card = saved_claim_card or claim_card_draft
+                if review_card.context_inherited:
+                    st.info("앞 문장의 지표를 이어받았습니다. 아래 Claim Card에서 확인하세요.")
+                st.caption("문장 원문은 바꾸지 않습니다. 아래 필드는 이 문장을 KOSIS와 비교하기 위한 표준 Claim 구조입니다.")
+                st.code(candidate_sentence, language=None)
+                extracted_values = [quantity.raw for quantity in extract_quantities(candidate_sentence)]
+                value_options = extracted_values or [review_card.claim_value_raw or "(수치 미검출)"]
+                current_value = review_card.claim_value_raw if review_card.claim_value_raw in value_options else value_options[0]
+                with st.form(key=f"claim_card_review_{shadow_run_id}_{candidate_row['row_index']}"):
+                    claim_columns = st.columns(2)
+                    reviewed_indicator = claim_columns[0].text_input("지표", value=review_card.indicator)
+                    reviewed_period = claim_columns[1].text_input("시점", value=review_card.period, help="예: 2025-10, 2025-Q3, 2025")
+                    reviewed_value = claim_columns[0].selectbox(
+                        "주장값", value_options, index=value_options.index(current_value),
+                    )
+                    reviewed_unit = claim_columns[1].text_input("단위", value=review_card.unit)
+                    reviewed_region = claim_columns[0].text_input("지역", value=review_card.region or "전국")
+                    reviewed_population = claim_columns[1].text_input("대상·모집단", value=review_card.population)
+                    st.caption(
+                        f"주제: {review_card.topic or '-'} · 비교 방식: {review_card.comparison or '직접값'} · "
+                        f"Claim 유형: {review_card.claim_type or '-'} · 출처 경로: {review_card.route or '-'}"
+                    )
+                    save_claim_card = st.form_submit_button("Claim Card 확인·저장", type="primary")
+                if save_claim_card:
+                    reviewed_card = review_claim_card(
+                        claim_card_draft,
+                        indicator=reviewed_indicator,
+                        period=reviewed_period,
+                        claim_value_raw="" if reviewed_value == "(수치 미검출)" else reviewed_value,
+                        unit=reviewed_unit,
+                        region="" if reviewed_region == "전국" else reviewed_region,
+                        population=reviewed_population,
+                        confirmed_at=datetime.now().astimezone().isoformat(),
+                    )
+                    if reviewed_card.ready_for_kosis:
+                        with ClaimCardStore(ROOT / "data/research/claim_card.db") as claim_card_store:
+                            created = claim_card_store.upsert(shadow_run_id, candidate_row["row_index"], reviewed_card)
+                        st.session_state.pop(f"kosis_candidate_results_{shadow_run_id}", None)
+                        st.session_state.pop(f"kosis_candidate_searched_row_{shadow_run_id}", None)
+                        st.success("Claim Card를 저장했습니다. 이제 이 구조를 기준으로 KOSIS 후보를 찾습니다." if created else "Claim Card를 갱신했습니다. 이제 이 구조를 기준으로 KOSIS 후보를 찾습니다.")
+                        saved_claim_card = reviewed_card
+                    else:
+                        st.warning("Claim Card를 KOSIS 탐색으로 넘길 수 없습니다: " + ", ".join(reviewed_card.readiness_reasons))
+                confirmed_claim_card = saved_claim_card if saved_claim_card and saved_claim_card.ready_for_kosis else None
+                if confirmed_claim_card:
+                    st.success(
+                        f"확인된 Claim Card · 지표 {confirmed_claim_card.indicator} · "
+                        f"주장값 {confirmed_claim_card.claim_value_raw} · 시점 {confirmed_claim_card.period}"
+                    )
+                else:
+                    st.warning("다음 단계로 가려면 먼저 Claim Card를 확인·저장하세요.")
+
+                st.markdown("##### 2. KOSIS 후보 탐색")
                 if guide.screen_hint and guide.screen_hint.step_id == "find_candidate":
                     st.info(f"현재 단계: {guide.screen_hint.message}")
-                if st.button("KOSIS 후보 3개 찾기", key=f"kosis_candidate_search_{shadow_run_id}"):
+                search_disabled = confirmed_claim_card is None
+                if st.button(
+                    "KOSIS 후보 3개 찾기",
+                    key=f"kosis_candidate_search_{shadow_run_id}",
+                    disabled=search_disabled,
+                ):
                     try:
                         search_index, metadata_client = load_engine()
-                        candidate_sentence = candidate_sentence_options[candidate_sentence_label]["sentence"]
-                        candidates = search_candidates_with_context(suggest_kosis_candidates, candidate_sentence, search_index, metadata_client=metadata_client, previous_profile=previous_profile, metadata_limit=3)
+                        confirmed_profile = claim_profile_from_card(confirmed_claim_card)
+                        candidates = search_candidates_with_context(
+                            suggest_kosis_candidates,
+                            candidate_sentence,
+                            search_index,
+                            metadata_client=metadata_client,
+                            previous_profile=previous_profile,
+                            profile=confirmed_profile,
+                            metadata_limit=3,
+                        )
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
-                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": candidate_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
+                        candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": confirmed_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                             candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:

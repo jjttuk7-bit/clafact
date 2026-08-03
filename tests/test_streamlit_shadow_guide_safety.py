@@ -81,10 +81,10 @@ def test_goldenset_status_is_between_the_step_guide_and_candidate_search_control
 
     guide_index = source.index('with st.expander("연구 진행 가이드"')
     goldenset_index = source.index('with st.expander("골든셋 Seed 100 현황"')
-    candidate_heading_index = source.index('st.markdown("##### KOSIS 후보 탐색")')
-    candidate_selectbox_index = source.index('"후보를 찾을 Shadow 문장"')
+    candidate_heading_index = source.index('st.markdown("##### 2. KOSIS 후보 탐색")')
+    candidate_selectbox_index = source.index('"Claim으로 구조화할 Shadow 문장"')
 
-    assert guide_index < goldenset_index < candidate_heading_index < candidate_selectbox_index
+    assert guide_index < goldenset_index < candidate_selectbox_index < candidate_heading_index
 
 
 def test_goldenset_status_loads_jsonl_and_surfaces_semantic_parity_as_research_validation():
@@ -111,3 +111,16 @@ def test_candidate_selection_has_explicit_continue_action_before_card_confirmati
 
     assert select_index < continue_index < confirm_index
     assert 'st.session_state[review_target_key] = selected_hit.tbl_id' in source
+
+
+def test_shadow_requires_a_confirmed_claim_card_before_kosis_candidate_search():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    card_heading_index = source.index('st.markdown("##### 1. Claim 표준 구조화")')
+    candidate_heading_index = source.index('st.markdown("##### 2. KOSIS 후보 탐색")')
+
+    assert card_heading_index < candidate_heading_index
+    assert "ClaimCardStore" in source
+    assert '"Claim Card 확인·저장"' in source
+    assert "claim_profile_from_card(confirmed_claim_card)" in source
+    assert "먼저 Claim Card를 확인·저장하세요" in source

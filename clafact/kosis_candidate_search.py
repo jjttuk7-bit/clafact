@@ -187,10 +187,11 @@ def suggest_kosis_candidates(
     top_k: int = 3,
     metadata_client: object | None = None,
     previous_profile: ClaimProfile | None = None,
+    profile: ClaimProfile | None = None,
     metadata_limit: int = 3,
 ) -> list[KosisCandidate]:
     """Search supported KOSIS candidates using a structured numeric claim profile."""
-    profile = build_claim_profile(sentence, previous=previous_profile)
+    profile = profile or build_claim_profile(sentence, previous=previous_profile)
     if not profile.search_query:
         return []
     hits = search_index.search(profile.search_query, top_k=10)
