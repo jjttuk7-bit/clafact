@@ -32,6 +32,7 @@ from clafact.kosis import HttpKosisClient, KosisApiError, KosisConnectionError
 from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.claim_card import ClaimCard, build_claim_card, claim_profile_from_card, review_claim_card
 from clafact.claim_card_store import ClaimCardStore
+from clafact.claim_context import resolve_article_period, shadow_sentence_label
 from clafact.pipeline.parse import extract_quantities
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
@@ -2090,7 +2091,7 @@ if view == "검증 실험실":
                     golden_columns[5].metric("원본 근거 보유", f"{golden_semantic['evidence_backed_count']}건")
                     st.caption("저장된 골든셋 E2E 스냅샷 판정 기준입니다. 로컬 원본 파일이 없으면 배포용 E2E 결과 스냅샷을 사용하며, 현재 Shadow 실행의 운영 Claim을 변경하지 않습니다.")
                 candidate_sentence_options = {
-                    f"#{row['row_index']} · {row['sentence'][:70]}": row
+                    shadow_sentence_label(row): row
                     for row in shadow_run["rows"]
                 }
                 candidate_selection_key = f"kosis_candidate_sentence_{shadow_run_id}"
@@ -2234,6 +2235,10 @@ if view == "검증 실험실":
                         previous_profile = candidate_previous_profile
                         break
                 candidate_sentence = candidate_row["sentence"]
+                article_period_context = resolve_article_period(
+                    [row["sentence"] for row in shadow_run["rows"]],
+                    str(shadow_date),
+                )
                 claim_card_draft = build_claim_card(
                     candidate_sentence,
                     str(shadow_date),
@@ -2243,6 +2248,7 @@ if view == "검증 실험실":
                     saved_claim_payload = claim_card_store.get(shadow_run_id, candidate_row["row_index"])
                 saved_claim_card = ClaimCard.from_dict(saved_claim_payload) if saved_claim_payload else None
                 review_card = saved_claim_card or claim_card_draft
+                inherited_period = article_period_context.period if not review_card.period else ""
                 if review_card.context_inherited:
                     st.info("앞 문장의 지표를 이어받았습니다. 아래 Claim Card에서 확인하세요.")
                 st.caption("문장 원문은 바꾸지 않습니다. 아래 필드는 이 문장을 KOSIS와 비교하기 위한 표준 Claim 구조입니다.")
@@ -2253,7 +2259,9 @@ if view == "검증 실험실":
                 with st.form(key=f"claim_card_review_{shadow_run_id}_{candidate_row['row_index']}"):
                     claim_columns = st.columns(2)
                     reviewed_indicator = claim_columns[0].text_input("지표", value=review_card.indicator)
-                    reviewed_period = claim_columns[1].text_input("시점", value=review_card.period, help="예: 2025-10, 2025-Q3, 2025")
+                    reviewed_period = claim_columns[1].text_input("시점", value=review_card.period or inherited_period, help="예: 2025-10, 2025-Q3, 2025")
+                    if inherited_period:
+                        st.caption(f"상속 시점 제안: {inherited_period} (기사 문장 #{article_period_context.row_index}의 명확한 시점에서 확인)")
                     reviewed_value = claim_columns[0].selectbox(
                         "주장값", value_options, index=value_options.index(current_value),
                     )

@@ -134,3 +134,12 @@ def test_semantic_card_review_uses_the_confirmed_claim_card_profile():
     assert 'semantic_card_review_model(card, confirmed_profile' in search_scope
     assert 'build_semantic_card_draft(selected_candidate, confirmed_profile)' in search_scope
     assert 'candidate_profile' not in search_scope
+
+
+def test_shadow_claim_card_uses_safe_article_period_context_and_compact_labels():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "shadow_sentence_label(row)" in source
+    assert "resolve_article_period(" in source
+    assert "상속 시점" in source
+    assert "value=review_card.period or inherited_period" in source
