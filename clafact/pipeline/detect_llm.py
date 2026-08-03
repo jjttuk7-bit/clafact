@@ -17,6 +17,19 @@ from clafact.llm import LLMClient, get_client
 
 _JSON = re.compile(r"\{.*\}", re.S)
 
+
+def _first_json_object(resp: str) -> dict | None:
+    """Return the first valid JSON object, even when HCX adds surrounding text."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", resp or ""):
+        try:
+            value, _ = decoder.raw_decode(resp, match.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
 # HCX는 후보 탐지와 근거 충분성을 분리한다. 후보가 된다고 해서 기사 안에
 # 공식 통계표가 이미 있다는 뜻은 아니며, needs_retrieval은 정상적인 후보 상태다.
 SYSTEM = (
@@ -42,25 +55,17 @@ class HcxDecision:
 
 def _parse(resp: str) -> tuple[bool, str]:
     """LLM 응답에서 verifiable 추출 — 파싱 실패 시 보수적으로 통과(재현율 보호)."""
-    m = _JSON.search(resp or "")
-    if not m:
-        return True, "판별 응답 파싱 실패 → 보수적 통과"
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
+    obj = _first_json_object(resp)
+    if obj is None:
         return True, "판별 JSON 파싱 실패 → 보수적 통과"
     return bool(obj.get("verifiable", True)), str(obj.get("reason", ""))
 
 
 def _parse_decision(resp: str) -> HcxDecision:
     """HCX 구조화 응답을 파싱하며, 실패를 거짓 미탐지로 바꾸지 않는다."""
-    m = _JSON.search(resp or "")
-    if not m:
-        return HcxDecision(None, "판별 응답 파싱 실패", "unknown", "HCX JSON 응답이 없습니다", [])
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return HcxDecision(None, "판별 JSON 파싱 실패", "unknown", "HCX JSON이 깨졌습니다", [])
+    obj = _first_json_object(resp)
+    if obj is None:
+        return HcxDecision(None, "판별 JSON 파싱 실패", "unknown", "HCX JSON 응답이 없거나 깨졌습니다", [])
 
     if "candidate" not in obj:
         # 이전 카세트와 기존 응답은 호환을 유지한다.
@@ -89,7 +94,18 @@ def _parse_decision(resp: str) -> HcxDecision:
 def judge_decision(sentence: str, client: LLMClient | None = None) -> HcxDecision:
     """단일 문장의 HCX 후보 판정과 기사 내부 근거 상태를 반환한다."""
     client = client or get_client()
-    decision = _parse_decision(client.complete(SYSTEM, f"다음 문장을 판별하라: {sentence}"))
+    user_prompt = f"다음 문장을 판별하라: {sentence}"
+    decision = _parse_decision(client.complete(SYSTEM, user_prompt))
+    if decision.candidate is None and "파싱" in decision.candidate_reason:
+        retry = _parse_decision(client.complete(SYSTEM, user_prompt))
+        if retry.candidate is None:
+            decision = replace(
+                retry,
+                candidate_reason=f"HCX JSON 재시도 실패: {retry.candidate_reason}",
+                evidence_reason=f"첫 응답 파싱 실패 후 재시도함: {retry.evidence_reason}",
+            )
+        else:
+            decision = replace(retry, candidate_reason=f"{retry.candidate_reason} (JSON 재시도 복구)")
     # 모델의 인용은 입력 문장에 실제 존재하는 경우에만 노출한다.
     quoted_spans = [span for span in decision.quoted_spans if span and span in sentence]
     return replace(decision, quoted_spans=quoted_spans)

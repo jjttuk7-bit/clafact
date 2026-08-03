@@ -89,3 +89,39 @@ def test_judge_decision_discards_quote_not_in_source_sentence():
     decision = detect_llm.judge_decision("물가 상승률은 2.6%였다.", client)
 
     assert decision.quoted_spans == []
+
+
+def test_judge_decision_reads_first_json_object_when_response_has_two_objects():
+    client = MockLLMClient(default=(
+        '분석 결과 {"candidate": true, "candidate_reason": "수치 주장", '
+        '"evidence_status": "needs_retrieval", "evidence_reason": "검색 필요", '
+        '"quoted_spans": []} 참고 {"trace": "ignored"}'
+    ))
+
+    decision = detect_llm.judge_decision("물가 상승률은 2.6%였다.", client)
+
+    assert decision.candidate is True
+
+
+def test_judge_decision_retries_once_after_unparseable_hcx_response():
+    class SequenceClient:
+        def __init__(self):
+            self.responses = [
+                "JSON이 아닌 첫 응답",
+                ('{"candidate": false, "candidate_reason": "식별용 연도", '
+                 '"evidence_status": "not_applicable", "evidence_reason": "검증 주장 아님", '
+                 '"quoted_spans": []}'),
+            ]
+            self.calls = 0
+
+        def complete(self, system, user, *, model="", temperature=0.0):
+            response = self.responses[self.calls]
+            self.calls += 1
+            return response
+
+    client = SequenceClient()
+    decision = detect_llm.judge_decision("이 사건은 2024년에 일어났다.", client)
+
+    assert client.calls == 2
+    assert decision.candidate is False
+    assert "재시도" in decision.candidate_reason
