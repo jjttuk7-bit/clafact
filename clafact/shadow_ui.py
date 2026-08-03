@@ -88,3 +88,95 @@ def llm_attempt_summary(run: Mapping[str, Any]) -> dict[str, int]:
         "actual_responses": int(execution["response_rows"]),
         "total_rows": int(execution["total_rows"]),
     }
+
+def _record_value(record: Mapping[str, Any] | object, key: str) -> Any:
+    if isinstance(record, Mapping):
+        return record.get(key)
+    return None
+
+
+def _snapshot_values(record: Mapping[str, Any] | object) -> set[str]:
+    values: set[str] = set()
+    snapshot_ids = _record_value(record, "snapshot_ids")
+    if isinstance(snapshot_ids, (list, tuple, set)):
+        values.update(str(value).strip() for value in snapshot_ids if str(value).strip())
+    snapshot_id = str(_record_value(record, "snapshot_id") or "").strip()
+    if snapshot_id:
+        values.update(part.strip() for part in snapshot_id.split("|") if part.strip())
+    return values
+
+
+def current_semantic_summary(
+    run: Mapping[str, Any], *, candidate_searches: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    mappings: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    comparisons: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    completed_claims: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> dict[str, int]:
+    """Aggregate persisted research records for the current Shadow run."""
+    candidate_rows = {
+        int(row["row_index"])
+        for row in run.get("rows", [])
+        if isinstance(row, Mapping)
+        and (bool(_record_value(_record_value(row, "baseline") or {}, "python_candidate"))
+             or bool(_record_value(_record_value(row, "shadow") or {}, "llm_candidate"))
+             or bool(_record_value(_record_value(row, "shadow") or {}, "hybrid_candidate")))
+    }
+    searched_rows = {
+        int(_record_value(search, "row_index"))
+        for search in candidate_searches
+        if str(_record_value(search, "row_index") or "").strip().isdigit()
+    }
+    reviewed_mappings = [
+        mapping for mapping in mappings
+        if str(_record_value(mapping, "status") or "").strip() == "reviewed"
+    ]
+    snapshots = set().union(*(_snapshot_values(comparison) for comparison in comparisons)) if comparisons else set()
+    verdicts = [str(_record_value(comparison, "status") or "").strip() for comparison in comparisons]
+    return {
+        "candidate_sentence_count": len(candidate_rows),
+        "candidate_search_count": len(searched_rows),
+        "mapped_table_count": len(reviewed_mappings),
+        "evidence_snapshot_count": len(snapshots),
+        "comparison_count": len(comparisons),
+        "match_count": verdicts.count("match"),
+        "mismatch_count": verdicts.count("mismatch"),
+        "unverifiable_count": verdicts.count("unverifiable"),
+        "completed_claim_count": len(completed_claims),
+    }
+
+
+def e2e_semantic_summary(verdicts: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> dict[str, int]:
+    """Summarize persisted Golden Set E2E verdicts by candidate, not component."""
+    candidates: dict[str, dict[str, Any]] = {}
+    for position, verdict in enumerate(verdicts):
+        candidate_key = str(_record_value(verdict, "candidate_id") or _record_value(verdict, "sentence") or f"record-{position}").strip()
+        candidate = candidates.setdefault(candidate_key, {"verdicts": set(), "snapshots": set()})
+        status = str(_record_value(verdict, "verdict") or "").strip()
+        if status in {"match", "mismatch", "unverifiable"}:
+            candidate["verdicts"].add(status)
+        candidate["snapshots"].update(_snapshot_values(verdict))
+
+    counts = {"match": 0, "mismatch": 0, "unverifiable": 0}
+    final_count = 0
+    evidence_backed_count = 0
+    for candidate in candidates.values():
+        statuses = candidate["verdicts"]
+        if candidate["snapshots"]:
+            evidence_backed_count += 1
+        if not statuses:
+            continue
+        final_count += 1
+        if "mismatch" in statuses:
+            counts["mismatch"] += 1
+        elif "match" in statuses:
+            counts["match"] += 1
+        else:
+            counts["unverifiable"] += 1
+    return {
+        "candidate_count": len(candidates),
+        "final_count": final_count,
+        "match_count": counts["match"],
+        "mismatch_count": counts["mismatch"],
+        "unverifiable_count": counts["unverifiable"],
+        "evidence_backed_count": evidence_backed_count,
+    }

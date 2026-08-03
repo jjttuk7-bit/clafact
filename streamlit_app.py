@@ -133,7 +133,7 @@ from clafact.shadow_policy import ShadowPolicy
 from clafact.shadow_service import ShadowLabService
 from clafact.shadow_step_guide import build_shadow_step_guide, guide_next_action_text
 from clafact.shadow_ui import (
-    download_filenames, execution_status_summary, llm_attempt_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
+    current_semantic_summary, download_filenames, e2e_semantic_summary, execution_status_summary, llm_attempt_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, validate_shadow_input,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -1930,6 +1930,56 @@ if view == "검증 실험실":
                 shadow_run = None
                 st.error(f"Shadow 실행 결과를 불러오지 못했습니다: {error}")
             if shadow_run:
+                try:
+                    with KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store:
+                        semantic_mappings = mapping_store.list_for_run(shadow_run_id)
+                    with KosisValueComparisonStore(ROOT / "data/research/kosis_value_comparison.db") as comparison_store:
+                        semantic_comparisons = comparison_store.list_for_run(shadow_run_id)
+                    with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
+                        semantic_candidate_searches = candidate_store.list_for_shadow_run(shadow_run_id)
+                    with ClaimCompletionStore(ROOT / "data/research/claim_completion.db") as completion_store:
+                        semantic_completed_claims = completion_store.list_for_run(shadow_run_id)
+                except Exception as error:
+                    semantic_mappings = []
+                    semantic_comparisons = []
+                    semantic_candidate_searches = []
+                    semantic_completed_claims = []
+                    st.warning(f"Semantic 검증 상태를 읽지 못했습니다: {error}")
+
+                golden_semantic = None
+                e2e_summary_error = None
+                e2e_verdicts = None
+                e2e_verdict_path = ROOT / "reports" / "e2e_snapshot_verdict_latest.json"
+                if e2e_verdict_path.exists():
+                    try:
+                        loaded_e2e_verdicts = json.loads(e2e_verdict_path.read_text(encoding="utf-8"))
+                        if isinstance(loaded_e2e_verdicts, list):
+                            e2e_verdicts = loaded_e2e_verdicts
+                            golden_semantic = e2e_semantic_summary(e2e_verdicts)
+                        else:
+                            e2e_summary_error = "E2E 결과 파일 형식이 목록이 아닙니다."
+                    except (OSError, json.JSONDecodeError) as error:
+                        e2e_summary_error = str(error)
+
+                if golden_semantic is None:
+                    release_e2e_summary_path = ROOT / "data/reference/e2e_semantic_summary_latest.json"
+                    if release_e2e_summary_path.exists():
+                        try:
+                            release_e2e_summary = json.loads(
+                                release_e2e_summary_path.read_text(encoding="utf-8")
+                            )
+                            required_e2e_counts = {
+                                "candidate_count", "final_count", "match_count", "mismatch_count",
+                                "unverifiable_count", "evidence_backed_count",
+                            }
+                            if required_e2e_counts.issubset(release_e2e_summary):
+                                golden_semantic = {
+                                    key: int(release_e2e_summary[key]) for key in required_e2e_counts
+                                }
+                            else:
+                                e2e_summary_error = "배포용 E2E 결과 스냅샷의 필수 집계값이 없습니다."
+                        except (OSError, ValueError, json.JSONDecodeError) as error:
+                            e2e_summary_error = str(error)
                 metrics = summary_metrics(shadow_run["summary"])
                 execution_status = execution_status_summary(shadow_run)
                 llm_attempts = llm_attempt_summary(shadow_run)
@@ -1950,6 +2000,39 @@ if view == "검증 실험실":
                     st.error(execution_message)
                 st.dataframe(shadow_result_rows(shadow_run), width="stretch", hide_index=True)
 
+                st.markdown("##### 현재 구현된 Semantic 검증 상태")
+                current_semantic = current_semantic_summary(
+                    shadow_run,
+                    candidate_searches=semantic_candidate_searches,
+                    mappings=semantic_mappings,
+                    comparisons=semantic_comparisons,
+                    completed_claims=semantic_completed_claims,
+                )
+                current_columns = st.columns(4)
+                current_columns[0].metric("검증 후보 문장", f"{current_semantic['candidate_sentence_count']}건")
+                current_columns[1].metric("KOSIS 후보 탐색", f"{current_semantic['candidate_search_count']}건")
+                current_columns[2].metric("검토완료 표 매핑", f"{current_semantic['mapped_table_count']}건")
+                current_columns[3].metric("Evidence 스냅샷", f"{current_semantic['evidence_snapshot_count']}건")
+                verdict_columns = st.columns(4)
+                verdict_columns[0].metric("일치", f"{current_semantic['match_count']}건")
+                verdict_columns[1].metric("불일치", f"{current_semantic['mismatch_count']}건")
+                verdict_columns[2].metric("판정불가", f"{current_semantic['unverifiable_count']}건")
+                verdict_columns[3].metric("Claim 완료", f"{current_semantic['completed_claim_count']}건")
+                st.caption(f"실제 값 대조 기록 {current_semantic['comparison_count']}건을 기준으로 한 연구 전용 요약입니다.")
+
+                st.markdown("##### 골든셋 E2E 전체 현황")
+                if golden_semantic is None:
+                    detail = f" ({e2e_summary_error})" if e2e_summary_error else ""
+                    st.info(f"골든셋 E2E 결과 파일이 아직 없어 전체 현황을 표시할 수 없습니다{detail}")
+                else:
+                    golden_columns = st.columns(6)
+                    golden_columns[0].metric("총 후보", f"{golden_semantic['candidate_count']}건")
+                    golden_columns[1].metric("최종 판정", f"{golden_semantic['final_count']}건")
+                    golden_columns[2].metric("일치", f"{golden_semantic['match_count']}건")
+                    golden_columns[3].metric("불일치", f"{golden_semantic['mismatch_count']}건")
+                    golden_columns[4].metric("판정불가", f"{golden_semantic['unverifiable_count']}건")
+                    golden_columns[5].metric("원본 근거 보유", f"{golden_semantic['evidence_backed_count']}건")
+                    st.caption("저장된 골든셋 E2E 스냅샷 판정 기준입니다. 로컬 원본 파일이 없으면 배포용 E2E 결과 스냅샷을 사용하며, 현재 Shadow 실행의 운영 Claim을 변경하지 않습니다.")
                 candidate_sentence_options = {
                     f"#{row['row_index']} · {row['sentence'][:70]}": row
                     for row in shadow_run["rows"]

@@ -1,4 +1,4 @@
-from clafact.shadow_ui import download_filenames, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, llm_attempt_summary, validate_shadow_input
+from clafact.shadow_ui import current_semantic_summary, download_filenames, e2e_semantic_summary, execution_status_summary, shadow_database_path, shadow_input_defaults, shadow_result_rows, summary_metrics, llm_attempt_summary, validate_shadow_input
 
 
 def test_shadow_database_path_is_research_only(tmp_path):
@@ -94,3 +94,56 @@ def test_llm_attempt_summary_separates_planned_paths_from_actual_responses():
     })
 
     assert summary == {"attempt_paths": 27, "actual_responses": 0, "total_rows": 2}
+
+def test_current_semantic_summary_counts_actual_research_records():
+    summary = current_semantic_summary(
+        {
+            "rows": [
+                {"row_index": 1, "baseline": {"python_candidate": True}, "shadow": {"hybrid_candidate": False}},
+                {"row_index": 2, "baseline": {"python_candidate": False}, "shadow": {"hybrid_candidate": True}},
+                {"row_index": 3, "baseline": {"python_candidate": False}, "shadow": {"hybrid_candidate": False}},
+            ]
+        },
+        candidate_searches=[{"row_index": 1}, {"row_index": 1}, {"row_index": 2}],
+        mappings=[
+            {"row_index": 1, "status": "reviewed"},
+            {"row_index": 2, "status": "draft"},
+        ],
+        comparisons=[
+            {"row_index": 1, "status": "match", "snapshot_id": "snapshot-a"},
+            {"row_index": 2, "status": "mismatch", "snapshot_id": "snapshot-b"},
+            {"row_index": 3, "status": "unverifiable", "snapshot_id": ""},
+        ],
+        completed_claims=[{"row_index": 1}],
+    )
+
+    assert summary == {
+        "candidate_sentence_count": 2,
+        "candidate_search_count": 2,
+        "mapped_table_count": 1,
+        "evidence_snapshot_count": 2,
+        "comparison_count": 3,
+        "match_count": 1,
+        "mismatch_count": 1,
+        "unverifiable_count": 1,
+        "completed_claim_count": 1,
+    }
+
+
+def test_e2e_semantic_summary_deduplicates_candidate_components_and_tracks_evidence():
+    summary = e2e_semantic_summary([
+        {"candidate_id": "A", "verdict": "match", "snapshot_ids": ["snapshot-a"]},
+        {"candidate_id": "A", "verdict": "match", "snapshot_ids": ["snapshot-b"]},
+        {"candidate_id": "B", "verdict": "mismatch", "snapshot_id": "snapshot-c"},
+        {"candidate_id": "C", "verdict": "unverifiable", "snapshot_ids": []},
+        {"candidate_id": "D", "verdict": "pending"},
+    ])
+
+    assert summary == {
+        "candidate_count": 4,
+        "final_count": 3,
+        "match_count": 1,
+        "mismatch_count": 1,
+        "unverifiable_count": 1,
+        "evidence_backed_count": 2,
+    }

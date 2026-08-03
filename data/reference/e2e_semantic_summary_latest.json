@@ -1,0 +1,11 @@
+{
+  "artifact_type": "clafact_golden_set_e2e_summary",
+  "source": "reports/e2e_snapshot_verdict_latest.json",
+  "description": "2026-08-03 시점의 골든셋 20건 E2E 원본 스냅샷 판정에서 산출한 배포용 집계입니다. 기사 원문과 API 원본 응답은 포함하지 않습니다.",
+  "candidate_count": 20,
+  "final_count": 20,
+  "match_count": 12,
+  "mismatch_count": 1,
+  "unverifiable_count": 7,
+  "evidence_backed_count": 14
+}
