@@ -328,3 +328,13 @@ def test_streamlit_loads_hcx_secret_into_runtime_environment():
     assert 'for secret_name in ("HCX_API_KEY", "KOSIS_API_KEY", "CLAFACT_HCX_MODE"):' in source
     assert 'st.secrets.get(secret_name)' in source
     assert 'os.environ.setdefault(secret_name, str(secret_value))' in source
+
+def test_shadow_execution_wires_live_hcx_judge_when_configured():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    shadow = source[source.index("with shadow_lab_tab:"):source.index("# ═════════════ 탭 2: 검증자 리뷰")]
+
+    assert 'shadow_hcx_status = hcx_runtime_status()' in shadow
+    assert 'shadow_hcx_available = shadow_hcx_status == "live"' in shadow
+    assert 'shadow_client = HcxClient()' in shadow
+    assert 'shadow_judge_fn = lambda sentence: hcx_judge(sentence, shadow_client)' in shadow
+    assert 'judge_fn=shadow_judge_fn' in shadow

@@ -1883,6 +1883,16 @@ if view == "검증 실험실":
     with shadow_lab_tab:
         st.markdown("##### Shadow Mode")
         st.caption("운영 판정을 바꾸지 않고 Python·LLM·Hybrid 비교 결과와 위험 신호를 연구 기록으로 남깁니다.")
+        shadow_hcx_status = hcx_runtime_status()
+        shadow_hcx_available = shadow_hcx_status == "live"
+        if shadow_hcx_available:
+            st.success("Shadow HCX: 실연결 준비됨 · 실행 시 HCX-005 판정 결과를 함께 기록합니다.")
+        elif shadow_hcx_status == "fixture":
+            st.info("Shadow HCX: fixture 모드 · 실 API를 호출하지 않습니다.")
+        elif shadow_hcx_status == "missing_key":
+            st.warning("Shadow HCX: HCX_API_KEY를 읽지 못했습니다. Streamlit Cloud Secrets를 확인하세요.")
+        else:
+            st.error("Shadow HCX: CLAFACT_HCX_MODE는 live 또는 fixture여야 합니다.")
         selected_shadow_source = shadow_input_defaults(
             selected_lab_article, fallback_date=str(datetime.now().date())
         )
@@ -1922,11 +1932,16 @@ if view == "검증 실험실":
                 st.warning(input_error)
             else:
                 try:
+                    shadow_judge_fn = None
+                    if shadow_hcx_available:
+                        shadow_client = HcxClient()
+                        shadow_judge_fn = lambda sentence: hcx_judge(sentence, shadow_client)
                     with ShadowLabService(shadow_database_path(ROOT)) as shadow_service:
                         response = shadow_service.execute(
                             shadow_text,
                             str(shadow_date),
                             ShadowPolicy.default(),
+                            judge_fn=shadow_judge_fn,
                         )
                     st.session_state["shadow_lab_run_id"] = response["run_id"]
                     st.success("Shadow 실행 결과를 연구 전용 기록으로 저장했습니다.")
