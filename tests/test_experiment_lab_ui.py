@@ -320,3 +320,11 @@ def test_shadow_lab_loads_dotenv_and_exposes_hcx_connection_state():
     assert 'hcx_status = hcx_runtime_status()' in section
     assert 'HCX 모드: 실연결 준비됨' in section
     assert 'HCX 모드: fixture' in section
+
+
+def test_streamlit_loads_hcx_secret_into_runtime_environment():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'for secret_name in ("HCX_API_KEY", "KOSIS_API_KEY", "CLAFACT_HCX_MODE"):' in source
+    assert 'st.secrets.get(secret_name)' in source
+    assert 'os.environ.setdefault(secret_name, str(secret_value))' in source

@@ -140,6 +140,10 @@ from clafact.shadow_ui import (
 
 ROOT = Path(__file__).resolve().parent
 load_runtime_env(ROOT / ".env")
+for secret_name in ("HCX_API_KEY", "KOSIS_API_KEY", "CLAFACT_HCX_MODE"):
+    secret_value = st.secrets.get(secret_name)
+    if secret_value:
+        os.environ.setdefault(secret_name, str(secret_value))
 
 
 def format_elapsed_ms(elapsed_ms: int) -> str:
