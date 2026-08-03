@@ -58,4 +58,3 @@
 2. `git diff main...HEAD --check`로 diff 오류가 없는지 확인한다.
 3. 사용자용 이슈대장의 ISS-002를 `검증 중`으로 바꾸고, 구현 커밋·자동 테스트·Cloud 확인 조건을 기록한다.
 4. `main`에 fast-forward 병합 후 `origin/main`으로 push한다.
-
