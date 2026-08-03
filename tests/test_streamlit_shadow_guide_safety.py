@@ -124,3 +124,13 @@ def test_shadow_requires_a_confirmed_claim_card_before_kosis_candidate_search():
     assert '"Claim Card 확인·저장"' in source
     assert "claim_profile_from_card(confirmed_claim_card)" in source
     assert "먼저 Claim Card를 확인·저장하세요" in source
+
+def test_semantic_card_review_uses_the_confirmed_claim_card_profile():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+    search_scope = source[source.index('confirmed_claim_card ='):]
+
+    assert 'confirmed_profile = claim_profile_from_card(confirmed_claim_card)' in search_scope
+    assert 'build_semantic_card_draft(candidate, confirmed_profile)' in search_scope
+    assert 'semantic_card_review_model(card, confirmed_profile' in search_scope
+    assert 'build_semantic_card_draft(selected_candidate, confirmed_profile)' in search_scope
+    assert 'candidate_profile' not in search_scope

@@ -2286,6 +2286,7 @@ if view == "검증 실험실":
                     else:
                         st.warning("Claim Card를 KOSIS 탐색으로 넘길 수 없습니다: " + ", ".join(reviewed_card.readiness_reasons))
                 confirmed_claim_card = saved_claim_card if saved_claim_card and saved_claim_card.ready_for_kosis else None
+                confirmed_profile = claim_profile_from_card(confirmed_claim_card) if confirmed_claim_card else None
                 if confirmed_claim_card:
                     st.success(
                         f"확인된 Claim Card · 지표 {confirmed_claim_card.indicator} · "
@@ -2305,7 +2306,6 @@ if view == "검증 실험실":
                 ):
                     try:
                         search_index, metadata_client = load_engine()
-                        confirmed_profile = claim_profile_from_card(confirmed_claim_card)
                         candidates = search_candidates_with_context(
                             suggest_kosis_candidates,
                             candidate_sentence,
@@ -2354,9 +2354,9 @@ if view == "검증 실험실":
                     for rank, candidate in enumerate(candidate_results, start=1):
                         hit = candidate.hit
                         stored_payload = semantic_cards_by_table.get(hit.tbl_id)
-                        draft = build_semantic_card_draft(candidate, candidate_profile)
+                        draft = build_semantic_card_draft(candidate, confirmed_profile)
                         card = SemanticCard.from_dict(stored_payload) if stored_payload else draft
-                        model = semantic_card_review_model(card, candidate_profile, reused=stored_payload is not None)
+                        model = semantic_card_review_model(card, confirmed_profile, reused=stored_payload is not None)
                         reasons = ", ".join(candidate.reasons) or "제목 기반 일치 신호 없음"
                         penalties = ", ".join(candidate.penalties)
                         selected_item = getattr(candidate, "selected_item", "")
@@ -2388,10 +2388,10 @@ if view == "검증 실험실":
                         else:
                             selected_hit = selected_candidate.hit
                             selected_stored_payload = semantic_cards_by_table.get(selected_hit.tbl_id)
-                            selected_draft = build_semantic_card_draft(selected_candidate, candidate_profile)
+                            selected_draft = build_semantic_card_draft(selected_candidate, confirmed_profile)
                             selected_card = SemanticCard.from_dict(selected_stored_payload) if selected_stored_payload else selected_draft
                             selected_model = semantic_card_review_model(
-                                selected_card, candidate_profile, reused=selected_stored_payload is not None,
+                                selected_card, confirmed_profile, reused=selected_stored_payload is not None,
                             )
                             with st.expander("선택 후보 Semantic Card 확인", expanded=True):
                                 st.caption(
