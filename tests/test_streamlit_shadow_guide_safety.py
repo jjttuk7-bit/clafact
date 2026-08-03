@@ -143,3 +143,12 @@ def test_shadow_claim_card_uses_safe_article_period_context_and_compact_labels()
     assert "resolve_article_period(" in source
     assert "상속 시점" in source
     assert "value=review_card.period or inherited_period" in source
+
+
+def test_shadow_claim_flow_uses_atomic_claim_selection_when_available():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "extract_atomic_claims" in source
+    assert '"검증할 Atomic Claim"' in source
+    assert "claim_index" in source
+    assert "atomic_subject" in source

@@ -48,3 +48,13 @@ def test_claim_card_keeps_a_negative_claim_value_verbatim():
     assert card.claim_value_raw == "-34.5%"
     assert card.claim_value == -34.5
     assert card.normalized_value == -34.5
+
+
+def test_claim_card_preserves_an_atomic_subject_without_using_population():
+    card = review_claim_card(
+        _draft := build_claim_card("지난달 물가가 2.4% 올랐다.", "2025-11-04"),
+        subject="배추",
+    )
+
+    assert card.subject == "배추"
+    assert card.population == _draft.population

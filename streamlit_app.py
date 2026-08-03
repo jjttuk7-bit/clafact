@@ -33,6 +33,7 @@ from clafact.claim_profile import build_claim_profile, profile_summary
 from clafact.claim_card import ClaimCard, build_claim_card, claim_profile_from_card, review_claim_card
 from clafact.claim_card_store import ClaimCardStore
 from clafact.claim_context import resolve_article_period, shadow_sentence_label
+from clafact.atomic_claim import extract_atomic_claims
 from clafact.pipeline.parse import extract_quantities
 from clafact.kosis_claim_match import evaluate_claim_evidence_match
 from clafact.kosis_candidate_search import suggest_kosis_candidates
@@ -2235,6 +2236,25 @@ if view == "검증 실험실":
                         previous_profile = candidate_previous_profile
                         break
                 candidate_sentence = candidate_row["sentence"]
+                atomic_claims = extract_atomic_claims(candidate_sentence)
+                selected_atomic_claim = None
+                if atomic_claims:
+                    atomic_options = {
+                        f"#{candidate_row['row_index']}-{claim.claim_index} · {claim.subject} · {claim.value_raw}": claim
+                        for claim in atomic_claims
+                    }
+                    selected_atomic_label = st.selectbox(
+                        "검증할 Atomic Claim", list(atomic_options),
+                        key=f"atomic_claim_selection_{shadow_run_id}_{candidate_row['row_index']}",
+                    )
+                    selected_atomic_claim = atomic_options[selected_atomic_label]
+                    st.caption(
+                        f"부모 문장 #{candidate_row['row_index']}에서 Atomic Claim {len(atomic_claims)}개를 발견했습니다. "
+                        "선택한 Claim만 별도로 저장·탐색합니다."
+                    )
+                claim_index = selected_atomic_claim.claim_index if selected_atomic_claim else 1
+                atomic_subject = selected_atomic_claim.subject if selected_atomic_claim else ""
+                atomic_value = selected_atomic_claim.value_raw if selected_atomic_claim else ""
                 article_period_context = resolve_article_period(
                     [row["sentence"] for row in shadow_run["rows"]],
                     str(shadow_date),
@@ -2245,7 +2265,7 @@ if view == "검증 실험실":
                     previous_profile=previous_profile,
                 )
                 with ClaimCardStore(ROOT / "data/research/claim_card.db") as claim_card_store:
-                    saved_claim_payload = claim_card_store.get(shadow_run_id, candidate_row["row_index"])
+                    saved_claim_payload = claim_card_store.get(shadow_run_id, candidate_row["row_index"], claim_index=claim_index)
                 saved_claim_card = ClaimCard.from_dict(saved_claim_payload) if saved_claim_payload else None
                 review_card = saved_claim_card or claim_card_draft
                 inherited_period = article_period_context.period if not review_card.period else ""
@@ -2254,10 +2274,12 @@ if view == "검증 실험실":
                 st.caption("문장 원문은 바꾸지 않습니다. 아래 필드는 이 문장을 KOSIS와 비교하기 위한 표준 Claim 구조입니다.")
                 st.code(candidate_sentence, language=None)
                 extracted_values = [quantity.raw for quantity in extract_quantities(candidate_sentence)]
-                value_options = extracted_values or [review_card.claim_value_raw or "(수치 미검출)"]
+                value_options = [atomic_value] if atomic_value else (extracted_values or [review_card.claim_value_raw or "(수치 미검출)"])
                 current_value = review_card.claim_value_raw if review_card.claim_value_raw in value_options else value_options[0]
-                with st.form(key=f"claim_card_review_{shadow_run_id}_{candidate_row['row_index']}"):
+                with st.form(key=f"claim_card_review_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}"):
                     claim_columns = st.columns(2)
+                    if atomic_subject:
+                        st.caption(f"검증 대상 품목: {atomic_subject}")
                     reviewed_indicator = claim_columns[0].text_input("지표", value=review_card.indicator)
                     reviewed_period = claim_columns[1].text_input("시점", value=review_card.period or inherited_period, help="예: 2025-10, 2025-Q3, 2025")
                     if inherited_period:
@@ -2282,11 +2304,14 @@ if view == "검증 실험실":
                         unit=reviewed_unit,
                         region="" if reviewed_region == "전국" else reviewed_region,
                         population=reviewed_population,
+                        subject=atomic_subject,
                         confirmed_at=datetime.now().astimezone().isoformat(),
                     )
                     if reviewed_card.ready_for_kosis:
                         with ClaimCardStore(ROOT / "data/research/claim_card.db") as claim_card_store:
-                            created = claim_card_store.upsert(shadow_run_id, candidate_row["row_index"], reviewed_card)
+                            created = claim_card_store.upsert(shadow_run_id, candidate_row["row_index"], reviewed_card, claim_index=claim_index)
+                        st.session_state.pop(f"kosis_candidate_results_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}", None)
+                        st.session_state.pop(f"kosis_candidate_searched_row_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}", None)
                         st.session_state.pop(f"kosis_candidate_results_{shadow_run_id}", None)
                         st.session_state.pop(f"kosis_candidate_searched_row_{shadow_run_id}", None)
                         st.success("Claim Card를 저장했습니다. 이제 이 구조를 기준으로 KOSIS 후보를 찾습니다." if created else "Claim Card를 갱신했습니다. 이제 이 구조를 기준으로 KOSIS 후보를 찾습니다.")
@@ -2309,7 +2334,7 @@ if view == "검증 실험실":
                 search_disabled = confirmed_claim_card is None
                 if st.button(
                     "KOSIS 후보 3개 찾기",
-                    key=f"kosis_candidate_search_{shadow_run_id}",
+                    key=f"kosis_candidate_search_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}",
                     disabled=search_disabled,
                 ):
                     try:
@@ -2323,17 +2348,19 @@ if view == "검증 실험실":
                             profile=confirmed_profile,
                             metadata_limit=3,
                         )
+                        st.session_state[f"kosis_candidate_results_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}"] = candidates
+                        st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}"] = candidate_row["row_index"]
                         st.session_state[f"kosis_candidate_results_{shadow_run_id}"] = candidates
                         st.session_state[f"kosis_candidate_searched_row_{shadow_run_id}"] = candidate_row["row_index"]
                         candidate_rows = [{"rank": rank, "table_id": c.hit.tbl_id, "title": c.hit.tbl_name, "score": getattr(c, 'fit_score', c.score), "raw_score": c.score, "max_score": getattr(c, "max_score", 0), "fit_score": getattr(c, 'fit_score', c.score), "reasons": list(c.reasons), "penalties": list(c.penalties), "score_breakdown": list(c.score_breakdown), "selected_item": c.selected_item, "claim_profile": confirmed_profile.__dict__} for rank, c in enumerate(candidates, start=1)]
                         with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
-                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
+                            candidate_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], claim_index=claim_index, sentence=candidate_sentence, query=search_index.last_query, candidates=candidate_rows, created_at=datetime.now().astimezone().isoformat())
                     except KeyError:
                         st.warning("KOSIS_API_KEY가 설정되지 않아 후보를 검색할 수 없습니다. 수동 근거 입력은 계속 사용할 수 있습니다.")
                     except Exception as error:
                         st.warning(f"KOSIS 후보 탐색을 완료하지 못했습니다: {error}")
-                candidate_results = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", [])
-                if not candidate_results and st.session_state.get(f"kosis_candidate_searched_row_{shadow_run_id}") == candidate_row["row_index"]:
+                candidate_results = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}", [])
+                if not candidate_results and st.session_state.get(f"kosis_candidate_searched_row_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}") == candidate_row["row_index"]:
                     st.info("KOSIS 후보 부족 — 수동 근거 입력 또는 보류 검토가 필요합니다.")
                 if candidate_results:
                     semantic_cards_by_table = {
@@ -2345,7 +2372,7 @@ if view == "검증 실험실":
                     }
                     selected_candidate_label = st.selectbox(
                         "검토할 후보 Semantic Card", list(candidate_labels),
-                        key=f"kosis_candidate_apply_{shadow_run_id}",
+                        key=f"kosis_candidate_apply_{shadow_run_id}_{candidate_row['row_index']}_{claim_index}",
                     )
                     selected_candidate = candidate_labels[selected_candidate_label]
                     selected_hit = selected_candidate.hit

@@ -17,6 +17,7 @@ class ClaimCard:
     """One reviewed numeric claim, independent of any selected KOSIS table."""
 
     sentence: str
+    subject: str = ""
     topic: str = ""
     indicator: str = ""
     claim_value_raw: str = ""
@@ -130,6 +131,7 @@ def review_claim_card(
     topic: str | None = None,
     region: str | None = None,
     population: str | None = None,
+    subject: str | None = None,
     confirmed_at: str = "",
 ) -> ClaimCard:
     """Apply a human's reviewed fields and recalculate KOSIS readiness."""
@@ -142,6 +144,7 @@ def review_claim_card(
         topic=(topic if topic is not None else card.topic).strip(),
         region=(region if region is not None else card.region).strip(),
         population=(population if population is not None else card.population).strip(),
+        subject=(subject if subject is not None else card.subject).strip(),
         reviewed=True,
         confirmed_at=confirmed_at or card.confirmed_at,
     )
