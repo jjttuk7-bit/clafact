@@ -310,3 +310,13 @@ def test_streamlit_converts_typed_csv_parser_failures_to_user_messages():
     assert "EdaCsvReadError" in source
     assert section.count("except EdaCsvReadError as error:") >= 2
     assert section.count("st.error(error.user_message)") >= 2
+
+
+def test_shadow_lab_loads_dotenv_and_exposes_hcx_connection_state():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    section = source[source.index('if view == "검증 실험실":'):source.index('# ═════════════ 탭 2: 검증자 리뷰')]
+
+    assert 'load_runtime_env(ROOT / ".env")' in source
+    assert 'hcx_status = hcx_runtime_status()' in section
+    assert 'HCX 모드: 실연결 준비됨' in section
+    assert 'HCX 모드: fixture' in section

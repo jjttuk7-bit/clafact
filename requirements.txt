@@ -1,4 +1,5 @@
 streamlit  # 기존 데모 UI
+python-dotenv>=1.0,<2  # 로컬 .env에서 HCX 등 런타임 설정 로드
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 pydantic-settings>=2.0,<3

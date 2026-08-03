@@ -123,7 +123,7 @@ from clafact.experiment_research import (
     semantic_disagreement_count,
 )
 from clafact.experiment_store import ExperimentStore
-from clafact.llm import HcxClient
+from clafact.llm import HcxClient, hcx_runtime_status, load_runtime_env
 from clafact.pipeline.detect_llm import SYSTEM as HCX_CANDIDATE_SYSTEM
 from clafact.pipeline.detect_llm import judge_decision as hcx_judge
 from clafact.pipeline.retrieve_kosis import KosisSearchIndex
@@ -139,6 +139,7 @@ from clafact.shadow_ui import (
 )
 
 ROOT = Path(__file__).resolve().parent
+load_runtime_env(ROOT / ".env")
 
 
 def format_elapsed_ms(elapsed_ms: int) -> str:
@@ -1215,7 +1216,8 @@ if view == "검증 실험실":
         lab_date = st.date_input("기사 발행일", value=datetime.now().date(), key="experiment_lab_date")
         lab_text = st.text_area("비교할 기사 본문", key="experiment_lab_text", height=180,
                                 placeholder="예: 지난해 실업률은 2.7%였다. 내년에는 3%까지 오를 전망이다.")
-        hcx_available = os.environ.get("CLAFACT_HCX_MODE", "fixture").lower() == "live" and bool(os.environ.get("HCX_API_KEY"))
+        hcx_status = hcx_runtime_status()
+        hcx_available = hcx_status == "live"
         comparison_text = lab_text
         comparison_date = str(lab_date)
         comparison_title = "직접 입력"
@@ -1235,10 +1237,14 @@ if view == "검증 실험실":
             analysis_range=selected_eda_range,
         )
         invalidate_comparison_for_input(st.session_state, current_comparison_signature)
-        if hcx_available:
-            st.caption("HCX 모드: HCX-005 실호출 · 호출 수와 처리시간을 함께 기록합니다.")
+        if hcx_status == "live":
+            st.success("HCX 모드: 실연결 준비됨 · HCX-005 실호출과 처리시간을 함께 기록합니다.")
+        elif hcx_status == "fixture":
+            st.info("HCX 모드: fixture · 실 API 호출을 의도적으로 사용하지 않습니다.")
+        elif hcx_status == "missing_key":
+            st.warning("HCX 모드: HCX_API_KEY 없음 · `.env`에 키를 등록한 뒤 Streamlit을 다시 시작하세요.")
         else:
-            st.warning("HCX 모드: 실 API 미설정 — Python 결과는 비교할 수 있지만 HCX 열은 ‘미사용’으로 표시됩니다.")
+            st.error("HCX 모드: CLAFACT_HCX_MODE는 live 또는 fixture여야 합니다.")
 
         all_button, python_button, llm_button, hybrid_button = st.columns(4)
         run_all = all_button.button("전체 비교 실행", type="primary", use_container_width=True, key="experiment_lab_run_all")

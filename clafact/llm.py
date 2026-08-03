@@ -11,7 +11,29 @@ import json
 import os
 import urllib.request
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Mapping, Protocol
+
+from dotenv import load_dotenv
+
+
+def load_runtime_env(env_file: str | Path | None = None) -> bool:
+    """Load the local runtime configuration without overriding shell settings."""
+    return load_dotenv(dotenv_path=env_file, override=False)
+
+
+def hcx_runtime_status(environment: Mapping[str, str] | None = None) -> str:
+    """Return the effective HCX mode without exposing credentials.
+
+    Live is the default when a key exists. Fixture remains an explicit opt-out
+    for offline demos and deterministic tests.
+    """
+    environment = os.environ if environment is None else environment
+    mode = environment.get("CLAFACT_HCX_MODE", "live").strip().lower()
+    if mode == "fixture":
+        return "fixture"
+    if mode != "live":
+        return "invalid_mode"
+    return "live" if environment.get("HCX_API_KEY", "").strip() else "missing_key"
 
 
 class LLMClient(Protocol):
