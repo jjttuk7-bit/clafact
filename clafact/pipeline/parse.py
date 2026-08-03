@@ -20,6 +20,7 @@ SCALES = {"천": 1_000.0, "만": 10_000.0, "억": 100_000_000.0, "조": 1_000_00
 UNITS = "%p|%|퍼센트|포인트|명|가구|건|개(?!월|년)|원|배|위|톤|ha|㎢|호|인|세대"
 
 RE_QTY = re.compile(
+    rf"(?P<sign>[+\-−])?\s*"
     rf"(?P<num>\d{{1,3}}(?:,\d{{3}})+|\d+(?:\.\d+)?)\s*"
     rf"(?P<scale>[천만억조])?\s*"
     rf"(?P<unit>{UNITS})?"
@@ -72,6 +73,7 @@ def extract_quantities(sentence: str) -> list[Quantity]:
     """문장에서 수치 후보를 추출한다. 날짜 성분은 제외."""
     out: list[Quantity] = []
     for m in RE_QTY.finditer(sentence):
+        sign = m.group("sign") or ""
         num, scale, unit = m.group("num"), m.group("scale") or "", m.group("unit") or ""
         if _contextual_identifier(sentence, m):
             continue
@@ -79,6 +81,8 @@ def extract_quantities(sentence: str) -> list[Quantity]:
         if not unit and not scale and "." not in num:
             continue
         value = float(num.replace(",", ""))
+        if sign in ("-", "−"):
+            value = -value
         factor = SCALES.get(scale, 1.0)
         out.append(Quantity(
             value=value, scale=scale, unit=unit,

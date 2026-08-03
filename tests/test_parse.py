@@ -10,6 +10,24 @@ def test_extract_percent():
     assert [(x.value, x.composed_unit) for x in q] == [(7.2, "%"), (0.3, "%p")]
 
 
+def test_extract_quantities_preserves_ascii_unicode_minus_and_plus_signs():
+    quantities = extract_quantities("배추(-34.5%), 무(−40.5%), 증가율은 +2.1%다.")
+
+    assert [(q.raw, q.value, q.normalized_value) for q in quantities] == [
+        ("-34.5%", -34.5, -34.5),
+        ("−40.5%", -40.5, -40.5),
+        ("+2.1%", 2.1, 2.1),
+    ]
+
+
+def test_extract_quantities_scales_a_negative_value():
+    quantity = extract_quantities("감소 폭은 -2만 명이다.")[0]
+
+    assert quantity.raw == "-2만 명"
+    assert quantity.value == -2
+    assert quantity.normalized_value == -20_000
+
+
 def test_extract_scale_unit():
     """'23만 명' → 값 23, 단위 '만명', 절대값 230,000 (verdict 엔진 규격)"""
     q = extract_quantities("지난해 출생아 수는 23만 명으로 역대 최저를 기록했다.")

@@ -40,3 +40,11 @@ def test_non_kosis_route_cannot_become_ready_after_review():
 
     assert reviewed.ready_for_kosis is False
     assert reviewed.readiness == "out_of_scope"
+
+
+def test_claim_card_keeps_a_negative_claim_value_verbatim():
+    card = build_claim_card("지난달 배추 물가는 -34.5% 하락했다.", "2025-11-04")
+
+    assert card.claim_value_raw == "-34.5%"
+    assert card.claim_value == -34.5
+    assert card.normalized_value == -34.5
