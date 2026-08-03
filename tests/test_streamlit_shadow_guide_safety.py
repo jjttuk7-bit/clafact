@@ -100,3 +100,14 @@ def test_shadow_review_keeps_reviewed_rows_available_for_correction():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
 
     assert 'row["review_state"] in {"needs_review", "reviewed", "hold"}' in source
+
+
+def test_candidate_selection_has_explicit_continue_action_before_card_confirmation():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    select_index = source.index('"검토할 후보 Semantic Card"')
+    continue_index = source.index('"선택한 후보로 다음 단계 진행"')
+    confirm_index = source.index('if st.button("Semantic Card 확인·저장"')
+
+    assert select_index < continue_index < confirm_index
+    assert 'st.session_state[review_target_key] = selected_hit.tbl_id' in source

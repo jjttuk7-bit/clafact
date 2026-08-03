@@ -2242,6 +2242,16 @@ if view == "검증 실험실":
                         key=f"kosis_candidate_apply_{shadow_run_id}",
                     )
                     selected_candidate = candidate_labels[selected_candidate_label]
+                    selected_hit = selected_candidate.hit
+                    review_target_key = f"kosis_candidate_review_target_{shadow_run_id}"
+                    if st.button(
+                        "선택한 후보로 다음 단계 진행",
+                        key=f"kosis_candidate_continue_{shadow_run_id}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        st.session_state[review_target_key] = selected_hit.tbl_id
+                    review_container = st.container()
 
                     for rank, candidate in enumerate(candidate_results, start=1):
                         hit = candidate.hit
@@ -2274,72 +2284,76 @@ if view == "검증 실험실":
                             key=f"kosis_candidate_open_{shadow_run_id}_{rank}",
                         )
 
-                    selected_hit = selected_candidate.hit
-                    selected_stored_payload = semantic_cards_by_table.get(selected_hit.tbl_id)
-                    selected_draft = build_semantic_card_draft(selected_candidate, candidate_profile)
-                    selected_card = SemanticCard.from_dict(selected_stored_payload) if selected_stored_payload else selected_draft
-                    selected_model = semantic_card_review_model(
-                        selected_card, candidate_profile, reused=selected_stored_payload is not None,
-                    )
-                    with st.expander("선택 후보 Semantic Card 확인", expanded=True):
-                        st.caption(
-                            "Claim 문맥: "
-                            f"지표={selected_model['claim_context']['indicator'] or '-'} · "
-                            f"지역={selected_model['claim_context']['region'] or '-'} · "
-                            f"모집단={selected_model['claim_context']['population'] or '-'} · "
-                            f"시점={selected_model['claim_context']['period'] or '-'} · "
-                            f"단위={selected_model['claim_context']['unit'] or '-'}"
-                        )
-                        card_key = f"semantic_card_{shadow_run_id}_{selected_hit.tbl_id}"
-                        left, right = st.columns(2)
-                        reviewed_topic = left.text_input("주제", value=selected_card.topic, key=f"{card_key}_topic")
-                        reviewed_indicator = right.text_input("지표", value=selected_card.indicator, key=f"{card_key}_indicator")
-                        reviewed_target = left.text_input("대상·모집단", value=selected_card.target_scope, key=f"{card_key}_target")
-                        reviewed_spatial = right.text_input("공간·지역", value=selected_card.spatial, key=f"{card_key}_spatial")
-                        reviewed_time = left.text_input("시간", value=selected_card.time, key=f"{card_key}_time")
-                        reviewed_unit = right.text_input("단위", value=selected_card.unit, key=f"{card_key}_unit")
-                        reviewed_definition = st.text_area(
-                            "정의·계산식", value=selected_card.definition_formula,
-                            key=f"{card_key}_definition",
-                        )
-                        if st.button("Semantic Card 확인·저장", key=f"{card_key}_confirm", type="primary"):
-                            fields = {
-                                "topic": reviewed_topic, "indicator": reviewed_indicator,
-                                "target_scope": reviewed_target, "spatial": reviewed_spatial,
-                                "time": reviewed_time, "unit": reviewed_unit,
-                                "definition_formula": reviewed_definition,
-                            }
-                            reviewed_card = SemanticCard(
-                                table_id=selected_hit.tbl_id, org_id=selected_hit.org_id,
-                                table_name=selected_hit.tbl_name,
-                                topic=reviewed_topic, indicator=reviewed_indicator,
-                                target_scope=reviewed_target, spatial=reviewed_spatial,
-                                time=reviewed_time, unit=reviewed_unit,
-                                definition_formula=reviewed_definition,
-                                field_status={key: "confirmed" if value.strip() else "unconfirmed" for key, value in fields.items()},
-                                tag_source="Shadow human review", semantic_confidence=1.0,
-                                confirmed_at=datetime.now().astimezone().isoformat(),
+                    with review_container:
+                        if st.session_state.get(review_target_key) != selected_hit.tbl_id:
+                            st.info("후보를 선택한 뒤 ‘선택한 후보로 다음 단계 진행’을 누르면 Semantic Card 확인·저장 단계가 열립니다.")
+                        else:
+                            selected_hit = selected_candidate.hit
+                            selected_stored_payload = semantic_cards_by_table.get(selected_hit.tbl_id)
+                            selected_draft = build_semantic_card_draft(selected_candidate, candidate_profile)
+                            selected_card = SemanticCard.from_dict(selected_stored_payload) if selected_stored_payload else selected_draft
+                            selected_model = semantic_card_review_model(
+                                selected_card, candidate_profile, reused=selected_stored_payload is not None,
                             )
-                            try:
-                                with KosisSemanticCardStore(ROOT / "data/research/kosis_semantic_card.db") as semantic_card_store:
-                                    is_new_card = semantic_card_store.upsert(reviewed_card)
-                                confirmed_key = f"semantic_card_confirmed_{shadow_run_id}"
-                                confirmed = set(st.session_state.get(confirmed_key, []))
-                                confirmed.add(selected_hit.tbl_id)
-                                st.session_state[confirmed_key] = sorted(confirmed)
-                                if not is_new_card:
-                                    reused_key = f"semantic_card_reused_{shadow_run_id}"
-                                    reused = set(st.session_state.get(reused_key, []))
-                                    reused.add(selected_hit.tbl_id)
-                                    st.session_state[reused_key] = sorted(reused)
-                                st.session_state.pop("kosis_evidence_snapshot_context", None)
-                                st.session_state["kosis_evidence_prefill_pending"] = build_candidate_evidence_prefill(
-                                    table_id=selected_hit.tbl_id, org_id=selected_hit.org_id,
-                                    title=selected_hit.tbl_name, indicator=reviewed_indicator,
+                            with st.expander("선택 후보 Semantic Card 확인", expanded=True):
+                                st.caption(
+                                    "Claim 문맥: "
+                                    f"지표={selected_model['claim_context']['indicator'] or '-'} · "
+                                    f"지역={selected_model['claim_context']['region'] or '-'} · "
+                                    f"모집단={selected_model['claim_context']['population'] or '-'} · "
+                                    f"시점={selected_model['claim_context']['period'] or '-'} · "
+                                    f"단위={selected_model['claim_context']['unit'] or '-'}"
                                 )
-                                st.success("Semantic Card를 확인·저장했습니다. 아래에서 KOSIS 조회·스냅샷 준비를 계속하세요.")
-                            except (OSError, ValueError) as error:
-                                st.error(f"Semantic Card 저장 실패: {error}")
+                                card_key = f"semantic_card_{shadow_run_id}_{selected_hit.tbl_id}"
+                                left, right = st.columns(2)
+                                reviewed_topic = left.text_input("주제", value=selected_card.topic, key=f"{card_key}_topic")
+                                reviewed_indicator = right.text_input("지표", value=selected_card.indicator, key=f"{card_key}_indicator")
+                                reviewed_target = left.text_input("대상·모집단", value=selected_card.target_scope, key=f"{card_key}_target")
+                                reviewed_spatial = right.text_input("공간·지역", value=selected_card.spatial, key=f"{card_key}_spatial")
+                                reviewed_time = left.text_input("시간", value=selected_card.time, key=f"{card_key}_time")
+                                reviewed_unit = right.text_input("단위", value=selected_card.unit, key=f"{card_key}_unit")
+                                reviewed_definition = st.text_area(
+                                    "정의·계산식", value=selected_card.definition_formula,
+                                    key=f"{card_key}_definition",
+                                )
+                                if st.button("Semantic Card 확인·저장", key=f"{card_key}_confirm", type="primary"):
+                                    fields = {
+                                        "topic": reviewed_topic, "indicator": reviewed_indicator,
+                                        "target_scope": reviewed_target, "spatial": reviewed_spatial,
+                                        "time": reviewed_time, "unit": reviewed_unit,
+                                        "definition_formula": reviewed_definition,
+                                    }
+                                    reviewed_card = SemanticCard(
+                                        table_id=selected_hit.tbl_id, org_id=selected_hit.org_id,
+                                        table_name=selected_hit.tbl_name,
+                                        topic=reviewed_topic, indicator=reviewed_indicator,
+                                        target_scope=reviewed_target, spatial=reviewed_spatial,
+                                        time=reviewed_time, unit=reviewed_unit,
+                                        definition_formula=reviewed_definition,
+                                        field_status={key: "confirmed" if value.strip() else "unconfirmed" for key, value in fields.items()},
+                                        tag_source="Shadow human review", semantic_confidence=1.0,
+                                        confirmed_at=datetime.now().astimezone().isoformat(),
+                                    )
+                                    try:
+                                        with KosisSemanticCardStore(ROOT / "data/research/kosis_semantic_card.db") as semantic_card_store:
+                                            is_new_card = semantic_card_store.upsert(reviewed_card)
+                                        confirmed_key = f"semantic_card_confirmed_{shadow_run_id}"
+                                        confirmed = set(st.session_state.get(confirmed_key, []))
+                                        confirmed.add(selected_hit.tbl_id)
+                                        st.session_state[confirmed_key] = sorted(confirmed)
+                                        if not is_new_card:
+                                            reused_key = f"semantic_card_reused_{shadow_run_id}"
+                                            reused = set(st.session_state.get(reused_key, []))
+                                            reused.add(selected_hit.tbl_id)
+                                            st.session_state[reused_key] = sorted(reused)
+                                        st.session_state.pop("kosis_evidence_snapshot_context", None)
+                                        st.session_state["kosis_evidence_prefill_pending"] = build_candidate_evidence_prefill(
+                                            table_id=selected_hit.tbl_id, org_id=selected_hit.org_id,
+                                            title=selected_hit.tbl_name, indicator=reviewed_indicator,
+                                        )
+                                        st.success("Semantic Card를 확인·저장했습니다. 아래에서 KOSIS 조회·스냅샷 준비를 계속하세요.")
+                                    except (OSError, ValueError) as error:
+                                        st.error(f"Semantic Card 저장 실패: {error}")
 
                 with KosisCandidateRunStore(ROOT / "data/research/kosis_candidate_run.db") as candidate_store:
                     candidate_history_rows = candidate_store.list_csv_rows()
