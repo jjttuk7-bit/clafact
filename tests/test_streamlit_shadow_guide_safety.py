@@ -161,3 +161,20 @@ def test_candidate_score_is_explained_as_condition_coverage_with_claim_inputs():
     assert "후보 탐색에 사용한 Claim 조건" in source
     assert "정답 확률이나 최종 판정이 아닙니다" in source
     assert '"claim_subject": confirmed_claim_card.subject' in source
+
+
+def test_shadow_mode_renders_a_five_stage_semantic_progress_board():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    for stage in (
+        "Claim 구조화",
+        "KOSIS 후보 탐색",
+        "표 매핑·Card 확정",
+        "Evidence 스냅샷",
+        "원본값 판정",
+    ):
+        assert stage in source
+    assert "다음 해야 할 일" in source
+    assert "semantic-stage--current" in source
+    assert "성장형 Semantic Catalog" in source
+    assert "골든셋 E2E 전체 현황" in source

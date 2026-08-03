@@ -505,7 +505,24 @@ st.markdown("""
   .verification-claim-context strong { color:var(--ops-text); font-size:.8rem; }
   .verification-claim-context span { color:var(--ops-muted); font-size:.74rem; }
   .verification-reason { margin:.85rem 0 1rem; }
+  .semantic-progress-board { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.55rem; margin:.8rem 0 .85rem; }
+  .semantic-stage { position:relative; min-height:8.4rem; border:1px solid var(--ops-border); border-radius:.8rem; background:var(--ops-surface); padding:.85rem .8rem; }
+  .semantic-stage:not(:last-child)::after { content:"→"; position:absolute; right:-.48rem; top:50%; transform:translateY(-50%); z-index:1; color:var(--ops-muted); font-weight:800; }
+  .semantic-stage--done { border-top:4px solid #087f73; background:color-mix(in srgb,#087f73 7%,var(--ops-surface)); }
+  .semantic-stage--current { border:2px solid var(--primary-color); border-top:4px solid var(--primary-color); background:color-mix(in srgb,var(--primary-color) 10%,var(--ops-surface)); box-shadow:0 5px 16px rgba(8,127,115,.12); }
+  .semantic-stage--waiting { border-top:4px solid var(--ops-border); opacity:.78; }
+  .semantic-stage-status { font-size:.72rem; font-weight:780; letter-spacing:.07em; text-transform:uppercase; }
+  .semantic-stage--done .semantic-stage-status { color:#087f73; }
+  .semantic-stage--current .semantic-stage-status { color:var(--primary-color); }
+  .semantic-stage--waiting .semantic-stage-status { color:var(--ops-muted); }
+  .semantic-stage-label { color:var(--ops-text); font-size:.86rem; font-weight:760; line-height:1.35; margin-top:.4rem; }
+  .semantic-stage-value { color:var(--ops-text); font-size:1.45rem; font-weight:790; letter-spacing:-.04em; margin-top:.4rem; }
+  .semantic-stage-note { color:var(--ops-muted); font-size:.72rem; line-height:1.35; margin-top:.25rem; }
+  .semantic-next-action { display:flex; gap:.65rem; align-items:baseline; background:color-mix(in srgb,var(--primary-color) 10%,var(--ops-surface)); border:1px solid color-mix(in srgb,var(--primary-color) 35%,var(--ops-border)); border-radius:.75rem; color:var(--ops-text); padding:.85rem 1rem; margin:.4rem 0 1.25rem; }
+  .semantic-next-action-label { color:var(--primary-color); font-size:.78rem; font-weight:780; white-space:nowrap; }
   @media (max-width:900px) { .verification-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .verification-action-bar { display:block; } }
+  @media (max-width:900px) { .semantic-progress-board { grid-template-columns:repeat(2,minmax(0,1fr)); } .semantic-stage::after { display:none; } }
+  @media (max-width:640px) { .semantic-progress-board { grid-template-columns:1fr; } .semantic-next-action { display:block; } }
   @media (max-width:640px) { .verification-summary-grid { grid-template-columns:1fr 1fr; } .verification-workspace { padding:.85rem; } }
   @media (max-width:900px) { .ops-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .ops-route-grid { grid-template-columns:1fr; } }
   @media (max-width:640px) { .ops-summary-grid { grid-template-columns:1fr 1fr; } .ops-workspace { padding:.9rem; } .ops-next-action { display:block; } }
@@ -2043,17 +2060,55 @@ if view == "검증 실험실":
                     comparisons=semantic_comparisons,
                     completed_claims=semantic_completed_claims,
                 )
-                current_columns = st.columns(4)
-                current_columns[0].metric("검증 후보 문장", f"{current_semantic['candidate_sentence_count']}건")
-                current_columns[1].metric("KOSIS 후보 탐색", f"{current_semantic['candidate_search_count']}건")
-                current_columns[2].metric("검토완료 표 매핑", f"{current_semantic['mapped_table_count']}건")
-                current_columns[3].metric("Evidence 스냅샷", f"{current_semantic['evidence_snapshot_count']}건")
-                verdict_columns = st.columns(4)
-                verdict_columns[0].metric("일치", f"{current_semantic['match_count']}건")
-                verdict_columns[1].metric("불일치", f"{current_semantic['mismatch_count']}건")
-                verdict_columns[2].metric("판정불가", f"{current_semantic['unverifiable_count']}건")
-                verdict_columns[3].metric("Claim 완료", f"{current_semantic['completed_claim_count']}건")
-                st.caption(f"실제 값 대조 기록 {current_semantic['comparison_count']}건을 기준으로 한 연구 전용 요약입니다.")
+                candidate_total = current_semantic["candidate_sentence_count"]
+                candidate_search_count = current_semantic["candidate_search_count"]
+                mapped_table_count = current_semantic["mapped_table_count"]
+                evidence_snapshot_count = current_semantic["evidence_snapshot_count"]
+                completed_claim_count = current_semantic["completed_claim_count"]
+
+                if candidate_total == 0:
+                    next_action = "Shadow 실행에서 검증 후보 문장을 만든 뒤 Claim을 선택하세요."
+                elif candidate_search_count < candidate_total:
+                    next_action = "선택한 Claim의 ‘KOSIS 후보 3개 찾기’를 실행하세요."
+                elif mapped_table_count < candidate_total:
+                    next_action = "후보 표를 선택하고 Semantic Card를 확인·저장하세요."
+                elif evidence_snapshot_count < candidate_total:
+                    next_action = "선택 표의 KOSIS 원본값을 조회해 Evidence 스냅샷을 만드세요."
+                elif completed_claim_count < candidate_total:
+                    next_action = "원본값 대조를 실행해 일치·불일치·판정불가를 확정하세요."
+                else:
+                    next_action = "현재 Claim의 Semantic 검증 흐름이 완료되었습니다."
+
+                stage_values = (
+                    ("Claim 구조화", candidate_total, "검증 후보 문장", "검증 단위 생성"),
+                    ("KOSIS 후보 탐색", candidate_search_count, "후보 탐색 기록", "통계표 후보 찾기"),
+                    ("표 매핑·Card 확정", mapped_table_count, "검토완료 표", "Semantic Card 확인"),
+                    ("Evidence 스냅샷", evidence_snapshot_count, "원본 근거", "KOSIS 값 보존"),
+                    ("원본값 판정", completed_claim_count, "완료 Claim", f"일치 {current_semantic['match_count']} · 불일치 {current_semantic['mismatch_count']} · 판정불가 {current_semantic['unverifiable_count']}"),
+                )
+                stage_index = next((index for index, (_, value, _, _) in enumerate(stage_values) if value < candidate_total), len(stage_values)) if candidate_total else 0
+                stage_html = []
+                for index, (label, value, metric_label, note) in enumerate(stage_values):
+                    if candidate_total and index < stage_index:
+                        status, status_label = "done", "완료"
+                    elif index == stage_index:
+                        status, status_label = "current", "현재 작업"
+                    else:
+                        status, status_label = "waiting", "대기"
+                    stage_html.append(
+                        f'<div class="semantic-stage semantic-stage--{status}">'
+                        f'<div class="semantic-stage-status">{status_label}</div>'
+                        f'<div class="semantic-stage-label">{label}</div>'
+                        f'<div class="semantic-stage-value">{value} / {candidate_total}건</div>'
+                        f'<div class="semantic-stage-note">{metric_label} · {note}</div>'
+                        '</div>'
+                    )
+                st.markdown('<div class="semantic-progress-board">' + ''.join(stage_html) + '</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="semantic-next-action"><span class="semantic-next-action-label">다음 해야 할 일</span><span>{next_action}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"실제 값 대조 기록 {current_semantic['comparison_count']}건을 기준으로 한 연구 전용 요약입니다. 골든셋 결과는 아래 별도 영역에서 확인합니다.")
 
                 catalog_table_ids = {str(card.get("table_id") or "") for card in semantic_catalog_cards}
                 visible_candidates = st.session_state.get(f"kosis_candidate_results_{shadow_run_id}", [])
