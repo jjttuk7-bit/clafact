@@ -111,3 +111,27 @@ class KosisSearchIndex:
                                  tbl_name=row.get("TBL_NM", ""), survey=row.get("STAT_NM", ""),
                                  score=round(1.0 / (i + 1), 4)))
         return hits[:top_k]
+
+    def search_terms(self, terms: tuple[str, ...], top_k: int = 3) -> list[TableHit]:
+        """Search explicit short Claim terms without discarding a verified qualifier."""
+        queries = list(dict.fromkeys(term.strip() for term in terms if term and term.strip()))
+        self.last_query = " | ".join(queries)
+        if not queries:
+            return []
+        rows, seen = [], set()
+        for query in queries:
+            for row in self.client.integrated_search(searchNm=query, sort="RANK", resultCount=max(top_k, 10)):
+                key = (row.get("ORG_ID", ""), row.get("TBL_ID", ""))
+                if key[1] and key not in seen:
+                    seen.add(key)
+                    rows.append(row)
+        # Explicit qualifier searches preserve the source KOSIS rank for each short term.
+        # Candidate-level semantic scoring performs the later cross-term reranking.
+        hits = []
+        for i, row in enumerate(rows):
+            if self.period and not _covers_period(row, self.period):
+                continue
+            hits.append(TableHit(tbl_id=row.get("TBL_ID", ""), org_id=row.get("ORG_ID", ""),
+                                 tbl_name=row.get("TBL_NM", ""), survey=row.get("STAT_NM", ""),
+                                 score=round(1.0 / (i + 1), 4)))
+        return hits[:top_k]

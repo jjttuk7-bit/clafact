@@ -65,3 +65,35 @@ def test_formats_profile_summary_with_context_provenance():
     assert profile_summary(profile) == (
         "주제: 물가 · 지표: 소비자물가 · 시간:  · 비교:  · 단위:  · 지역:  · 모집단:  · 앞 문장 문맥 보완"
     )
+
+def test_preserves_cabbage_as_a_price_claim_qualifier_for_kosis_search():
+    profile = build_claim_profile("10월 배추 가격은 전년동월 대비 34.5% 하락했다.")
+
+    assert profile.topic == "물가"
+    assert profile.indicator == "소비자물가"
+    assert profile.qualifiers == ("배추",)
+    assert profile.search_query == "배추 소비자물가"
+
+
+def test_detects_death_count_as_a_supported_population_indicator():
+    profile = build_claim_profile("지난해 사망자 수는 전년보다 증가했다.")
+
+    assert profile.topic == "인구"
+    assert profile.indicator == "사망자 수"
+    assert profile.search_query == "사망자 수"
+
+
+def test_preserves_economically_active_population_as_an_employment_qualifier():
+    profile = build_claim_profile("경제활동인구 가운데 취업자는 전년보다 늘었다.")
+
+    assert profile.topic == "고용"
+    assert profile.indicator == "취업자 수"
+    assert profile.qualifiers == ("경제활동인구",)
+    assert profile.search_query == "경제활동인구 취업자 수"
+
+
+def test_product_price_sentence_normalizes_generic_price_word_to_consumer_price():
+    profile = build_claim_profile("배추(-34.5%), 무(-40.5%) 등은 물가 상승률을 보였다.")
+
+    assert profile.indicator == "소비자물가"
+    assert profile.search_query == "배추 소비자물가"
