@@ -188,3 +188,10 @@ def test_shadow_mode_offers_exact_kosis_coordinate_selection_after_snapshot_prep
     assert "recommend_coordinate_selection" in source
     assert "matching_rows" in source
     assert "정확히 1개의 KOSIS 원본 행" in source
+
+
+def test_coordinate_selection_can_save_snapshot_mapping_and_verdict_in_one_action():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+    assert "확정 좌표로 원본값 판정" in source
+    assert "build_coordinate_verdict" in source
+    assert "KosisValueComparisonStore" in source

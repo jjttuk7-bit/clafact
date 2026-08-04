@@ -49,6 +49,7 @@ from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_snapshot_preparation import prepare_kosis_snapshot_context
 from clafact.kosis_coordinate_selection import extract_coordinate_axes, matching_rows, recommend_coordinate_selection
+from clafact.coordinate_verdict_flow import build_coordinate_verdict
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_registry import build_evidence_registry_rows
 from clafact.kosis_evidence_case_status import build_evidence_case_status
@@ -2676,6 +2677,27 @@ if view == "검증 실험실":
                                     st.session_state["kosis_evidence_unit"] = selected_coordinate.get("단위", st.session_state.get("kosis_evidence_unit", ""))
                                     st.session_state["kosis_coordinate_selected_row"] = dict(coordinate_matches[0])
                                     st.success("선택 좌표를 근거 입력에 적용했습니다. 아래에서 KOSIS 근거를 저장하세요.")
+                                if st.button("확정 좌표로 원본값 판정", type="primary", key=f"kosis_coordinate_verdict_{snapshot_context_for_coordinates['table_id']}"):
+                                    try:
+                                        dimension_selection = {key: value for key, value in selected_coordinate.items() if key not in {"항목", "시점", "단위"}}
+                                        verdict = build_coordinate_verdict(
+                                            shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], claim_sentence=candidate_sentence,
+                                            article_date=str(shadow_run["summary"].get("article_date") or shadow_date),
+                                            org_id=str(snapshot_context_for_coordinates["org_id"]), table_id=str(snapshot_context_for_coordinates["table_id"]),
+                                            title=str(st.session_state.get("kosis_evidence_title", "") or snapshot_context_for_coordinates["table_id"]),
+                                            indicator=selected_coordinate.get("항목", ""), unit=selected_coordinate.get("단위", ""),
+                                            selection=dimension_selection, rows=snapshot_context_for_coordinates["rows"],
+                                            retrieved_at=str(snapshot_context_for_coordinates["retrieved_at"]), query_params=snapshot_context_for_coordinates["query_params"],
+                                        )
+                                        with KosisEvidenceStore(ROOT / "data/research/kosis_evidence.db") as evidence_store, KosisEvidenceSnapshotStore(ROOT / "data/research/kosis_evidence_snapshot.db") as snapshot_store, KosisShadowMappingStore(ROOT / "data/research/kosis_shadow_mapping.db") as mapping_store, KosisValueComparisonStore(ROOT / "data/research/kosis_value_comparison.db") as comparison_store:
+                                            evidence_store.append(verdict.evidence)
+                                            snapshot_store.append(verdict.snapshot)
+                                            mapping_store.append(verdict.mapping)
+                                            comparison_store.append(shadow_run_id=shadow_run_id, row_index=candidate_row["row_index"], evidence_id=verdict.evidence.evidence_id, comparison=verdict.comparison)
+                                        st.session_state["kosis_coordinate_verdict_result"] = verdict.comparison.as_dict()
+                                        st.success(f"원본값 판정 저장 완료 · {verdict.comparison.status} · Claim {verdict.comparison.claim_value} / KOSIS {verdict.comparison.official_value} · 스냅샷 {verdict.snapshot.snapshot_id}")
+                                    except (ValueError, RuntimeError) as error:
+                                        st.error(f"확정 좌표 판정 실패: {error}")
                             elif not coordinate_matches:
                                 st.warning("선택한 조건과 일치하는 원본 행이 없습니다. 좌표를 다시 선택하세요.")
                             else:
