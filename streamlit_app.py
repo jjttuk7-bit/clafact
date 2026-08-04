@@ -48,6 +48,7 @@ from clafact.kosis_evidence_autofill import autofill_readiness_error, parse_kosi
 from clafact.kosis_evidence_input import build_candidate_evidence_prefill, build_manual_evidence
 from clafact.kosis_evidence_snapshot import build_evidence_snapshot
 from clafact.kosis_snapshot_preparation import prepare_kosis_snapshot_context
+from clafact.kosis_coordinate_selection import extract_coordinate_axes, matching_rows, recommend_coordinate_selection
 from clafact.kosis_evidence_snapshot_store import KosisEvidenceSnapshotStore
 from clafact.kosis_evidence_registry import build_evidence_registry_rows
 from clafact.kosis_evidence_case_status import build_evidence_case_status
@@ -2629,6 +2630,57 @@ if view == "검증 실험실":
                         except (RuntimeError, ValueError) as error:
                             st.session_state.pop("kosis_evidence_snapshot_context", None)
                             st.error(kosis_retry_message(error))
+                    snapshot_context_for_coordinates = st.session_state.get("kosis_evidence_snapshot_context")
+                    if snapshot_context_for_coordinates:
+                        st.markdown("###### 2. 정확한 분류 좌표 선택")
+                        coordinate_rows = snapshot_context_for_coordinates.get("rows", [])
+                        coordinate_axes = extract_coordinate_axes(coordinate_rows)
+                        if not coordinate_axes:
+                            st.warning("조회한 KOSIS 원본 행에서 선택할 분류 좌표를 찾지 못했습니다.")
+                        else:
+                            coordinate_subject = getattr(confirmed_claim_card, "subject", "") if "confirmed_claim_card" in locals() else ""
+                            coordinate_period = getattr(confirmed_claim_card, "period", "") if "confirmed_claim_card" in locals() else ""
+                            coordinate_unit = getattr(confirmed_claim_card, "unit", "") if "confirmed_claim_card" in locals() else ""
+                            coordinate_comparison = getattr(confirmed_profile, "comparison", "") if "confirmed_profile" else ""
+                            recommended_coordinate = recommend_coordinate_selection(
+                                coordinate_axes,
+                                subject=coordinate_subject,
+                                period=coordinate_period,
+                                unit=coordinate_unit,
+                                comparison=coordinate_comparison,
+                            )
+                            st.caption("조회한 KOSIS 원본 행에 실제로 존재하는 값만 선택합니다. 추천값은 자동 확정이 아니므로 확인 후 저장하세요.")
+                            selected_coordinate = {}
+                            coordinate_columns = st.columns(2)
+                            for position, (axis_label, axis_values) in enumerate(coordinate_axes.items()):
+                                options = list(axis_values)
+                                recommended_value = recommended_coordinate.get(axis_label)
+                                default_index = options.index(recommended_value) if recommended_value in options else 0
+                                selected_coordinate[axis_label] = coordinate_columns[position % 2].selectbox(
+                                    f"{axis_label} 좌표", options, index=default_index,
+                                    key=f"kosis_coordinate_{snapshot_context_for_coordinates['table_id']}_{axis_label}",
+                                )
+                            coordinate_matches = matching_rows(coordinate_rows, selected_coordinate)
+                            st.caption(f"현재 선택 조건과 일치하는 KOSIS 원본 행: {len(coordinate_matches)}건")
+                            if len(coordinate_matches) == 1:
+                                selected_value = str(coordinate_matches[0].get("DT", "")).strip()
+                                st.success(f"정확히 1개의 KOSIS 원본 행이 선택되었습니다 · 원본값 {selected_value or '-'}")
+                                if st.button("선택 좌표를 근거 입력에 적용", key=f"kosis_coordinate_apply_{snapshot_context_for_coordinates['table_id']}"):
+                                    dimension_selection = {
+                                        key: value for key, value in selected_coordinate.items()
+                                        if key not in {"항목", "시점", "단위"}
+                                    }
+                                    selection_text = ";".join(f"{key}={value}" for key, value in dimension_selection.items())
+                                    st.session_state["kosis_evidence_selection"] = selection_text
+                                    st.session_state["kosis_evidence_indicator"] = selected_coordinate.get("항목", st.session_state.get("kosis_evidence_indicator", ""))
+                                    st.session_state["kosis_evidence_unit"] = selected_coordinate.get("단위", st.session_state.get("kosis_evidence_unit", ""))
+                                    st.session_state["kosis_coordinate_selected_row"] = dict(coordinate_matches[0])
+                                    st.success("선택 좌표를 근거 입력에 적용했습니다. 아래에서 KOSIS 근거를 저장하세요.")
+                            elif not coordinate_matches:
+                                st.warning("선택한 조건과 일치하는 원본 행이 없습니다. 좌표를 다시 선택하세요.")
+                            else:
+                                st.warning("정확히 1개의 KOSIS 원본 행을 선택하려면 추가 분류축을 조정하세요.")
+
                     definition_source_url = st.session_state.get("kosis_evidence_url", "")
                     if not definition_source_url:
                         st.caption("통계 정의 후보는 원본 URL을 입력하면 가져올 수 있습니다.")

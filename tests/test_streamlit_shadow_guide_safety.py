@@ -178,3 +178,13 @@ def test_shadow_mode_renders_a_five_stage_semantic_progress_board():
     assert "semantic-stage--current" in source
     assert "성장형 Semantic Catalog" in source
     assert "골든셋 E2E 전체 현황" in source
+
+
+def test_shadow_mode_offers_exact_kosis_coordinate_selection_after_snapshot_preparation():
+    source = (Path(__file__).resolve().parents[1] / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "2. 정확한 분류 좌표 선택" in source
+    assert "extract_coordinate_axes" in source
+    assert "recommend_coordinate_selection" in source
+    assert "matching_rows" in source
+    assert "정확히 1개의 KOSIS 원본 행" in source
