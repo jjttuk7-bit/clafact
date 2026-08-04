@@ -22,7 +22,9 @@ SEED = REPO / "data/goldenset/source_routing_seed.jsonl"
     ("지난해 실업률은 7.2%였다.", sc.KOSIS_DOMESTIC),
     ("서울 1인 가구가 150만을 넘어섰다.", sc.KOSIS_BUT_COMPLEX),   # 임계형 → complex
     ("소비자물가가 3.1% 올랐다.", sc.KOSIS_BUT_COMPLEX),           # 물가 도메인 → complex
-    ("수출이 전년보다 8% 증가했다.", sc.OTHER_OFFICIAL),
+    # 재분류(2026-08-04): 무역통계도 KOSIS(관세청 산하 DT_134001_002 등)로 실제 조회된다 —
+    # routing_v01.json "_reclassification_note" 참조.
+    ("수출이 전년보다 8% 증가했다.", sc.KOSIS_BUT_COMPLEX),
     ("코스피가 3000선을 넘었다.", sc.PRIVATE_SOURCE),
     ("영업이익이 2조원을 기록했다.", sc.PRIVATE_SOURCE),
     ("유튜브 조회수가 1억회를 돌파했다.", sc.PLATFORM_SOURCE),
@@ -67,6 +69,30 @@ def test_domestic_claim_still_passes():
     """국내 주장은 그대로 KOSIS 경로 — 해외 가드가 과잉 차단하지 않는지."""
     label = sc.classify("지난달 소비자물가가 전년 동월 대비 2.2% 올랐다.")
     assert label.source_type.startswith("KOSIS")
+
+
+def test_domestic_overseas_activity_is_not_overseas_source():
+    """실측 발견(2026-08-04): '해외건설'처럼 한국 정부가 집계하는 국내 통계가
+    '해외' 마커에 걸려 OVERSEAS_SOURCE로 잘못 빠졌다."""
+    label = sc.classify("국토교통부는 해외 건설 누적 수주액이 1조달러를 돌파했다고 밝혔다.")
+    assert label.source_type == sc.KOSIS_BUT_COMPLEX
+    assert label.domain == "construction"
+
+
+def test_specific_kosis_compound_beats_generic_private_keyword():
+    """실측 발견(2026-08-04): private_source의 짧은 일반어('수주')가 KOSIS 쪽의
+    훨씬 구체적인 복합어('해외건설')와 충돌하면, 더 구체적인 쪽이 이겨야 한다
+    — 개별 기업 실적과 정부 집계가 같은 낱말을 쓰는 게 흔하기 때문이다."""
+    label = sc.classify("올해 해외건설 수주액은 역대 최대를 기록했다.")
+    assert label.source_type.startswith("KOSIS")
+    assert label.domain == "construction"
+
+
+def test_precision_first_ordering_survives_specificity_change():
+    """길이 기반 우선순위를 넣은 뒤에도, 길이가 같으면 기존 KOSIS_precision
+    우선 규칙(비-KOSIS 우승)이 그대로 유지돼야 한다."""
+    label = sc.classify("고용 지표 발표에 주가가 3% 올랐다.")
+    assert label.source_type == sc.PRIVATE_SOURCE
 
 
 def test_official_announcement_is_not_sent_to_kosis():
@@ -141,3 +167,27 @@ def test_kosis_queries_adds_a_compact_population_hint():
 
 def test_kosis_queries_adds_a_compact_labor_hint():
     assert sc.kosis_queries("3분기 청년 실업률은 5.1%다.") == ["실업률", "경제활동인구"]
+
+
+
+@pytest.mark.parametrize("sentence", [
+    "해외 소비자물가가 3% 상승했다.",
+    "해외 경제성장률이 둔화됐다.",
+    "해외 실업률이 상승했다.",
+])
+def test_generic_overseas_indicators_do_not_enter_kosis(sentence):
+    label = sc.classify(sentence)
+    assert label.source_type == sc.OVERSEAS_SOURCE
+    assert label.route == "OUT_OF_SCOPE"
+    assert sc.kosis_query(sentence) == ""
+
+
+@pytest.mark.parametrize("sentence", [
+    "해외건설 수주액이 증가했다.",
+    "해외직접투자가 늘었다.",
+    "해외여행객 수가 증가했다.",
+])
+def test_domestic_overseas_activities_keep_kosis_review_route(sentence):
+    label = sc.classify(sentence)
+    assert label.source_type == sc.KOSIS_BUT_COMPLEX
+    assert label.route == "KOSIS_RETRIEVAL"

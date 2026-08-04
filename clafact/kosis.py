@@ -29,15 +29,21 @@ STATISTICS_LIST_URL = "https://kosis.kr/openapi/statisticsList.do"
 def parse_json_tolerant(text: str):
     """KOSIS 응답 파싱. 표준 JSON 우선.
 
-    ⚠️ 2026-07-15 통합검색 응답을 브라우저 innerText 로 봤을 때 키에 따옴표가 없는
-       형태로 관찰됐다(원인 미확정 — innerText 렌더링 문제일 수도). 방어적으로,
-       표준 파싱 실패 시 '키만 따옴표 없는' 경우에 한해 1회 보정을 시도한다.
-       실 API 클라우드 검증 시 실제 포맷을 확인하고 이 폴백의 요부를 판단할 것.
+    ⚠️ 통합검색 응답은 키에 따옴표가 없는 형태로 온다(JS 객체 리터럴 형태 — KOSIS 쪽
+       사양). 표준 파싱 실패 시 '키만 따옴표 없는' 경우에 한해 보정을 시도한다.
+
+    ⚠️ 실측 발견(2026-08-04): 보정 정규식이 대소문자 섞인 임의 영문 단어까지
+       "키"로 오인해 깨뜨렸다. 예: TBL_NM="주요 인구지표..."의 ITEM03 설명문 안에
+       있는 "(P0: 기준연도 인구, Pt: 비교연도 인구, T: 비교기간)"에서 "Pt:", "T:"가
+       실제 값 문자열 *내부의* 통계 공식 설명(한글 프로즈 속 변수명)인데, 이걸 JSON
+       키로 착각해 따옴표를 씌우면서 문자열이 깨져 검색어 "노년부양비"가 전부 실패
+       했다. KOSIS 필드명은 항상 대문자+숫자+밑줄(TBL_ID, C1_NM_ENG 등)이므로,
+       소문자가 섞인 토큰(Pt처럼)은 키가 될 수 없다는 제약으로 오탐을 막는다.
     """
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        fixed = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)', r'\1"\2"\3', text)
+        fixed = re.sub(r'([{,]\s*)([A-Z_][A-Z0-9_]{1,})(\s*:)', r'\1"\2"\3', text)
         return json.loads(fixed)   # 여기서도 실패하면 그대로 예외 (진짜 깨진 응답)
 
 # 인증키 자리표시자 — 재현 URL 에는 절대 실 키를 넣지 않는다.
@@ -286,6 +292,12 @@ class HttpKosisClient:
             if error.code == "30":  # 검색 결과 없음은 평가·UI에서 정상적인 빈 후보
                 return []
             raise
+        except json.JSONDecodeError:
+            # 실측 발견(2026-08-04): parse_json_tolerant 보정 뒤에도 못 고치는 진짜
+            # 깨진 응답이 특정 검색어에서 나온다. 호출 자체는 성공(예산은 이미 차감)
+            # 했으므로, 검색 실패는 곧 판단불가라는 원칙(retrieve.py 상단 docstring)
+            # 그대로 빈 후보로 회피한다 — 이 검색어 하나 때문에 배치 전체가 죽으면 안 된다.
+            return []
         return data if isinstance(data, list) else []
 
     def fetch_statistics_list(self, view_code: str, parent_id: str) -> list[dict]:

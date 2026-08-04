@@ -96,17 +96,38 @@ def claim_type(sentence: str, cfg: dict | None = None) -> str:
     return "규모형"
 
 
+def _compact(text: str) -> str:
+    """공백 제거 — '해외 건설'과 키워드 '해외건설'을 같은 것으로 본다.
+
+    실측 발견(2026-08-04): 붙여쓰기 키워드가 자연스러운 띄어쓰기 문장과
+    안 맞아 매칭 자체가 안 되는 사례가 반복됐다('해외 건설 누적 수주액').
+    """
+    return "".join(text.split())
+
+
 def _match_domain(sentence: str, group: dict) -> tuple[str, str] | None:
     """(도메인, 매칭된 키워드) — 키워드는 KOSIS 검색 질의로 재사용된다.
 
     가장 긴 키워드 우선: '소비자물가'가 '물가가'보다 구체적이므로 먼저 잡는다.
+    공백은 무시하고 비교한다(_compact) — 매칭 여부만 그렇고, 반환하는 키워드
+    문자열 자체는 사전에 적힌 원형 그대로다(검색어로 그대로 쓰이므로).
     """
+    compact_sentence = _compact(sentence)
     best = None
     for dom, kws in group.items():
         for kw in kws:
-            if kw in sentence and (best is None or len(kw) > len(best[1])):
+            if _compact(kw) in compact_sentence and (best is None or len(kw) > len(best[1])):
                 best = (dom, kw)
     return best
+
+
+def _is_domestic_overseas_activity(sentence: str, cfg: dict) -> bool:
+    """한국 정부가 집계하는 해외 활동인지 설정된 예외어로 판별한다."""
+    compact_sentence = _compact(sentence)
+    return any(
+        _compact(keyword) in compact_sentence
+        for keyword in cfg.get("domestic_overseas_activity_keywords", [])
+    )
 
 
 def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
@@ -127,6 +148,13 @@ def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
             return SourceLabel(OVERSEAS_SOURCE, "-", ct, ROUTE[OVERSEAS_SOURCE], 0.8,
                                f"해외 주체({mk}) 주장 — KOSIS 국내통계 범위 밖", "")
 
+    # '해외'만으로는 해외건설·해외직접투자처럼 한국 정부가 집계하는 국내 통계를
+    # 차단하면 안 된다. 다만 예외어가 없는 일반 해외 물가·성장률·실업률은 국내
+    # KOSIS 값과 대조할 수 없으므로 명시적으로 범위 밖으로 보낸다.
+    if "해외" in sentence and not _is_domestic_overseas_activity(sentence, cfg):
+        return SourceLabel(OVERSEAS_SOURCE, "-", ct, ROUTE[OVERSEAS_SOURCE], 0.8,
+                           "일반 해외 지표 주장 — KOSIS 국내통계 범위 밖", "")
+
     # 공식 조사·행사 일정은 KOSIS 수치표 비교 대상이 아니다.
     # 반드시 도메인 매칭보다 먼저 분기해 무관한 수치표 검색을 막는다.
     if _OFFICIAL_SURVEY_PATTERN.search(sentence) and _OFFICIAL_SCHEDULE_PATTERN.search(sentence):
@@ -135,18 +163,28 @@ def classify(sentence: str, cfg: dict | None = None) -> SourceLabel:
             "공식 조사·시행 일정 — KOSIS 표 해당 없음 · 공식 공지 검증 필요", ""
         )
 
-    # 비-KOSIS 우승 순서 (KOSIS_precision 보호): platform > private > other > kosis
-    if (m := _match_domain(sentence, cfg["platform_source"])):
-        return SourceLabel(PLATFORM_SOURCE, m[0], ct, ROUTE[PLATFORM_SOURCE],
-                           0.7, "플랫폼 수치(조회수·시청률 등) — KOSIS 범위 밖", m[1])
-    if (m := _match_domain(sentence, cfg["private_source"])):
-        return SourceLabel(PRIVATE_SOURCE, m[0], ct, ROUTE[PRIVATE_SOURCE],
-                           0.7, "기업·시장 자료 — KOSIS 범위 밖", m[1])
-    if (m := _match_domain(sentence, cfg["other_official"])):
-        return SourceLabel(OTHER_OFFICIAL, m[0], ct, ROUTE[OTHER_OFFICIAL],
-                           0.7, "비-KOSIS 공식자료(한국은행·부동산원·관세청 등) 가능성", m[1])
-    if (m := _match_domain(sentence, cfg["kosis_domestic"])):
-        d, kw = m
+    # 비-KOSIS 우승 순서 (KOSIS_precision 보호): platform > private > other > kosis.
+    # 다만 실측 발견(2026-08-04): '수주'(private_source, 2글자)가 '해외 건설
+    # 누적 수주액'(공식 집계) 같은 국가 단위 통계까지 삼켜버렸다 — 개별 기업
+    # 실적과 정부 집계가 같은 낱말을 쓰는 건 흔하다. 짧은 일반어가 KOSIS 쪽의
+    # 훨씬 구체적인 복합어(예: '해외건설')와 충돌하면, 구체성(길이)이 우선한다
+    # — '가장 긴 키워드 우선'(_match_domain) 원칙을 그룹 간에도 그대로 적용한 것.
+    platform_m = _match_domain(sentence, cfg["platform_source"])
+    private_m = _match_domain(sentence, cfg["private_source"])
+    other_m = _match_domain(sentence, cfg["other_official"])
+    kosis_m = _match_domain(sentence, cfg["kosis_domestic"])
+
+    non_kosis = [
+        (PLATFORM_SOURCE, platform_m, "플랫폼 수치(조회수·시청률 등) — KOSIS 범위 밖", 0.7),
+        (PRIVATE_SOURCE, private_m, "기업·시장 자료 — KOSIS 범위 밖", 0.7),
+        (OTHER_OFFICIAL, other_m, "비-KOSIS 공식자료(한국은행·부동산원·관세청 등) 가능성", 0.7),
+    ]
+    for source_type, m, reason, conf in non_kosis:
+        if m and not (kosis_m and len(kosis_m[1]) > len(m[1])):
+            return SourceLabel(source_type, m[0], ct, ROUTE[source_type], conf, reason, m[1])
+
+    if kosis_m:
+        d, kw = kosis_m
         complex_ = d in cfg["complex_domains"] or ct in _complex_claim_labels(cfg)
         if complex_:
             return SourceLabel(KOSIS_BUT_COMPLEX, d, ct, ROUTE[KOSIS_BUT_COMPLEX],
@@ -168,6 +206,8 @@ def _complex_claim_labels(cfg: dict) -> set[str]:
 _QUERY_HINTS = {
     "employment_labor": "경제활동인구",
     "population_household": "인구동향",
+    "industry_production": "산업활동동향",
+    "construction": "건설수주통계",
 }
 
 
