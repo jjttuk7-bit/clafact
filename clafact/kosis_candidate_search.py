@@ -136,6 +136,24 @@ def evaluate_kosis_candidate(
             penalties.append(f"{profile.comparison} 표현 없음")
 
     candidate_text = _compact(" ".join((hit.tbl_name, hit.survey, *item_names)))
+    if profile.topic == "물가" and profile.qualifiers:
+        max_score += 50
+        if "품목별" in hit.tbl_name and "소비자물가" in hit.tbl_name:
+            score += 50
+            reasons.append("품목별 분류축 일치")
+            score_breakdown.append("+50 품목별 분류축 일치")
+        else:
+            penalties.append("품목별 분류축 표현 없음")
+
+    for qualifier in profile.qualifiers:
+        max_score += 15
+        if _compact(qualifier) in candidate_text:
+            score += 15
+            reasons.append(f"세부 조건 {qualifier} 일치")
+            score_breakdown.append(f"+15 세부 조건 {qualifier} 일치")
+        else:
+            penalties.append(f"세부 조건 {qualifier} 표현 없음")
+
     for axis_name, value in (("지역", profile.region), ("모집단", profile.population)):
         if not value:
             continue
@@ -194,7 +212,11 @@ def suggest_kosis_candidates(
     profile = profile or build_claim_profile(sentence, previous=previous_profile)
     if not profile.search_query:
         return []
-    hits = search_index.search(profile.search_query, top_k=10)
+    search_terms = getattr(search_index, "search_terms", None)
+    if profile.qualifiers and callable(search_terms):
+        hits = search_terms(profile.search_terms or (profile.search_query,), top_k=100)
+    else:
+        hits = search_index.search(profile.search_query, top_k=10)
     candidates = []
     for hit_index, hit in enumerate(hits):
         item_names: tuple[str, ...] = ()

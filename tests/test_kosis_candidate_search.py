@@ -149,3 +149,98 @@ def test_search_uses_explicit_confirmed_profile_instead_of_reextracting_sentence
 
     assert index.last_query == "실업률"
     assert candidates[0].hit.tbl_id == "DT_RATE"
+
+def test_price_product_qualifier_ranks_specific_table_above_generic_price_table():
+    sentence = "10월 배추 가격은 전년동월 대비 34.5% 하락했다."
+    cabbage = evaluate_kosis_candidate(
+        sentence,
+        TableHit("CABBAGE", "101", "월별 소비자물가 등락률(배추)", "소비자물가조사", 1.0),
+    )
+    generic = evaluate_kosis_candidate(
+        sentence,
+        TableHit("GENERIC", "101", "월별 소비자물가 등락률", "소비자물가조사", 1.0),
+    )
+
+    assert cabbage.score > generic.score
+    assert "+15 세부 조건 배추 일치" in cabbage.score_breakdown
+
+
+def test_search_uses_price_product_qualifier_in_kosis_query():
+    class FakeIndex:
+        last_query = ""
+
+        def search(self, query: str, top_k: int):
+            self.last_query = query
+            return [TableHit("CABBAGE", "101", "월별 소비자물가 등락률(배추)", "소비자물가조사", 1.0)]
+
+    index = FakeIndex()
+    suggest_kosis_candidates("10월 배추 가격은 전년동월 대비 34.5% 하락했다.", index)
+
+    assert index.last_query == "배추 소비자물가"
+
+
+def test_search_passes_qualifier_and_indicator_as_distinct_short_kosis_terms_when_supported():
+    class QualifierAwareIndex:
+        seen_terms = ()
+
+        def search_terms(self, terms, top_k: int):
+            self.seen_terms = terms
+            return [TableHit("CABBAGE", "101", "월별 소비자물가 등락률(배추)", "소비자물가조사", 1.0)]
+
+        def search(self, query: str, top_k: int):
+            raise AssertionError("qualifier-aware index must receive distinct short terms")
+
+    index = QualifierAwareIndex()
+    suggest_kosis_candidates("10월 배추 가격은 전년동월 대비 34.5% 하락했다.", index)
+
+    assert index.seen_terms == ("배추", "소비자물가")
+
+
+def test_search_keeps_existing_index_path_for_a_standard_unqualified_indicator():
+    class Index:
+        standard_called = False
+
+        def search(self, query: str, top_k: int):
+            self.standard_called = True
+            assert query == "취업자 수"
+            return [TableHit("DT_EMPLOYMENT", "101", "취업자", "경제활동인구조사", 1.0)]
+
+        def search_terms(self, terms, top_k: int):
+            raise AssertionError("unqualified standard indicator must retain the existing search path")
+
+    index = Index()
+    suggest_kosis_candidates("지난달 취업자는 전년 동월 대비 증가했다.", index)
+
+    assert index.standard_called is True
+
+
+def test_price_product_claim_prefers_product_dimension_table_over_generic_rate_table():
+    sentence = "10월 배추 가격은 전년동월 대비 34.5% 하락했다."
+    product_dimension = evaluate_kosis_candidate(
+        sentence,
+        TableHit("PRODUCT", "101", "품목별 소비자물가지수(품목성질별)", "소비자물가조사", 1.0),
+    )
+    generic_rate = evaluate_kosis_candidate(
+        sentence,
+        TableHit("RATE", "101", "월별 소비자물가 등락률", "소비자물가조사", 1.0),
+    )
+
+    assert product_dimension.score > generic_rate.score
+    assert "+50 품목별 분류축 일치" in product_dimension.score_breakdown
+
+
+def test_qualifier_aware_search_expands_candidate_depth_for_product_claim():
+    class Index:
+        seen_top_k = 0
+
+        def search_terms(self, terms, top_k: int):
+            self.seen_top_k = top_k
+            return [TableHit("PRODUCT", "101", "품목별 소비자물가지수", "소비자물가조사", 1.0)]
+
+        def search(self, query: str, top_k: int):
+            raise AssertionError("product qualifier must use the qualifier-aware search path")
+
+    index = Index()
+    suggest_kosis_candidates("10월 배추 가격은 전년동월 대비 34.5% 하락했다.", index)
+
+    assert index.seen_top_k == 100

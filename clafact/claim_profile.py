@@ -12,6 +12,9 @@ _INDICATOR_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("고용", "실업률", ("실업률",)),
     ("고용", "취업자 수", ("취업자 수", "취업자")),
     ("인구", "출생아 수", ("출생아 수", "출생아")),
+    ("인구", "사망자 수", ("사망자 수", "사망자")),
+    ("인구", "혼인 건수", ("혼인 건수", "혼인")),
+    ("인구", "이혼 건수", ("이혼 건수", "이혼")),
     ("인구", "주민등록인구", ("주민등록인구",)),
     ("인구", "인구", ("인구",)),
     ("무역", "수출액", ("수출액", "수출")),
@@ -29,6 +32,16 @@ _REGION_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("경북", ("경상북도", "경북")), ("경남", ("경상남도", "경남")),
     ("제주", ("제주특별자치도", "제주도", "제주")), ("전국", ("전국",)),
 )
+_PRICE_PRODUCT_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("배추", ("배추",)), ("무", ("무",)), ("쌀", ("쌀",)),
+    ("사과", ("사과",)), ("달걀", ("달걀", "계란")), ("커피", ("커피",)),
+)
+_EMPLOYMENT_QUALIFIER_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("경제활동인구", ("경제활동인구",)),
+    ("산업별", ("산업별", "산업")),
+)
+
+
 _POPULATION_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("청년층", ("청년층", "청년")), ("여성", ("여성", "여자")),
     ("남성", ("남성", "남자")), ("고령층", ("고령층", "고령자", "노인")),
@@ -48,6 +61,8 @@ class ClaimProfile:
     region: str = ""
     population: str = ""
     search_query: str = ""
+    search_terms: tuple[str, ...] = ()
+    qualifiers: tuple[str, ...] = ()
     context_inherited: bool = False
 
 
@@ -99,9 +114,28 @@ def _detect_alias(sentence: str, aliases: tuple[tuple[str, tuple[str, ...]], ...
     return ""
 
 
+def _detect_qualifiers(sentence: str) -> tuple[str, ...]:
+    """Return explicit terms that narrow a KOSIS table search without asserting truth."""
+    qualifiers = []
+    price_product = _detect_alias(sentence, _PRICE_PRODUCT_ALIASES)
+    employment_qualifier = _detect_alias(sentence, _EMPLOYMENT_QUALIFIER_ALIASES)
+    for value in (price_product, employment_qualifier):
+        if value and value not in qualifiers:
+            qualifiers.append(value)
+    return tuple(qualifiers)
+
+
+def _build_search_query(indicator: str, qualifiers: tuple[str, ...]) -> str:
+    return " ".join((*qualifiers, indicator)).strip()
+
+
 def build_claim_profile(sentence: str, *, previous: ClaimProfile | None = None) -> ClaimProfile:
     """Extract a supported numeric-claim profile without asserting factual truth."""
     topic, indicator = _detect_topic_indicator(sentence)
+    qualifiers = _detect_qualifiers(sentence)
+    is_price_product = any(product in qualifiers for product, _ in _PRICE_PRODUCT_ALIASES)
+    if is_price_product and (not indicator or indicator == "물가") and ("가격" in sentence or "물가" in sentence):
+        topic, indicator = "물가", "소비자물가"
     region = _detect_alias(sentence, _REGION_ALIASES)
     population = _detect_alias(sentence, _POPULATION_ALIASES)
     inherited = False
@@ -117,7 +151,9 @@ def build_claim_profile(sentence: str, *, previous: ClaimProfile | None = None) 
         unit=_detect_unit(sentence),
         region=region,
         population=population,
-        search_query=indicator,
+        search_query=_build_search_query(indicator, qualifiers),
+        search_terms=(*qualifiers, indicator) if indicator else qualifiers,
+        qualifiers=qualifiers,
         context_inherited=inherited,
     )
 

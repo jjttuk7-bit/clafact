@@ -294,3 +294,41 @@ def test_http_client_rejects_nonpositive_connection_attempt_limit():
             assert "max_connection_attempts" in str(error)
         else:
             raise AssertionError("nonpositive connection attempt limits must be rejected")
+
+
+def test_search_index_search_terms_preserves_each_explicit_short_term():
+    from clafact.pipeline.retrieve_kosis import KosisSearchIndex
+
+    class Client:
+        def __init__(self):
+            self.queries = []
+
+        def integrated_search(self, *, searchNm, sort, resultCount):
+            self.queries.append(searchNm)
+            return [{"TBL_ID": f"DT_{searchNm}", "ORG_ID": "101", "TBL_NM": searchNm, "STAT_NM": "조사"}]
+
+    client = Client()
+    index = KosisSearchIndex(client)
+    hits = index.search_terms(("배추", "소비자물가"), top_k=10)
+
+    assert client.queries == ["배추", "소비자물가"]
+    assert index.last_query == "배추 | 소비자물가"
+    assert [hit.tbl_id for hit in hits] == ["DT_배추", "DT_소비자물가"]
+
+
+def test_search_terms_preserves_first_explicit_term_candidates_before_generic_reranking():
+    from clafact.pipeline.retrieve_kosis import KosisSearchIndex
+
+    class Client:
+        def integrated_search(self, *, searchNm, sort, resultCount):
+            if searchNm == "배추":
+                return [{"TBL_ID": "DT_GOLD", "ORG_ID": "101", "TBL_NM": "품목별 소비자물가지수", "STAT_NM": ""}]
+            return [
+                {"TBL_ID": f"DT_GENERIC_{i}", "ORG_ID": "101", "TBL_NM": "소비자물가", "STAT_NM": "", "VW_CD": "MT_ZTITLE"}
+                for i in range(100)
+            ]
+
+    hits = KosisSearchIndex(Client()).search_terms(("배추", "소비자물가"), top_k=100)
+
+    assert hits[0].tbl_id == "DT_GOLD"
+    assert "DT_GOLD" in [hit.tbl_id for hit in hits]
